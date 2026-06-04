@@ -19,9 +19,12 @@
     * {
       box-sizing: border-box;
       -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
       user-select: none;
     }
 
+    html,
     body {
       margin: 0;
       min-height: 100vh;
@@ -29,6 +32,8 @@
       background: #fff;
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -180,6 +185,8 @@
     let recordingStartedAt = 0;
     let stopTimer = null;
     let busy = false;
+    let playbackContext = null;
+    let audioUnlocked = false;
 
     function setStatus(text, isError = false) {
       statusEl.textContent = text;
@@ -225,6 +232,32 @@
         binary += String.fromCharCode.apply(null, chunk);
       }
       return btoa(binary);
+    }
+
+    function getAudioContext() {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) {
+        throw new Error("当前 Safari 不支持 AudioContext 播放音频");
+      }
+      if (!playbackContext) {
+        playbackContext = new AudioContextClass({ sampleRate: TARGET_SAMPLE_RATE });
+      }
+      return playbackContext;
+    }
+
+    async function unlockAudioPlayback() {
+      if (audioUnlocked) return;
+      const context = getAudioContext();
+      if (context.state === "suspended") {
+        await context.resume();
+      }
+
+      const buffer = context.createBuffer(1, 1, TARGET_SAMPLE_RATE);
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(context.destination);
+      source.start(0);
+      audioUnlocked = true;
     }
 
     function base64ToUint8(base64) {
@@ -321,12 +354,68 @@
     async function playPcm16Base64(base64) {
       if (!base64) return;
       const pcmBytes = base64ToUint8(base64);
-      const wavBytes = pcm16ToWavBytes(pcmBytes);
-      const blob = new Blob([wavBytes], { type: "audio/wav" });
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.onended = () => URL.revokeObjectURL(url);
-      await audio.play();
+      const context = getAudioContext();
+      if (context.state === "suspended") {
+        await context.resume();
+      }
+
+      const sampleCount = Math.floor(pcmBytes.length / 2);
+      const audioBuffer = context.createBuffer(1, sampleCount, TARGET_SAMPLE_RATE);
+      const channel = audioBuffer.getChannelData(0);
+      const view = new DataView(pcmBytes.buffer, pcmBytes.byteOffset, pcmBytes.byteLength);
+
+      for (let i = 0; i < sampleCount; i += 1) {
+        const sample = view.getInt16(i * 2, true);
+        channel[i] = sample < 0 ? sample / 0x8000 : sample / 0x7fff;
+      }
+
+      await new Promise((resolve, reject) => {
+        const source = context.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(context.destination);
+        source.onended = resolve;
+        try {
+          source.start(0);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    }
+
+    function englishOnly(text) {
+      const raw = String(text || "").replace(/\r/g, "\n").trim();
+      if (!raw) return "(No English translation returned)";
+
+      const cleaned = raw
+        .replace(/^(translated text|translation|english|英文翻译|翻译结果)\s*[:：]\s*/i, "")
+        .trim();
+
+      const lines = cleaned
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      const englishLines = lines.filter((line) => {
+        const withoutLabels = line.replace(/^(原文|中文|source|chinese)\s*[:：]\s*/i, "");
+        const hasCjk = /[\u3400-\u9fff]/.test(withoutLabels);
+        const hasLatin = /[A-Za-z]/.test(withoutLabels);
+        return hasLatin && !hasCjk;
+      });
+
+      if (englishLines.length > 0) {
+        return englishLines
+          .map((line) => line.replace(/^(translation|english)\s*[:：]\s*/i, "").trim())
+          .join("\n");
+      }
+
+      const cjkRemoved = cleaned
+        .split(/[。！？\n]/)
+        .map((part) => part.trim())
+        .filter((part) => /[A-Za-z]/.test(part) && !/[\u3400-\u9fff]/.test(part))
+        .join(" ")
+        .trim();
+
+      return cjkRemoved || cleaned;
     }
 
     async function startRecording(event) {
@@ -339,6 +428,7 @@
       }
 
       try {
+        await unlockAudioPlayback();
         busy = false;
         chunks = [];
         translationBox.textContent = "正在听你说话...";
@@ -426,7 +516,7 @@
           throw new Error(result.error || `请求失败：${response.status}`);
         }
 
-        const translatedText = result.translatedText || "(没有返回文字)";
+        const translatedText = englishOnly(result.translatedText);
         translationBox.textContent = translatedText;
         setStatus("翻译完成，正在播放英文语音");
 
