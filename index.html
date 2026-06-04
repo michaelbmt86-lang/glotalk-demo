@@ -170,20 +170,22 @@
   <script>
     const EDGE_FUNCTION_URL = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/translate-realtime";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
+    const TARGET_LANGUAGE = "en";
+    const TARGET_SAMPLE_RATE = 24000;
     const MAX_RECORDING_MS = 12000;
 
     const micButton = document.getElementById("micButton");
     const statusEl = document.getElementById("status");
     const translationBox = document.getElementById("translationBox");
 
-    let peerConnection = null;
-    let dataChannel = null;
+    let mediaRecorder = null;
     let mediaStream = null;
-    let remoteAudio = null;
+    let chunks = [];
     let recordingStartedAt = 0;
     let stopTimer = null;
     let busy = false;
-    let liveTranscript = "";
+    let playbackContext = null;
+    let audioUnlocked = false;
 
     function setStatus(text, isError = false) {
       statusEl.textContent = text;
@@ -206,79 +208,158 @@
       return raw.replace(/[\u3400-\u9fff]+/g, "").trim() || raw;
     }
 
-    function updateTranscript(text) {
-      const cleaned = englishOnly(text);
-      if (!cleaned) return;
-      translationBox.textContent = cleaned;
+    function chooseMimeType() {
+      const candidates = [
+        "audio/mp4",
+        "audio/aac",
+        "audio/webm;codecs=opus",
+        "audio/webm",
+      ];
+      for (const type of candidates) {
+        if (window.MediaRecorder && MediaRecorder.isTypeSupported(type)) {
+          return type;
+        }
+      }
+      return "";
     }
 
-    function handleRealtimeEvent(event) {
-      if (!event || !event.type) return;
-
-      if (event.type === "error") {
-        setStatus(event.error?.message || "Realtime 翻译出错", true);
-        return;
+    function uint8ToBase64(bytes) {
+      let binary = "";
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
       }
-
-      if (
-        event.type === "response.audio_transcript.delta" ||
-        event.type === "response.output_text.delta" ||
-        event.type === "response.text.delta"
-      ) {
-        liveTranscript += event.delta || "";
-        updateTranscript(liveTranscript);
-      }
-
-      if (
-        event.type === "response.audio_transcript.done" ||
-        event.type === "response.output_text.done" ||
-        event.type === "response.text.done"
-      ) {
-        liveTranscript = event.transcript || event.text || liveTranscript;
-        updateTranscript(liveTranscript);
-        setStatus("英文译音正在播放");
-      }
-
-      if (event.type === "response.done") {
-        setStatus("按住开始下一次实时翻译");
-        setTimeout(cleanupSession, 1500);
-      }
+      return btoa(binary);
     }
 
-    async function unlockRemoteAudio() {
-      if (!remoteAudio) {
-        remoteAudio = document.createElement("audio");
-        remoteAudio.autoplay = true;
-        remoteAudio.playsInline = true;
-        remoteAudio.style.display = "none";
-        document.body.appendChild(remoteAudio);
+    function base64ToUint8(base64) {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
       }
+      return bytes;
+    }
+
+    function getAudioContext() {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) {
+        throw new Error("当前 Safari 不支持 AudioContext 播放音频");
+      }
+      if (!playbackContext) {
+        playbackContext = new AudioContextClass({ sampleRate: TARGET_SAMPLE_RATE });
+      }
+      return playbackContext;
+    }
+
+    async function unlockAudioPlayback() {
+      if (audioUnlocked) return;
+      const context = getAudioContext();
+      if (context.state === "suspended") {
+        await context.resume();
+      }
+
+      const buffer = context.createBuffer(1, 1, TARGET_SAMPLE_RATE);
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(context.destination);
+      source.start(0);
+      audioUnlocked = true;
+    }
+
+    function audioBufferToPcm16(audioBuffer, targetSampleRate) {
+      const channels = [];
+      for (let c = 0; c < audioBuffer.numberOfChannels; c += 1) {
+        channels.push(audioBuffer.getChannelData(c));
+      }
+
+      const inputRate = audioBuffer.sampleRate;
+      const inputLength = audioBuffer.length;
+      const outputLength = Math.max(1, Math.round(inputLength * targetSampleRate / inputRate));
+      const output = new Int16Array(outputLength);
+
+      for (let i = 0; i < outputLength; i += 1) {
+        const inputIndex = i * inputRate / targetSampleRate;
+        const low = Math.floor(inputIndex);
+        const high = Math.min(low + 1, inputLength - 1);
+        const weight = inputIndex - low;
+
+        let sample = 0;
+        for (const channel of channels) {
+          sample += channel[low] * (1 - weight) + channel[high] * weight;
+        }
+        sample /= channels.length;
+        sample = Math.max(-1, Math.min(1, sample));
+        output[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      }
+
+      return new Uint8Array(output.buffer);
+    }
+
+    async function blobToPcm16Base64(blob) {
+      const arrayBuffer = await blob.arrayBuffer();
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) {
+        throw new Error("当前 Safari 不支持 AudioContext 解码录音");
+      }
+
+      const audioContext = new AudioContextClass();
       try {
-        await remoteAudio.play();
-      } catch {
-        // iPhone Safari may reject until a remote stream is attached. The
-        // pointerdown gesture still creates the element inside a user action.
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+        const pcmBytes = audioBufferToPcm16(audioBuffer, TARGET_SAMPLE_RATE);
+        return uint8ToBase64(pcmBytes);
+      } finally {
+        if (audioContext.close) {
+          await audioContext.close();
+        }
       }
     }
 
-    async function startRealtimeTranslation(event) {
+    async function playPcm16Base64(base64) {
+      if (!base64) return;
+      const pcmBytes = base64ToUint8(base64);
+      const context = getAudioContext();
+      if (context.state === "suspended") {
+        await context.resume();
+      }
+
+      const sampleCount = Math.floor(pcmBytes.length / 2);
+      const audioBuffer = context.createBuffer(1, sampleCount, TARGET_SAMPLE_RATE);
+      const channel = audioBuffer.getChannelData(0);
+      const view = new DataView(pcmBytes.buffer, pcmBytes.byteOffset, pcmBytes.byteLength);
+
+      for (let i = 0; i < sampleCount; i += 1) {
+        const sample = view.getInt16(i * 2, true);
+        channel[i] = sample < 0 ? sample / 0x8000 : sample / 0x7fff;
+      }
+
+      await new Promise((resolve, reject) => {
+        const source = context.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(context.destination);
+        source.onended = resolve;
+        try {
+          source.start(0);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    }
+
+    async function startRecording(event) {
       event.preventDefault();
-      if (busy) return;
+      if (busy || mediaRecorder?.state === "recording") return;
 
-      if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) {
-        setStatus("当前 Safari 不支持 WebRTC 实时语音", true);
+      if (!window.MediaRecorder) {
+        setStatus("当前浏览器不支持 MediaRecorder，请升级 iOS Safari", true);
         return;
       }
 
-      busy = true;
-      micButton.disabled = true;
-      micButton.classList.add("recording");
-      liveTranscript = "";
-      translationBox.textContent = "正在连接 GPT-Realtime-Translate...";
-      setStatus("正在建立低延迟实时翻译通道");
-
       try {
-        await unlockRemoteAudio();
+        await unlockAudioPlayback();
+        chunks = [];
+        translationBox.textContent = "正在听你说话...";
+        setStatus("正在录音，松开按钮开始翻译");
 
         mediaStream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -288,135 +369,106 @@
           },
         });
 
-        peerConnection = new RTCPeerConnection();
+        const mimeType = chooseMimeType();
+        mediaRecorder = mimeType
+          ? new MediaRecorder(mediaStream, { mimeType })
+          : new MediaRecorder(mediaStream);
 
-        peerConnection.ontrack = async (trackEvent) => {
-          const [stream] = trackEvent.streams;
-          if (remoteAudio && stream) {
-            remoteAudio.srcObject = stream;
-            try {
-              await remoteAudio.play();
-            } catch (error) {
-              setStatus("请再点一次页面以允许播放英文语音", true);
-            }
-          }
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
         };
 
-        for (const track of mediaStream.getTracks()) {
-          peerConnection.addTrack(track, mediaStream);
+        mediaRecorder.start();
+        recordingStartedAt = Date.now();
+        micButton.classList.add("recording");
+
+        clearTimeout(stopTimer);
+        stopTimer = setTimeout(stopRecording, MAX_RECORDING_MS);
+      } catch (error) {
+        cleanupStream();
+        micButton.classList.remove("recording");
+        translationBox.textContent = "按住红色麦克风，说一句中文";
+        setStatus(error.message || String(error), true);
+      }
+    }
+
+    async function stopRecording(event) {
+      if (event) event.preventDefault();
+      clearTimeout(stopTimer);
+      if (!mediaRecorder || mediaRecorder.state !== "recording") return;
+
+      busy = true;
+      micButton.disabled = true;
+      micButton.classList.remove("recording");
+      setStatus("正在处理录音...");
+
+      const stopped = new Promise((resolve) => {
+        mediaRecorder.onstop = resolve;
+      });
+
+      mediaRecorder.stop();
+      await stopped;
+      cleanupStream();
+
+      try {
+        const durationMs = Date.now() - recordingStartedAt;
+        if (durationMs < 350) {
+          throw new Error("录音太短，请按住说完整一句话");
         }
 
-        dataChannel = peerConnection.createDataChannel("oai-events");
-        dataChannel.onopen = () => {
-          setStatus("正在录音，松开后自动输出英文");
-          micButton.disabled = false;
-          recordingStartedAt = Date.now();
-          clearTimeout(stopTimer);
-          stopTimer = setTimeout(stopRealtimeTranslation, MAX_RECORDING_MS);
-        };
-        dataChannel.onmessage = (message) => {
-          try {
-            handleRealtimeEvent(JSON.parse(message.data));
-          } catch {
-            // Ignore non-JSON data channel messages.
-          }
-        };
+        const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/mp4" });
+        setStatus("正在转换音频...");
+        const audioBase64 = await blobToPcm16Base64(blob);
 
-        const offer = await peerConnection.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: false,
-        });
-        await peerConnection.setLocalDescription(offer);
-
+        setStatus("Whisper识别 + GPT翻译 + TTS生成...");
         const response = await fetch(EDGE_FUNCTION_URL, {
           method: "POST",
           headers: {
-            "Content-Type": "application/sdp",
+            "Content-Type": "application/json",
             "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
           },
-          body: offer.sdp,
+          body: JSON.stringify({
+            audioBase64,
+            targetLanguage: TARGET_LANGUAGE,
+            sampleRate: TARGET_SAMPLE_RATE,
+            timeoutMs: 45000,
+          }),
         });
 
-        const answerSdp = await response.text();
+        const result = await response.json();
         if (!response.ok) {
-          let message = answerSdp;
-          try {
-            message = JSON.parse(answerSdp).error || answerSdp;
-          } catch {
-            // Keep raw answer text.
-          }
-          throw new Error(message || `Realtime SDP request failed: ${response.status}`);
+          throw new Error(result.error || `请求失败：${response.status}`);
         }
 
-        await peerConnection.setRemoteDescription({
-          type: "answer",
-          sdp: answerSdp,
-        });
+        const translatedText = englishOnly(result.translatedText);
+        translationBox.textContent = translatedText || "(No English translation returned)";
+        setStatus("翻译完成，正在播放英文语音");
+
+        await playPcm16Base64(result.translatedAudioBase64 || "");
+        setStatus("按住开始下一次录音");
       } catch (error) {
-        cleanupSession();
         setStatus(error.message || String(error), true);
-        translationBox.textContent = "按住红色麦克风，说一句中文";
-      }
-    }
-
-    function stopRealtimeTranslation(event) {
-      if (event) event.preventDefault();
-      clearTimeout(stopTimer);
-
-      if (!busy) return;
-
-      const durationMs = Date.now() - recordingStartedAt;
-      if (durationMs < 350 && recordingStartedAt) {
-        setStatus("录音太短，请按住说完整一句话", true);
-        cleanupSession();
-        return;
-      }
-
-      micButton.classList.remove("recording");
-      micButton.disabled = true;
-      setStatus("正在生成英文翻译...");
-
-      if (mediaStream) {
-        for (const track of mediaStream.getAudioTracks()) {
-          track.enabled = false;
-        }
-      }
-
-      setTimeout(() => {
-        micButton.disabled = false;
+      } finally {
         busy = false;
-      }, 2500);
+        micButton.disabled = false;
+        chunks = [];
+      }
     }
 
-    function cleanupSession() {
-      clearTimeout(stopTimer);
-      micButton.classList.remove("recording");
-      micButton.disabled = false;
-      busy = false;
-
+    function cleanupStream() {
       if (mediaStream) {
         for (const track of mediaStream.getTracks()) {
           track.stop();
         }
       }
       mediaStream = null;
-
-      if (dataChannel) {
-        try { dataChannel.close(); } catch { }
-      }
-      dataChannel = null;
-
-      if (peerConnection) {
-        try { peerConnection.close(); } catch { }
-      }
-      peerConnection = null;
     }
 
-    micButton.addEventListener("pointerdown", startRealtimeTranslation);
-    micButton.addEventListener("pointerup", stopRealtimeTranslation);
-    micButton.addEventListener("pointercancel", stopRealtimeTranslation);
+    micButton.addEventListener("pointerdown", startRecording);
+    micButton.addEventListener("pointerup", stopRecording);
+    micButton.addEventListener("pointercancel", stopRecording);
     micButton.addEventListener("pointerleave", (event) => {
-      if (busy) stopRealtimeTranslation(event);
+      if (mediaRecorder?.state === "recording") stopRecording(event);
     });
 
     if (!window.isSecureContext) {
