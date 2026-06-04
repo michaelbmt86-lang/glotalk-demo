@@ -125,6 +125,7 @@
     }
 
     .settings {
+      display: none;
       margin-top: 6px;
       border: 0;
       background: transparent;
@@ -402,7 +403,7 @@
         setStatus("正在转换音频...");
         const audioBase64 = await blobToPcm16Base64(blob);
 
-        const anonKey = getAnonKey() || setAnonKey();
+        const anonKey = SUPABASE_ANON_KEY;
         if (!anonKey) {
           throw new Error("请先设置 Supabase anon key");
         }
