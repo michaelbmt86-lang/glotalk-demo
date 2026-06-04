@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <title>GloTalk Voice Translate Demo</title>
+  <style>
+    :root {
+      --red: #e53935;
+      --red-dark: #c62828;
+      --yellow: #fff4b8;
+      --text: #151515;
+      --muted: #6b7280;
+      --border: #ebe6c7;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      min-height: 100dvh;
+      background: #fff;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: max(24px, env(safe-area-inset-top)) 22px max(28px, env(safe-area-inset-bottom));
+    }
+
+    .app {
+      width: min(100%, 430px);
+      min-height: 620px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 22px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 42px;
+      line-height: 1;
+      letter-spacing: 0;
+      font-weight: 800;
+    }
+
+    .subtitle {
+      margin-top: -8px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .translation-box {
+      width: 100%;
+      min-height: 130px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--yellow);
+      padding: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      font-size: 21px;
+      line-height: 1.35;
+      font-weight: 650;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+
+    .mic-button {
+      width: 138px;
+      height: 138px;
+      border: 0;
+      border-radius: 999px;
+      background: var(--red);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      box-shadow: 0 18px 40px rgba(229, 57, 53, 0.28);
+      touch-action: none;
+      cursor: pointer;
+      transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease;
+    }
+
+    .mic-button.recording {
+      transform: scale(1.06);
+      background: var(--red-dark);
+      box-shadow: 0 0 0 12px rgba(229, 57, 53, 0.13), 0 20px 45px rgba(198, 40, 40, 0.32);
+    }
+
+    .mic-button:disabled {
+      cursor: wait;
+      background: #9ca3af;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .mic-icon {
+      width: 58px;
+      height: 58px;
+      pointer-events: none;
+    }
+
+    .status {
+      min-height: 28px;
+      font-size: 16px;
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.45;
+      padding: 0 8px;
+    }
+
+    .status.error {
+      color: #b91c1c;
+    }
+
+    .settings {
+      margin-top: 6px;
+      border: 0;
+      background: transparent;
+      color: #2563eb;
+      font-size: 14px;
+      padding: 8px 12px;
+    }
+
+    .hint {
+      color: #9ca3af;
+      font-size: 12px;
+      text-align: center;
+      line-height: 1.4;
+      max-width: 330px;
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <h1>GloTalk</h1>
+    <div class="subtitle">iPhone Safari 语音翻译 Demo</div>
+
+    <section id="translationBox" class="translation-box">按住红色麦克风，说一句中文</section>
+
+    <button id="micButton" class="mic-button" type="button" aria-label="按住录音">
+      <svg class="mic-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V6a3.5 3.5 0 0 0-7 0v5a3.5 3.5 0 0 0 3.5 3.5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M19 11a7 7 0 0 1-14 0M12 18v3M8.5 21h7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </button>
+
+    <div id="status" class="status">按住开始录音，松开翻译成英文</div>
+    <button id="settingsButton" class="settings" type="button">设置 Supabase anon key</button>
+    <div class="hint">需要 HTTPS 才能使用麦克风。GitHub Pages 可以，普通本地文件通常不行。</div>
+  </main>
+
+  <script>
+    const EDGE_FUNCTION_URL = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/translate-realtime";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
+    const TARGET_LANGUAGE = "en";
+    const TARGET_SAMPLE_RATE = 24000;
+    const MAX_RECORDING_MS = 12000;
+
+    const micButton = document.getElementById("micButton");
+    const statusEl = document.getElementById("status");
+    const translationBox = document.getElementById("translationBox");
+    const settingsButton = document.getElementById("settingsButton");
+
+    let mediaRecorder = null;
+    let mediaStream = null;
+    let chunks = [];
+    let recordingStartedAt = 0;
+    let stopTimer = null;
+    let busy = false;
+
+    function setStatus(text, isError = false) {
+      statusEl.textContent = text;
+      statusEl.classList.toggle("error", isError);
+    }
+
+    function getAnonKey() {
+      return localStorage.getItem("GLOTALK_SUPABASE_ANON_KEY") || SUPABASE_ANON_KEY;
+    }
+
+    function setAnonKey() {
+      const current = getAnonKey();
+      const value = window.prompt("粘贴 Supabase anon key（eyJ 开头）", current);
+      if (value === null) return current;
+      const trimmed = value.trim();
+      if (trimmed) {
+        localStorage.setItem("GLOTALK_SUPABASE_ANON_KEY", trimmed);
+        setStatus("anon key 已保存，可以开始测试");
+      }
+      return trimmed;
+    }
+
+    function chooseMimeType() {
+      const candidates = [
+        "audio/mp4",
+        "audio/aac",
+        "audio/webm;codecs=opus",
+        "audio/webm"
+      ];
+      for (const type of candidates) {
+        if (window.MediaRecorder && MediaRecorder.isTypeSupported(type)) {
+          return type;
+        }
+      }
+      return "";
+    }
+
+    function uint8ToBase64(bytes) {
+      let binary = "";
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode.apply(null, chunk);
+      }
+      return btoa(binary);
+    }
+
+    function base64ToUint8(base64) {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes;
+    }
+
+    function audioBufferToPcm16(audioBuffer, targetSampleRate) {
+      const channels = [];
+      for (let c = 0; c < audioBuffer.numberOfChannels; c += 1) {
+        channels.push(audioBuffer.getChannelData(c));
+      }
+
+      const inputRate = audioBuffer.sampleRate;
+      const inputLength = audioBuffer.length;
+      const outputLength = Math.max(1, Math.round(inputLength * targetSampleRate / inputRate));
+      const output = new Int16Array(outputLength);
+
+      for (let i = 0; i < outputLength; i += 1) {
+        const inputIndex = i * inputRate / targetSampleRate;
+        const low = Math.floor(inputIndex);
+        const high = Math.min(low + 1, inputLength - 1);
+        const weight = inputIndex - low;
+
+        let sample = 0;
+        for (const channel of channels) {
+          const interpolated = channel[low] * (1 - weight) + channel[high] * weight;
+          sample += interpolated;
+        }
+        sample /= channels.length;
+        sample = Math.max(-1, Math.min(1, sample));
+        output[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      }
+
+      return new Uint8Array(output.buffer);
+    }
+
+    function pcm16ToWavBytes(pcmBytes, sampleRate = TARGET_SAMPLE_RATE, channels = 1) {
+      const header = new ArrayBuffer(44);
+      const view = new DataView(header);
+      const bytes = new Uint8Array(44 + pcmBytes.length);
+      const bitsPerSample = 16;
+      const byteRate = sampleRate * channels * bitsPerSample / 8;
+      const blockAlign = channels * bitsPerSample / 8;
+
+      function writeAscii(offset, text) {
+        for (let i = 0; i < text.length; i += 1) {
+          view.setUint8(offset + i, text.charCodeAt(i));
+        }
+      }
+
+      writeAscii(0, "RIFF");
+      view.setUint32(4, 36 + pcmBytes.length, true);
+      writeAscii(8, "WAVE");
+      writeAscii(12, "fmt ");
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, channels, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, byteRate, true);
+      view.setUint16(32, blockAlign, true);
+      view.setUint16(34, bitsPerSample, true);
+      writeAscii(36, "data");
+      view.setUint32(40, pcmBytes.length, true);
+
+      bytes.set(new Uint8Array(header), 0);
+      bytes.set(pcmBytes, 44);
+      return bytes;
+    }
+
+    async function blobToPcm16Base64(blob) {
+      const arrayBuffer = await blob.arrayBuffer();
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) {
+        throw new Error("当前 Safari 不支持 AudioContext 解码录音");
+      }
+
+      const audioContext = new AudioContextClass();
+      try {
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+        const pcmBytes = audioBufferToPcm16(audioBuffer, TARGET_SAMPLE_RATE);
+        return uint8ToBase64(pcmBytes);
+      } finally {
+        if (audioContext.close) {
+          await audioContext.close();
+        }
+      }
+    }
+
+    async function playPcm16Base64(base64) {
+      if (!base64) return;
+      const pcmBytes = base64ToUint8(base64);
+      const wavBytes = pcm16ToWavBytes(pcmBytes);
+      const blob = new Blob([wavBytes], { type: "audio/wav" });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      await audio.play();
+    }
+
+    async function startRecording(event) {
+      event.preventDefault();
+      if (busy || mediaRecorder?.state === "recording") return;
+
+      if (!window.MediaRecorder) {
+        setStatus("当前浏览器不支持 MediaRecorder，请升级 iOS Safari", true);
+        return;
+      }
+
+      try {
+        busy = false;
+        chunks = [];
+        translationBox.textContent = "正在听你说话...";
+        setStatus("正在录音，松开按钮开始翻译");
+
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+
+        const mimeType = chooseMimeType();
+        mediaRecorder = mimeType
+          ? new MediaRecorder(mediaStream, { mimeType })
+          : new MediaRecorder(mediaStream);
+
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+
+        mediaRecorder.start();
+        recordingStartedAt = Date.now();
+        micButton.classList.add("recording");
+
+        clearTimeout(stopTimer);
+        stopTimer = setTimeout(() => stopRecording(), MAX_RECORDING_MS);
+      } catch (error) {
+        cleanupStream();
+        micButton.classList.remove("recording");
+        translationBox.textContent = "按住红色麦克风，说一句中文";
+        setStatus(error.message || String(error), true);
+      }
+    }
+
+    async function stopRecording(event) {
+      if (event) event.preventDefault();
+      clearTimeout(stopTimer);
+      if (!mediaRecorder || mediaRecorder.state !== "recording") return;
+
+      busy = true;
+      micButton.disabled = true;
+      micButton.classList.remove("recording");
+      setStatus("正在处理录音...");
+
+      const stopped = new Promise((resolve) => {
+        mediaRecorder.onstop = resolve;
+      });
+
+      mediaRecorder.stop();
+      await stopped;
+      cleanupStream();
+
+      try {
+        const durationMs = Date.now() - recordingStartedAt;
+        if (durationMs < 350) {
+          throw new Error("录音太短，请按住说完整一句话");
+        }
+
+        const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/mp4" });
+        setStatus("正在转换音频...");
+        const audioBase64 = await blobToPcm16Base64(blob);
+
+        const anonKey = getAnonKey() || setAnonKey();
+        if (!anonKey) {
+          throw new Error("请先设置 Supabase anon key");
+        }
+
+        setStatus("正在翻译成英文...");
+        const response = await fetch(EDGE_FUNCTION_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${anonKey}`
+          },
+          body: JSON.stringify({
+            audioBase64,
+            targetLanguage: TARGET_LANGUAGE
+          })
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || `请求失败：${response.status}`);
+        }
+
+        const translatedText = result.translatedText || "(没有返回文字)";
+        translationBox.textContent = translatedText;
+        setStatus("翻译完成，正在播放英文语音");
+
+        await playPcm16Base64(result.translatedAudioBase64 || "");
+        setStatus("按住开始下一次录音");
+      } catch (error) {
+        setStatus(error.message || String(error), true);
+      } finally {
+        busy = false;
+        micButton.disabled = false;
+        chunks = [];
+      }
+    }
+
+    function cleanupStream() {
+      if (mediaStream) {
+        for (const track of mediaStream.getTracks()) {
+          track.stop();
+        }
+      }
+      mediaStream = null;
+    }
+
+    micButton.addEventListener("pointerdown", startRecording);
+    micButton.addEventListener("pointerup", stopRecording);
+    micButton.addEventListener("pointercancel", stopRecording);
+    micButton.addEventListener("pointerleave", (event) => {
+      if (mediaRecorder?.state === "recording") stopRecording(event);
+    });
+
+    settingsButton.addEventListener("click", setAnonKey);
+
+    if (!window.isSecureContext) {
+      setStatus("请用 HTTPS 打开本页面，否则 iPhone Safari 不能录音", true);
+    }
+  </script>
+</body>
+</html>
