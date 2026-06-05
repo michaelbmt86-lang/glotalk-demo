@@ -309,12 +309,18 @@
     function handleRealtimeEvent(event) {
       if (!event || !event.type) return;
 
-      if (event.type === "session.output_transcript.delta") {
+      if (
+        event.type === "session.output_transcript.delta" ||
+        event.type === "response.audio_transcript.delta"
+      ) {
         appendTranscriptDelta(event.delta ?? event.text ?? "");
         return;
       }
 
-      if (event.type === "session.output_transcript.done") {
+      if (
+        event.type === "session.output_transcript.done" ||
+        event.type === "response.audio_transcript.done"
+      ) {
         finishTranscriptSegment(event.transcript ?? event.text ?? "");
         return;
       }
@@ -472,3 +478,4 @@
   </script>
 </body>
 </html>
+
