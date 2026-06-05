@@ -444,12 +444,21 @@
           remoteAudio.srcObject = event.streams[0];
         });
 
+        peerConnection.addEventListener("iceconnectionstatechange", () => {
+          setStatus("ICE状态：" + peerConnection.iceConnectionState);
+        });
+
         peerConnection.addEventListener("connectionstatechange", () => {
           const state = peerConnection?.connectionState;
+          setStatus("连接状态：" + peerConnection.connectionState);
           if (state === "failed" || state === "disconnected") {
             setStatus("连接中断，请重新开始", true);
             stopTranslation();
           }
+        });
+
+        peerConnection.addEventListener("icegatheringstatechange", () => {
+          setStatus("ICE收集：" + peerConnection.iceGatheringState);
         });
 
         localStream.getTracks().forEach((track) => {
@@ -523,6 +532,7 @@
   </script>
 </body>
 </html>
+
 
 
 
