@@ -2,223 +2,342 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <title>GloTalk Voice Translate Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GloTalk 实时翻译</title>
   <style>
     :root {
-      --red: #e53935;
-      --red-dark: #c62828;
-      --yellow: #fff4b8;
-      --text: #151515;
-      --muted: #6b7280;
-      --border: #ebe6c7;
+      color-scheme: light;
+      --page: #f3f7f2;
+      --panel: #ffffff;
+      --ink: #142018;
+      --muted: #66726a;
+      --line: #d7e1d9;
+      --accent: #16843a;
+      --accent-hover: #116f30;
+      --danger: #d63f31;
+      --danger-hover: #b9352a;
+      --caption-bg: #fff2a8;
+      --caption-line: #e6ce53;
+      --shadow: 0 18px 45px rgba(30, 53, 38, 0.14);
     }
 
     * {
       box-sizing: border-box;
-      -webkit-tap-highlight-color: transparent;
-      -webkit-touch-callout: none;
-      -webkit-user-select: none;
-      user-select: none;
     }
 
-    html,
     body {
-      margin: 0;
       min-height: 100vh;
-      min-height: 100dvh;
-      background: #fff;
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      -webkit-touch-callout: none;
-      -webkit-user-select: none;
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 0%, rgba(53, 142, 87, 0.18), transparent 32rem),
+        linear-gradient(135deg, #f8fbf6 0%, var(--page) 48%, #edf4f7 100%);
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: max(24px, env(safe-area-inset-top)) 22px max(28px, env(safe-area-inset-bottom));
+      padding: 32px 18px;
     }
 
-    .app {
-      width: min(100%, 430px);
-      min-height: 620px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 22px;
+    main {
+      width: min(760px, 100%);
+      background: var(--panel);
+      border: 1px solid rgba(215, 225, 217, 0.9);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: clamp(22px, 4vw, 38px);
+    }
+
+    header {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 26px;
     }
 
     h1 {
       margin: 0;
-      font-size: 42px;
-      line-height: 1;
+      font-size: clamp(2.1rem, 8vw, 4.5rem);
+      line-height: 0.95;
       letter-spacing: 0;
-      font-weight: 800;
     }
 
     .subtitle {
-      margin-top: -8px;
-      font-size: 14px;
+      margin: 0;
       color: var(--muted);
+      font-size: clamp(1rem, 2.5vw, 1.18rem);
+      line-height: 1.55;
     }
 
-    .translation-box {
-      width: 100%;
-      min-height: 130px;
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      background: var(--yellow);
-      padding: 18px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      font-size: 21px;
-      line-height: 1.35;
-      font-weight: 650;
-      word-break: break-word;
-      white-space: pre-wrap;
-    }
-
-    .mic-button {
-      width: 138px;
-      height: 138px;
-      border: 0;
-      border-radius: 999px;
-      background: var(--red);
-      color: #fff;
+    .controls {
       display: grid;
-      place-items: center;
-      box-shadow: 0 18px 40px rgba(229, 57, 53, 0.28);
-      touch-action: none;
+      grid-template-columns: 1fr auto;
+      gap: 14px;
+      align-items: end;
+      margin-bottom: 18px;
+    }
+
+    label {
+      display: grid;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
+    select {
+      width: 100%;
+      min-height: 46px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfdfb;
+      color: var(--ink);
+      font: inherit;
+      font-weight: 700;
+      padding: 0 42px 0 14px;
+      outline: none;
+    }
+
+    select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(22, 132, 58, 0.14);
+    }
+
+    .caption-box {
+      min-height: 260px;
+      max-height: 42vh;
+      overflow-y: auto;
+      border: 1px solid var(--caption-line);
+      border-radius: 8px;
+      background: var(--caption-bg);
+      padding: 20px;
+      font-size: clamp(1.2rem, 3vw, 1.65rem);
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .caption-box:empty::before {
+      content: "翻译字幕会显示在这里";
+      color: rgba(20, 32, 24, 0.48);
+    }
+
+    .actions {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    button {
+      width: 100%;
+      min-height: 58px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      font-size: 1.1rem;
+      font-weight: 800;
       cursor: pointer;
-      transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease;
+      transition: background-color 160ms ease, transform 160ms ease;
     }
 
-    .mic-button.recording {
-      transform: scale(1.06);
-      background: var(--red-dark);
-      box-shadow: 0 0 0 12px rgba(229, 57, 53, 0.13), 0 20px 45px rgba(198, 40, 40, 0.32);
+    button:hover {
+      background: var(--accent-hover);
     }
 
-    .mic-button:disabled {
+    button:active {
+      transform: translateY(1px);
+    }
+
+    button.stop {
+      background: var(--danger);
+    }
+
+    button.stop:hover {
+      background: var(--danger-hover);
+    }
+
+    button:disabled {
       cursor: wait;
-      background: #9ca3af;
-      box-shadow: none;
-      transform: none;
-    }
-
-    .mic-icon {
-      width: 58px;
-      height: 58px;
-      pointer-events: none;
+      opacity: 0.74;
     }
 
     .status {
-      min-height: 28px;
-      font-size: 16px;
+      min-height: 24px;
       color: var(--muted);
-      text-align: center;
-      line-height: 1.45;
-      padding: 0 8px;
+      font-weight: 700;
+      line-height: 1.5;
     }
 
     .status.error {
-      color: #b91c1c;
+      color: var(--danger);
     }
 
-    .settings {
-      display: none;
-      margin-top: 6px;
-      border: 0;
-      background: transparent;
-      color: #2563eb;
-      font-size: 14px;
-      padding: 8px 12px;
-    }
-
-    .hint {
-      color: #9ca3af;
-      font-size: 12px;
+    footer {
+      margin-top: 20px;
+      color: var(--muted);
+      font-size: 0.86rem;
+      line-height: 1.5;
       text-align: center;
-      line-height: 1.4;
-      max-width: 330px;
+    }
+
+    @media (max-width: 560px) {
+      body {
+        align-items: stretch;
+        padding: 14px;
+      }
+
+      main {
+        min-height: calc(100vh - 28px);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .controls {
+        grid-template-columns: 1fr;
+      }
+
+      .caption-box {
+        flex: 1;
+        min-height: 220px;
+        max-height: none;
+      }
     }
   </style>
 </head>
 <body>
-  <main class="app">
-    <h1>GloTalk</h1>
-    <div class="subtitle">iPhone Safari 语音翻译 Demo</div>
+  <main>
+    <header>
+      <h1>GloTalk</h1>
+      <p class="subtitle">实时语音翻译，把你听到的内容持续转换成目标语言字幕。</p>
+    </header>
 
-    <section id="translationBox" class="translation-box">按住红色麦克风，说一句中文</section>
+    <section class="controls" aria-label="翻译设置">
+      <label for="output-language">
+        输出语言
+        <select id="output-language">
+          <option value="en" selected>英文</option>
+          <option value="ja">日文</option>
+          <option value="ko">韩文</option>
+          <option value="es">西班牙文</option>
+          <option value="fr">法文</option>
+          <option value="de">德文</option>
+          <option value="it">意大利文</option>
+          <option value="pt">葡萄牙文</option>
+          <option value="ar">阿拉伯文</option>
+          <option value="hi">印地文</option>
+        </select>
+      </label>
+    </section>
 
-    <button id="micButton" class="mic-button" type="button" aria-label="按住录音">
-      <svg class="mic-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V6a3.5 3.5 0 0 0-7 0v5a3.5 3.5 0 0 0 3.5 3.5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        <path d="M19 11a7 7 0 0 1-14 0M12 18v3M8.5 21h7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      </svg>
-    </button>
+    <section id="captions" class="caption-box" aria-live="polite" aria-label="实时翻译字幕"></section>
 
-    <div id="status" class="status">按住开始录音，松开翻译成英文</div>
-    <button id="settingsButton" class="settings" type="button">设置 Supabase anon key</button>
-    <div class="hint">需要 HTTPS 才能使用麦克风。GitHub Pages 可以，普通本地文件通常不行。</div>
+    <section class="actions">
+      <button id="toggle-button" type="button">开始翻译</button>
+      <div id="status" class="status" role="status">准备就绪</div>
+    </section>
+
+    <footer>需要 HTTPS 才能使用麦克风。</footer>
   </main>
+
+  <audio id="remote-audio" autoplay></audio>
 
   <script>
     const SESSION_FUNCTION_URL = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-realtime-session";
-    const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/translations";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
-    const MAX_RECORDING_MS = 12000;
+    const OPENAI_REALTIME_TRANSLATIONS_URL = "https://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate";
 
-    const micButton = document.getElementById("micButton");
-    const statusEl = document.getElementById("status");
-    const translationBox = document.getElementById("translationBox");
+    const outputLanguageSelect = document.getElementById("output-language");
+    const captions = document.getElementById("captions");
+    const toggleButton = document.getElementById("toggle-button");
+    const statusLine = document.getElementById("status");
+    const remoteAudio = document.getElementById("remote-audio");
 
     let peerConnection = null;
     let dataChannel = null;
-    let mediaStream = null;
-    let remoteAudio = null;
-    let recordingStartedAt = 0;
-    let stopTimer = null;
-    let busy = false;
-    let transcriptBuffer = "";
-    let responseFinished = false;
+    let localStream = null;
+    let activeSegment = null;
+    let isTranslating = false;
 
-    function setStatus(text, isError = false) {
-      statusEl.textContent = text;
-      statusEl.classList.toggle("error", isError);
+    function setStatus(message, isError = false) {
+      statusLine.textContent = message;
+      statusLine.classList.toggle("error", isError);
     }
 
-    function englishOnly(text) {
-      const raw = String(text || "").replace(/\r/g, "\n").trim();
-      if (!raw) return "";
+    function setButtonState(translating, busy = false) {
+      isTranslating = translating;
+      toggleButton.disabled = busy;
+      toggleButton.classList.toggle("stop", translating);
+      toggleButton.textContent = busy
+        ? "正在连接..."
+        : translating
+          ? "停止翻译"
+          : "开始翻译";
+      outputLanguageSelect.disabled = translating || busy;
+    }
 
-      const lines = raw
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean);
+    function scrollCaptionsToBottom() {
+      captions.scrollTop = captions.scrollHeight;
+    }
 
-      const englishLines = lines.filter((line) => /[A-Za-z]/.test(line) && !/[\u3400-\u9fff]/.test(line));
-      if (englishLines.length > 0) {
-        return englishLines.join("\n");
+    function ensureActiveSegment() {
+      if (!activeSegment) {
+        activeSegment = document.createElement("span");
+        captions.appendChild(activeSegment);
       }
-      return raw.replace(/[\u3400-\u9fff]+/g, "").trim() || raw;
+      return activeSegment;
     }
 
-    async function createClientSecret() {
+    function appendTranscriptDelta(delta) {
+      if (!delta) return;
+      const segment = ensureActiveSegment();
+      segment.textContent += delta;
+      scrollCaptionsToBottom();
+    }
+
+    function finishTranscriptSegment(transcript) {
+      if (transcript && !activeSegment?.textContent) {
+        ensureActiveSegment().textContent = transcript;
+      }
+      if (activeSegment) {
+        captions.appendChild(document.createElement("br"));
+        activeSegment = null;
+      }
+      scrollCaptionsToBottom();
+    }
+
+    function handleRealtimeEvent(event) {
+      if (!event || !event.type) return;
+
+      if (event.type === "session.output_transcript.delta") {
+        appendTranscriptDelta(event.delta ?? event.text ?? "");
+        return;
+      }
+
+      if (event.type === "session.output_transcript.done") {
+        finishTranscriptSegment(event.transcript ?? event.text ?? "");
+        return;
+      }
+
+      if (event.type === "error") {
+        setStatus(event.error?.message || "翻译服务返回错误", true);
+      }
+    }
+
+    async function getClientSecret() {
       const response = await fetch(SESSION_FUNCTION_URL, {
         method: "POST",
         headers: {
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          apikey: SUPABASE_ANON_KEY,
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
         },
-        body: "{}",
+        body: JSON.stringify({
+          outputLanguage: outputLanguageSelect.value,
+        }),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(data.error || `获取 Realtime token 失败：${response.status}`);
       }
@@ -228,84 +347,18 @@
       return data.client_secret;
     }
 
-    function ensureRemoteAudioElement() {
-      if (!remoteAudio) {
-        remoteAudio = document.createElement("audio");
-        remoteAudio.autoplay = true;
-        remoteAudio.playsInline = true;
-        remoteAudio.style.display = "none";
-        document.body.appendChild(remoteAudio);
-      }
-      return remoteAudio;
-    }
-
-    function handleRealtimeEvent(event) {
-      if (!event || !event.type) return;
-
-      if (event.type === "error") {
-        setStatus(event.error?.message || "Realtime 翻译出错", true);
-        return;
-      }
-
-      if (
-        event.type === "response.audio_transcript.delta" ||
-        event.type === "response.output_text.delta" ||
-        event.type === "response.text.delta" ||
-        event.type === "session.output_transcript.delta"
-      ) {
-        transcriptBuffer += event.delta || "";
-        const visible = englishOnly(transcriptBuffer);
-        if (visible) translationBox.textContent = visible;
-      }
-
-      if (
-        event.type === "response.audio_transcript.done" ||
-        event.type === "response.output_text.done" ||
-        event.type === "response.text.done" ||
-        event.type === "session.output_transcript.done"
-      ) {
-        transcriptBuffer = event.transcript || event.text || transcriptBuffer;
-        const visible = englishOnly(transcriptBuffer);
-        if (visible) translationBox.textContent = visible;
-        setStatus("英文语音正在播放");
-      }
-
-      if (event.type === "response.done" || event.type === "session.closed") {
-        responseFinished = true;
-        setStatus("按住开始下一次实时翻译");
-        setTimeout(cleanupSession, 1800);
-      }
-    }
-
-    async function startRecording(event) {
-      event.preventDefault();
-      if (busy) return;
-
-      if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) {
-        setStatus("当前 Safari 不支持 WebRTC 实时语音", true);
-        return;
-      }
+    async function startTranslation() {
+      setButtonState(false, true);
+      captions.textContent = "";
+      activeSegment = null;
+      setStatus("正在请求麦克风权限");
 
       try {
-        busy = true;
-        responseFinished = false;
-        transcriptBuffer = "";
-        micButton.classList.add("recording");
-        translationBox.textContent = "正在连接 GPT-Realtime-Translate...";
-        setStatus("正在获取短期安全 token");
-
-        ensureRemoteAudioElement();
-        try {
-          await remoteAudio.play();
-        } catch {
-          // It may not play until a remote stream is attached; the element is
-          // still created during a user gesture, which helps iPhone Safari.
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error("当前浏览器不支持麦克风采集");
         }
 
-        const clientSecret = await createClientSecret();
-        setStatus("正在建立 WebRTC 实时翻译通道");
-
-        mediaStream = await navigator.mediaDevices.getUserMedia({
+        localStream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
@@ -313,45 +366,53 @@
           },
         });
 
+        setStatus("正在获取短期连接密钥");
+        const clientSecret = await getClientSecret();
+
+        setStatus("正在建立实时翻译连接");
         peerConnection = new RTCPeerConnection();
-        peerConnection.ontrack = async (trackEvent) => {
-          const [stream] = trackEvent.streams;
-          if (stream) {
-            remoteAudio.srcObject = stream;
-            try {
-              await remoteAudio.play();
-            } catch {
-              setStatus("请再点一次页面以允许播放英文语音", true);
-            }
-          }
-        };
-
-        for (const track of mediaStream.getTracks()) {
-          peerConnection.addTrack(track, mediaStream);
-        }
-
         dataChannel = peerConnection.createDataChannel("oai-events");
-        dataChannel.onopen = () => {
-          setStatus("正在录音，说完后松开按钮");
-        };
-        dataChannel.onmessage = (message) => {
+
+        dataChannel.addEventListener("open", () => {
+          setStatus("正在持续翻译");
+        });
+
+        dataChannel.addEventListener("message", (message) => {
           try {
             handleRealtimeEvent(JSON.parse(message.data));
           } catch {
-            // Ignore non-JSON messages.
+            setStatus("无法解析翻译事件", true);
           }
-        };
-
-        const offer = await peerConnection.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: false,
         });
+
+        dataChannel.addEventListener("close", () => {
+          if (isTranslating) setStatus("实时翻译连接已关闭");
+        });
+
+        peerConnection.addEventListener("track", (event) => {
+          remoteAudio.srcObject = event.streams[0];
+        });
+
+        peerConnection.addEventListener("connectionstatechange", () => {
+          const state = peerConnection?.connectionState;
+          if (state === "connected") setStatus("正在持续翻译");
+          if (state === "failed" || state === "disconnected") {
+            setStatus("连接中断，请重新开始", true);
+            stopTranslation();
+          }
+        });
+
+        localStream.getTracks().forEach((track) => {
+          peerConnection.addTrack(track, localStream);
+        });
+
+        const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
 
-        const sdpResponse = await fetch(OPENAI_REALTIME_CALLS_URL, {
+        const sdpResponse = await fetch(OPENAI_REALTIME_TRANSLATIONS_URL, {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${clientSecret}`,
+            Authorization: `Bearer ${clientSecret}`,
             "Content-Type": "application/sdp",
           },
           body: offer.sdp,
@@ -359,7 +420,7 @@
 
         const answerSdp = await sdpResponse.text();
         if (!sdpResponse.ok) {
-          throw new Error(answerSdp || `OpenAI Realtime连接失败：${sdpResponse.status}`);
+          throw new Error(answerSdp || `OpenAI Realtime 连接失败：${sdpResponse.status}`);
         }
 
         await peerConnection.setRemoteDescription({
@@ -367,81 +428,47 @@
           sdp: answerSdp,
         });
 
-        recordingStartedAt = Date.now();
-        setStatus("正在录音，说完松开后返回英文语音+字幕");
-
-        clearTimeout(stopTimer);
-        stopTimer = setTimeout(stopRecording, MAX_RECORDING_MS);
+        setButtonState(true, false);
+        setStatus("正在持续翻译");
       } catch (error) {
-        cleanupSession();
-        micButton.classList.remove("recording");
-        translationBox.textContent = "按住红色麦克风，说一句中文";
-        setStatus(error.message || String(error), true);
+        stopTranslation({ keepStatus: true });
+        setStatus(error instanceof Error ? error.message : String(error), true);
       }
     }
 
-    function stopRecording(event) {
-      if (event) event.preventDefault();
-      clearTimeout(stopTimer);
-      if (!busy) return;
-
-      micButton.classList.remove("recording");
-      const durationMs = Date.now() - recordingStartedAt;
-      if (durationMs < 350 && recordingStartedAt) {
-        setStatus("录音太短，请按住说完整一句话", true);
-        cleanupSession();
-        return;
-      }
-
-      setStatus("正在生成英文翻译...");
-
-      if (mediaStream) {
-        for (const track of mediaStream.getAudioTracks()) {
-          track.enabled = false;
-        }
-      }
-
-      setTimeout(() => {
-        if (!responseFinished) {
-          setStatus("如果没有声音，请再试一次并说完整一句话");
-          cleanupSession();
-        }
-      }, 7000);
-    }
-
-    function cleanupSession() {
-      clearTimeout(stopTimer);
-      micButton.classList.remove("recording");
-      busy = false;
-
-      if (mediaStream) {
-        for (const track of mediaStream.getTracks()) {
-          track.stop();
-        }
-      }
-      mediaStream = null;
-
+    function stopTranslation(options = {}) {
       if (dataChannel) {
-        try { dataChannel.close(); } catch { }
+        dataChannel.close();
+        dataChannel = null;
       }
-      dataChannel = null;
 
       if (peerConnection) {
-        try { peerConnection.close(); } catch { }
+        peerConnection.getSenders().forEach((sender) => sender.track?.stop());
+        peerConnection.close();
+        peerConnection = null;
       }
-      peerConnection = null;
+
+      if (localStream) {
+        localStream.getTracks().forEach((track) => track.stop());
+        localStream = null;
+      }
+
+      remoteAudio.srcObject = null;
+      activeSegment = null;
+      setButtonState(false, false);
+
+      if (!options.keepStatus) {
+        setStatus("已停止翻译");
+      }
     }
 
-    micButton.addEventListener("pointerdown", startRecording);
-    micButton.addEventListener("pointerup", stopRecording);
-    micButton.addEventListener("pointercancel", stopRecording);
-    micButton.addEventListener("pointerleave", (event) => {
-      if (busy) stopRecording(event);
+    toggleButton.addEventListener("click", () => {
+      if (isTranslating) {
+        stopTranslation();
+      } else {
+        startTranslation();
+      }
     });
-
-    if (!window.isSecureContext) {
-      setStatus("请用 HTTPS 打开本页面，否则 iPhone Safari 不能录音", true);
-    }
   </script>
 </body>
 </html>
