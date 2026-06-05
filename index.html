@@ -138,6 +138,8 @@
       font-size: 1.1rem;
       font-weight: 800;
       cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
       transition: background-color 160ms ease, transform 160ms ease;
     }
 
@@ -364,6 +366,38 @@
       return data.client_secret;
     }
 
+    function waitForIceConnected(connection, timeoutMs = 10000) {
+      return new Promise((resolve, reject) => {
+        if (connection.iceConnectionState === "connected" || connection.iceConnectionState === "completed") {
+          resolve();
+          return;
+        }
+
+        const timeout = window.setTimeout(() => {
+          cleanup();
+          reject(new Error("连接超时，请重试"));
+        }, timeoutMs);
+
+        function cleanup() {
+          window.clearTimeout(timeout);
+          connection.removeEventListener("iceconnectionstatechange", handleStateChange);
+        }
+
+        function handleStateChange() {
+          const state = connection.iceConnectionState;
+          if (state === "connected" || state === "completed") {
+            cleanup();
+            resolve();
+          } else if (state === "failed" || state === "disconnected" || state === "closed") {
+            cleanup();
+            reject(new Error("连接中断，请重新开始"));
+          }
+        }
+
+        connection.addEventListener("iceconnectionstatechange", handleStateChange);
+      });
+    }
+
     async function startTranslation() {
       setButtonState(false, true);
       captions.textContent = "";
@@ -412,7 +446,6 @@
 
         peerConnection.addEventListener("connectionstatechange", () => {
           const state = peerConnection?.connectionState;
-          if (state === "connected") setStatus("正在持续翻译");
           if (state === "failed" || state === "disconnected") {
             setStatus("连接中断，请重新开始", true);
             stopTranslation();
@@ -445,8 +478,8 @@
           sdp: answerSdp,
         });
 
+        await waitForIceConnected(peerConnection);
         setButtonState(true, false);
-        setStatus("正在持续翻译");
       } catch (error) {
         console.error(error);
         stopTranslation({ keepStatus: true });
@@ -490,5 +523,6 @@
   </script>
 </body>
 </html>
+
 
 
