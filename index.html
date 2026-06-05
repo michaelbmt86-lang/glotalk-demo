@@ -169,7 +169,6 @@
 
   <script>
     const SESSION_FUNCTION_URL = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-realtime-session";
-    const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
     const MAX_RECORDING_MS = 12000;
 
@@ -206,26 +205,6 @@
         return englishLines.join("\n");
       }
       return raw.replace(/[\u3400-\u9fff]+/g, "").trim() || raw;
-    }
-
-    async function createClientSecret() {
-      const response = await fetch(SESSION_FUNCTION_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: "{}",
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || `获取 Realtime token 失败：${response.status}`);
-      }
-      if (!data.client_secret) {
-        throw new Error("create-realtime-session 没有返回 client_secret");
-      }
-      return data.client_secret;
     }
 
     function ensureRemoteAudioElement() {
@@ -292,7 +271,7 @@
         transcriptBuffer = "";
         micButton.classList.add("recording");
         translationBox.textContent = "正在连接 GPT-Realtime-Translate...";
-        setStatus("正在获取短期安全 token");
+        setStatus("正在建立 Supabase Realtime 中继");
 
         ensureRemoteAudioElement();
         try {
@@ -302,7 +281,6 @@
           // still created during a user gesture, which helps iPhone Safari.
         }
 
-        const clientSecret = await createClientSecret();
         setStatus("正在建立 WebRTC 实时翻译通道");
 
         mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -348,10 +326,10 @@
         });
         await peerConnection.setLocalDescription(offer);
 
-        const sdpResponse = await fetch(OPENAI_REALTIME_CALLS_URL, {
+        const sdpResponse = await fetch(SESSION_FUNCTION_URL, {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${clientSecret}`,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
             "Content-Type": "application/sdp",
           },
           body: offer.sdp,
