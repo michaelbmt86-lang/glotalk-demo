@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>GloTalk 全双工翻译通话</title>
+  <style>
+    * { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0; min-height: 100vh; min-height: 100dvh;
+      background: #0a0a0a; color: #f0f0f0;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+    }
+    .app { width: min(100%, 400px); display: flex; flex-direction: column; gap: 16px; }
+    .logo { font-size: 32px; font-weight: 800; letter-spacing: -1px; color: #fff; }
+    .logo span { color: #22c55e; }
+    .logo small { font-size: 13px; font-weight: 400; color: #555; display: block; margin-top: 2px; }
+    .card { background: #111; border: 1px solid #222; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 12px; color: #555; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .field input, .field select {
+      background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px;
+      color: #f0f0f0; font: inherit; font-size: 16px; padding: 12px 14px;
+      outline: none; -webkit-user-select: text; user-select: text; transition: border-color 0.2s;
+    }
+    .field input:focus, .field select:focus { border-color: #22c55e44; }
+    .field select option { background: #1a1a1a; }
+    .room-row { display: flex; gap: 8px; }
+    .room-row input { flex: 1; }
+    .gen-btn {
+      background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px;
+      color: #22c55e; font: inherit; font-size: 13px; font-weight: 700;
+      padding: 0 14px; cursor: pointer; white-space: nowrap;
+    }
+    .join-btn {
+      width: 100%; height: 58px; border: none; border-radius: 14px;
+      background: #22c55e; color: #000; font: inherit;
+      font-size: 17px; font-weight: 800; cursor: pointer; transition: all 0.15s;
+    }
+    .join-btn:active { transform: scale(0.97); }
+    .join-btn:disabled { background: #1a1a1a; color: #444; cursor: wait; }
+    .join-btn.danger { background: #ef4444; color: #fff; }
+
+    .transcript-box {
+      min-height: 150px; max-height: 200px; overflow-y: auto;
+      background: #0d1a0f; border: 1px solid #1a3320; border-radius: 14px; padding: 16px;
+      font-size: 19px; font-weight: 600; line-height: 1.4;
+      color: #22c55e; word-break: break-word; white-space: pre-wrap;
+    }
+    .transcript-box:empty::before { content: "译文显示在这里"; color: #1a3320; font-size: 15px; font-weight: 400; }
+
+    /* 说话状态指示器 */
+    .speaking-indicator {
+      display: flex; align-items: center; gap: 10px;
+      background: #111; border: 1px solid #222; border-radius: 12px; padding: 12px 16px;
+    }
+    .indicator-dot {
+      width: 12px; height: 12px; border-radius: 50%; background: #333;
+      transition: all 0.2s; flex-shrink: 0;
+    }
+    .indicator-dot.speaking { background: #22c55e; box-shadow: 0 0 8px #22c55e88; animation: breathe 1s infinite; }
+    .indicator-dot.translating { background: #60a5fa; box-shadow: 0 0 8px #60a5fa88; animation: breathe 0.5s infinite; }
+    @keyframes breathe { 0%,100%{transform:scale(1)} 50%{transform:scale(1.3)} }
+    .indicator-text { font-size: 14px; color: #666; font-weight: 600; }
+
+    .start-btn {
+      width: 100%; height: 66px; border: none; border-radius: 14px;
+      font: inherit; font-size: 17px; font-weight: 800; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .start-btn.idle    { background: #22c55e; color: #000; }
+    .start-btn.active  { background: #ef4444; color: #fff; }
+    .start-btn.connecting { background: #1a1a1a; color: #555; cursor: wait; }
+
+    .status { font-size: 13px; color: #444; text-align: center; min-height: 18px; }
+    .status.ok    { color: #22c55e; }
+    .status.error { color: #ef4444; }
+    .status.info  { color: #60a5fa; }
+
+    .room-info { font-size: 13px; color: #555; text-align: center; }
+    .room-info strong { color: #f0f0f0; }
+
+    .hint { font-size: 11px; color: #333; text-align: center; line-height: 1.5; }
+    .call-section { display: none; flex-direction: column; gap: 12px; }
+    .call-section.visible { display: flex; }
+
+    /* VAD音量可视化 */
+    .vad-bar {
+      height: 4px; background: #1a1a1a; border-radius: 2px; overflow: hidden;
+    }
+    .vad-fill {
+      height: 100%; background: #22c55e; border-radius: 2px;
+      transition: width 0.1s; width: 0%;
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="logo">Glo<span>Talk</span><small>全双工实时翻译通话 · Beta</small></div>
+
+  <!-- 加入房间 -->
+  <div class="card" id="joinCard">
+    <div class="field">
+      <label>房间号（双方填同一个）</label>
+      <div class="room-row">
+        <input type="text" id="roomInput" placeholder="例如：123456"
+          maxlength="6" inputmode="numeric" pattern="[0-9]*" />
+        <button class="gen-btn" onclick="generateRoom()">随机生成</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>我要听的语言（翻译输出）</label>
+      <select id="langSelect">
+        <option value="en">🇺🇸 英文</option>
+        <option value="zh">🇨🇳 中文</option>
+        <option value="ja">🇯🇵 日文</option>
+        <option value="ko">🇰🇷 韩文</option>
+        <option value="es">🇪🇸 西班牙文</option>
+        <option value="fr">🇫🇷 法文</option>
+        <option value="de">🇩🇪 德文</option>
+      </select>
+    </div>
+    <button class="join-btn" id="joinBtn" onclick="joinRoom()">开始翻译通话</button>
+  </div>
+
+  <!-- 通话中 -->
+  <div class="call-section" id="callSection">
+    <div class="card">
+      <div class="room-info">房间号 <strong id="roomDisplay"></strong></div>
+      <div id="transcript" class="transcript-box"></div>
+      <div class="vad-bar"><div class="vad-fill" id="vadFill"></div></div>
+    </div>
+
+    <!-- 说话状态指示器 -->
+    <div class="speaking-indicator">
+      <div class="indicator-dot" id="indicatorDot"></div>
+      <div class="indicator-text" id="indicatorText">等待连接...</div>
+    </div>
+
+    <div id="status" class="status">准备就绪</div>
+
+    <button class="start-btn connecting" id="startBtn" onclick="toggleTranslation()">连接中...</button>
+    <button class="join-btn danger" onclick="leaveRoom()" style="height:46px;font-size:15px;">挂断离开</button>
+  </div>
+
+  <div class="hint">需要 HTTPS · 全双工模式 · 正常说话即可，无需按键</div>
+</div>
+
+<audio id="remoteAudio" autoplay playsinline style="display:none"></audio>
+
+<script>
+// ===== 配置 =====
+const SUPABASE_URL_SESSION  = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-realtime-session";
+const SUPABASE_URL_TURN     = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-turn-credentials";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
+const SUPABASE_REALTIME_URL = "wss://ryqxhagdbycccosuavtp.supabase.co/realtime/v1/websocket";
+const OPENAI_TRANSLATIONS   = "https://api.openai.com/v1/realtime/translations";
+
+// VAD配置
+const VAD_THRESHOLD    = 0.015;  // 说话检测阈值
+const VAD_HOLD_MS      = 800;    // 说话结束后保持多久
+const VAD_FRAME_MS     = 20;     // VAD检测帧间隔
+
+// ===== 状态 =====
+let supabaseWs   = null;
+let p2pPc        = null;  // P2P WebRTC（双机互通原始音频）
+let transPc      = null;  // 翻译WebRTC（连接OpenAI）
+let localStream  = null;  // 本机麦克风
+let roomName     = "";
+let myRole       = null;
+let outputLang   = "en";
+let isActive     = false;
+let rtcReady     = false;
+
+// VAD状态
+let audioCtx     = null;
+let analyser     = null;
+let vadTimer     = null;
+let isSpeaking   = false;
+let vadInterval  = null;
+
+// ===== UI =====
+const joinCard      = document.getElementById("joinCard");
+const callSection   = document.getElementById("callSection");
+const roomInput     = document.getElementById("roomInput");
+const langSelect    = document.getElementById("langSelect");
+const joinBtn       = document.getElementById("joinBtn");
+const startBtn      = document.getElementById("startBtn");
+const statusEl      = document.getElementById("status");
+const transcript    = document.getElementById("transcript");
+const roomDisplay   = document.getElementById("roomDisplay");
+const remoteAudio   = document.getElementById("remoteAudio");
+const indicatorDot  = document.getElementById("indicatorDot");
+const indicatorText = document.getElementById("indicatorText");
+const vadFill       = document.getElementById("vadFill");
+
+function generateRoom() {
+  roomInput.value = Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function setStatus(msg, type = "") {
+  statusEl.textContent = msg;
+  statusEl.className = "status" + (type ? " " + type : "");
+}
+
+function setIndicator(state, text) {
+  indicatorDot.className = "indicator-dot" + (state ? " " + state : "");
+  indicatorText.textContent = text;
+}
+
+function appendText(delta) {
+  if (!delta) return;
+  transcript.textContent += delta;
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+function newLine() {
+  if (!transcript.textContent) return;
+  const lines = transcript.textContent.split("\n");
+  transcript.textContent = (lines.length > 6 ? lines.slice(-6) : lines).join("\n") + "\n";
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+// ===== 获取TURN凭证 =====
+async function getTurnConfig() {
+  try {
+    const res = await fetch(SUPABASE_URL_TURN, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${SUPABASE_ANON}`, "apikey": SUPABASE_ANON, "Content-Type": "application/json" }
+    });
+    const data = await res.json();
+    if (data.iceServers) return { iceServers: data.iceServers, iceCandidatePoolSize: 10 };
+  } catch {}
+  return {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun.cloudflare.com:3478" },
+    ],
+    iceCandidatePoolSize: 10,
+  };
+}
+
+// ===== VAD：实时检测说话 =====
+function startVAD(stream) {
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audioCtx.createMediaStreamSource(stream);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 512;
+  analyser.smoothingTimeConstant = 0.3;
+  source.connect(analyser);
+
+  const buffer = new Uint8Array(analyser.frequencyBinCount);
+
+  vadInterval = setInterval(() => {
+    if (!analyser) return;
+    analyser.getByteFrequencyData(buffer);
+
+    // 计算RMS能量
+    let sum = 0;
+    for (let i = 0; i < buffer.length; i++) sum += buffer[i] * buffer[i];
+    const rms = Math.sqrt(sum / buffer.length) / 255;
+
+    // 更新音量条
+    vadFill.style.width = Math.min(rms * 800, 100) + "%";
+
+    if (rms > VAD_THRESHOLD) {
+      // 检测到说话
+      clearTimeout(vadTimer);
+      if (!isSpeaking) {
+        isSpeaking = true;
+        onSpeechStart();
+      }
+      vadTimer = setTimeout(() => {
+        isSpeaking = false;
+        onSpeechEnd();
+      }, VAD_HOLD_MS);
+    }
+  }, VAD_FRAME_MS);
+}
+
+function stopVAD() {
+  clearInterval(vadInterval);
+  clearTimeout(vadTimer);
+  vadInterval = null;
+  isSpeaking = false;
+  vadFill.style.width = "0%";
+  if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+  analyser = null;
+}
+
+// ===== 说话开始/结束回调 =====
+function onSpeechStart() {
+  setIndicator("speaking", "🎤 正在说话...");
+  // 确保麦克风音轨开启（发送给对方）
+  if (localStream) localStream.getTracks().forEach(t => t.enabled = true);
+}
+
+function onSpeechEnd() {
+  setIndicator("", "待机中，请说话...");
+  vadFill.style.width = "0%";
+}
+
+// ===== Supabase Realtime 信令 =====
+function connectSignaling(room, rtcConfig) {
+  const ws = new WebSocket(
+    `${SUPABASE_REALTIME_URL}?apikey=${SUPABASE_ANON}&vsn=1.0.0`
+  );
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({
+      topic: `realtime:fullduplex-${room}`,
+      event: "phx_join",
+      payload: { config: { broadcast: { self: false } } },
+      ref: "1"
+    }));
+  };
+
+  ws.onmessage = async (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.event === "phx_reply" && msg.payload?.status === "ok") {
+      setStatus("已进入房间，等待对方...", "info");
+      broadcast(ws, room, { type: "join" });
+    }
+    if (msg.event === "broadcast") {
+      const data = msg.payload?.payload;
+      if (data) await handleSignal(ws, room, data, rtcConfig);
+    }
+  };
+
+  ws.onerror = () => setStatus("信令连接失败", "error");
+  supabaseWs = ws;
+  supabaseWs._room = room;
+}
+
+function broadcast(ws, room, data) {
+  ws.send(JSON.stringify({
+    topic: `realtime:fullduplex-${room}`,
+    event: "broadcast",
+    payload: { event: "signal", payload: data },
+    ref: String(Date.now())
+  }));
+}
+
+async function handleSignal(ws, room, data, rtcConfig) {
+  if (data.type === "join") {
+    myRole = "caller";
+    setStatus("对方已加入，建立连接中...", "info");
+    await createP2PConnection(rtcConfig);
+    const offer = await p2pPc.createOffer();
+    await p2pPc.setLocalDescription(offer);
+    broadcast(ws, room, { type: "offer", sdp: offer.sdp });
+  }
+  if (data.type === "offer" && myRole !== "caller") {
+    myRole = "callee";
+    setStatus("收到连接请求...", "info");
+    await createP2PConnection(rtcConfig);
+    await p2pPc.setRemoteDescription({ type: "offer", sdp: data.sdp });
+    const answer = await p2pPc.createAnswer();
+    await p2pPc.setLocalDescription(answer);
+    broadcast(ws, room, { type: "answer", sdp: answer.sdp });
+  }
+  if (data.type === "answer") {
+    await p2pPc.setRemoteDescription({ type: "answer", sdp: data.sdp });
+  }
+  if (data.type === "ice") {
+    try { await p2pPc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch {}
+  }
+  if (data.type === "leave") {
+    setIndicator("", "对方已离开");
+    setStatus("对方已挂断", "error");
+  }
+}
+
+// ===== P2P连接（双机互通原始音频）=====
+async function createP2PConnection(rtcConfig) {
+  p2pPc = new RTCPeerConnection(rtcConfig);
+
+  // 收到对方音频 → 送给GPT-Realtime-Translate翻译
+  p2pPc.ontrack = async (e) => {
+    const peerStream = e.streams[0];
+    setStatus("P2P已接通，启动翻译...", "info");
+    await startTranslation(peerStream, rtcConfig);
+  };
+
+  p2pPc.onicecandidate = (e) => {
+    if (e.candidate) broadcast(supabaseWs, supabaseWs._room, { type: "ice", candidate: e.candidate });
+  };
+
+  p2pPc.onconnectionstatechange = () => {
+    if (p2pPc.connectionState === "connected") {
+      setStatus("🟢 通话已接通，自然说话即可", "ok");
+    }
+    if (p2pPc.connectionState === "failed" || p2pPc.connectionState === "disconnected") {
+      setStatus("P2P连接中断", "error");
+    }
+  };
+
+  // 把本机麦克风添加到P2P连接（让对方听到我的声音）
+  if (localStream) {
+    localStream.getTracks().forEach(t => p2pPc.addTrack(t, localStream));
+  }
+}
+
+// ===== 翻译引擎（连接OpenAI，翻译对方的声音）=====
+async function startTranslation(peerStream, rtcConfig) {
+  setIndicator("translating", "翻译引擎启动中...");
+
+  try {
+    transPc = new RTCPeerConnection(rtcConfig);
+
+    // 收到翻译后的音频 → 播放给本机用户
+    transPc.ontrack = (e) => {
+      // 关键：suppressLocalAudioPlayback防止翻译声音被麦克风再次收入
+      const audioEl = remoteAudio;
+      if ('suppressLocalAudioPlayback' in audioEl) {
+        audioEl.suppressLocalAudioPlayback = true;
+      }
+      audioEl.srcObject = e.streams[0];
+      audioEl.play().catch(() => {});
+      setIndicator("", "🟢 全双工翻译就绪，请说话");
+      rtcReady = true;
+      startBtn.className = "start-btn active";
+      startBtn.textContent = "停止翻译";
+    };
+
+    // 把对方的声音送给OpenAI翻译
+    peerStream.getTracks().forEach(t => transPc.addTrack(t, peerStream));
+
+    // 数据通道接收字幕
+    const tdc = transPc.createDataChannel("oai-events");
+    tdc.onmessage = (e) => {
+      try {
+        const ev = JSON.parse(e.data);
+        if (ev.type === "session.output_transcript.delta" ||
+            ev.type === "response.audio_transcript.delta") {
+          appendText(ev.delta || "");
+        }
+        if (ev.type === "session.output_transcript.done" ||
+            ev.type === "response.audio_transcript.done") {
+          newLine();
+        }
+        if (ev.type === "error") {
+          setStatus("翻译错误: " + (ev.error?.message || ""), "error");
+        }
+      } catch {}
+    };
+
+    // 并行获取翻译密钥和SDP offer
+    const [secretRes, offer] = await Promise.all([
+      fetch(SUPABASE_URL_SESSION, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${SUPABASE_ANON}`,
+          "apikey": SUPABASE_ANON,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ outputLanguage: outputLang })
+      }),
+      transPc.createOffer().then(o => { transPc.setLocalDescription(o); return o; })
+    ]);
+
+    const secretText = await secretRes.text();
+    if (!secretRes.ok) throw new Error("密钥获取失败: " + secretText);
+    const { client_secret } = JSON.parse(secretText);
+    if (!client_secret) throw new Error("没有收到client_secret");
+
+    const sdpRes = await fetch(
+      `${OPENAI_TRANSLATIONS}?model=gpt-realtime-translate`,
+      {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${client_secret}`, "Content-Type": "application/sdp" },
+        body: offer.sdp
+      }
+    );
+    const answerSdp = await sdpRes.text();
+    if (!sdpRes.ok) throw new Error("OpenAI握手失败: " + sdpRes.status);
+    await transPc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("翻译连接超时")), 12000);
+      const check = () => {
+        const s = transPc?.iceConnectionState;
+        if (s === "connected" || s === "completed") { clearTimeout(timeout); resolve(); }
+        if (s === "failed") { clearTimeout(timeout); reject(new Error("翻译ICE失败")); }
+      };
+      transPc.oniceconnectionstatechange = check;
+      check();
+    });
+
+  } catch (err) {
+    setStatus("翻译引擎启动失败: " + err.message, "error");
+    setIndicator("", "翻译连接失败");
+  }
+}
+
+// ===== 开始/停止翻译 =====
+async function toggleTranslation() {
+  if (isActive) {
+    stopTranslation();
+  } else {
+    await beginTranslation();
+  }
+}
+
+async function beginTranslation() {
+  startBtn.className = "start-btn connecting";
+  startBtn.textContent = "连接中...";
+  startBtn.disabled = true;
+  isActive = true;
+
+  try {
+    // 申请麦克风权限（全双工，持续开麦）
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,   // AEC3回声消除
+        noiseSuppression: true,   // 噪音抑制
+        autoGainControl: true,    // 自动增益
+        sampleRate: 24000,        // OpenAI推荐采样率
+      }
+    });
+
+    // 启动VAD（检测说话状态）
+    startVAD(localStream);
+    setIndicator("", "等待对方加入...");
+
+    // 获取TURN配置并连接信令
+    setStatus("获取网络配置...", "info");
+    const rtcConfig = await getTurnConfig();
+    connectSignaling(roomName, rtcConfig);
+
+    startBtn.disabled = false;
+
+  } catch (err) {
+    isActive = false;
+    startBtn.className = "start-btn idle";
+    startBtn.textContent = "开始翻译通话";
+    startBtn.disabled = false;
+    setStatus(err.message, "error");
+  }
+}
+
+function stopTranslation() {
+  isActive = false;
+  rtcReady = false;
+  stopVAD();
+
+  if (supabaseWs) {
+    try { broadcast(supabaseWs, roomName, { type: "leave" }); supabaseWs.close(); } catch {}
+    supabaseWs = null;
+  }
+  if (transPc) { try { transPc.close(); } catch {} transPc = null; }
+  if (p2pPc)   { try { p2pPc.close(); }   catch {} p2pPc = null; }
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  remoteAudio.srcObject = null;
+
+  startBtn.className = "start-btn idle";
+  startBtn.textContent = "开始翻译通话";
+  setIndicator("", "已停止");
+  setStatus("翻译已停止");
+}
+
+// ===== 加入房间 =====
+async function joinRoom() {
+  const room = roomInput.value.trim();
+  if (room.length < 4) { alert("请输入至少4位房间号"); return; }
+  outputLang = langSelect.value;
+  roomName = room;
+
+  joinBtn.disabled = true;
+  joinCard.style.display = "none";
+  callSection.classList.add("visible");
+  roomDisplay.textContent = room;
+
+  // 自动开始翻译
+  await beginTranslation();
+}
+
+function leaveRoom() {
+  stopTranslation();
+  callSection.classList.remove("visible");
+  joinCard.style.display = "";
+  joinBtn.disabled = false;
+  myRole = null;
+  transcript.textContent = "";
+}
+
+// 预热Supabase
+window.addEventListener("load", () => {
+  fetch(SUPABASE_URL_SESSION, {
+    method: "OPTIONS",
+    headers: { "Authorization": `Bearer ${SUPABASE_ANON}` }
+  }).catch(() => {});
+});
+</script>
+</body>
+</html>
