@@ -245,29 +245,13 @@ async function connect() {
   try {
     setStatus("正在连接...");
 
-    // 1. 静音占位流
+    // 静音占位流
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const dest = ctx.createMediaStreamDestination();
     stream = dest.stream;
 
-    // 2. 获取密钥
-    setStatus("获取翻译密钥...");
-    const res = await fetch(SUPABASE_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${SUPABASE_ANON}`,
-        "apikey": SUPABASE_ANON,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ outputLanguage: langSel.value })
-    });
-    const resText = await res.text();
-    if (!res.ok) throw new Error("密钥获取失败 " + res.status + ": " + resText);
-    const { client_secret } = JSON.parse(resText);
-    if (!client_secret) throw new Error("没有收到client_secret: " + resText);
-
-    // 3. 建立 WebRTC（多STUN服务器加速ICE）
-    setStatus("建立WebRTC连接...");
+    // ★ 并行执行：密钥获取 + WebRTC初始化 + SDP offer生成 同时跑
+    // 三件事同时开始，互不等待，节省4-6秒
     pc = new RTCPeerConnection(RTC_CONFIG);
 
     pc.ontrack = e => {
@@ -304,10 +288,27 @@ async function connect() {
       pc.addTrack(t, stream);
     });
 
-    // 4. SDP握手（直接发，不等ICE收集完成，让OpenAI处理Trickle ICE）
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    // 同时发起：密钥请求 + SDP offer生成（两件事并行）
+    const [secretRes, offer] = await Promise.all([
+      fetch(SUPABASE_URL, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${SUPABASE_ANON}`,
+          "apikey": SUPABASE_ANON,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ outputLanguage: langSel.value })
+      }),
+      pc.createOffer().then(o => { pc.setLocalDescription(o); return o; })
+    ]);
 
+    // 处理密钥结果
+    const resText = await secretRes.text();
+    if (!secretRes.ok) throw new Error("密钥获取失败 " + secretRes.status + ": " + resText);
+    const { client_secret } = JSON.parse(resText);
+    if (!client_secret) throw new Error("没有收到client_secret: " + resText);
+
+    // 密钥和SDP都准备好了，立刻握手
     setStatus("正在握手...");
     const sdpRes = await fetch(
       `${OPENAI_TRANSLATIONS}?model=gpt-realtime-translate`,
@@ -325,7 +326,7 @@ async function connect() {
 
     await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
-    // 5. 等待ICE连接（多STUN下通常很快）
+    // 等待ICE连接
     await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("连接超时，请重试")), 12000);
       const check = () => {
