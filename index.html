@@ -184,6 +184,26 @@ const audio    = document.getElementById("audio");
 
 let pc = null, dc = null, stream = null, busy = false, holding = false;
 
+// STUN服务器配置（多个公共服务器加速ICE协商）
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun.cloudflare.com:3478" },
+  ],
+  iceCandidatePoolSize: 10, // 预先收集ICE候选，加速协商
+};
+
+// Supabase预热：页面加载时发一个空请求唤醒冷启动的Edge Function
+async function warmupSupabase() {
+  try {
+    await fetch(SUPABASE_URL, {
+      method: "OPTIONS",
+      headers: { "Authorization": `Bearer ${SUPABASE_ANON}` }
+    });
+  } catch {}
+}
+
 function setStatus(msg, type = "") {
   statusEl.textContent = msg;
   statusEl.className = "status" + (type ? " " + type : "");
@@ -223,13 +243,14 @@ async function connect() {
   transcript.textContent = "";
 
   try {
-    // 1. 用静音占位流建立WebRTC（不需要用户手势）
-    setStatus("正在预连接...");
+    setStatus("正在连接...");
+
+    // 1. 静音占位流
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const dest = ctx.createMediaStreamDestination();
-    stream = dest.stream; // 静音占位，后面换成真实麦克风
+    stream = dest.stream;
 
-    // 2. 从 Supabase 获取 client_secret
+    // 2. 获取密钥
     setStatus("获取翻译密钥...");
     const res = await fetch(SUPABASE_URL, {
       method: "POST",
@@ -241,21 +262,19 @@ async function connect() {
       body: JSON.stringify({ outputLanguage: langSel.value })
     });
     const resText = await res.text();
-    if (!res.ok) throw new Error("Supabase错误 " + res.status + ": " + resText);
+    if (!res.ok) throw new Error("密钥获取失败 " + res.status + ": " + resText);
     const { client_secret } = JSON.parse(resText);
     if (!client_secret) throw new Error("没有收到client_secret: " + resText);
 
-    // 3. 建立 WebRTC
+    // 3. 建立 WebRTC（多STUN服务器加速ICE）
     setStatus("建立WebRTC连接...");
-    pc = new RTCPeerConnection();
+    pc = new RTCPeerConnection(RTC_CONFIG);
 
-    // 接收翻译音频
     pc.ontrack = e => {
       audio.srcObject = e.streams[0];
       audio.play().catch(() => {});
     };
 
-    // 数据通道接收字幕
     dc = pc.createDataChannel("oai-events");
     dc.onmessage = e => {
       try {
@@ -280,16 +299,16 @@ async function connect() {
     };
     dc.onerror = () => setStatus("数据通道错误", "error");
 
-    // 添加麦克风音轨（先静音，等按住时才开启）
     stream.getTracks().forEach(t => {
-      t.enabled = false; // 默认静音
+      t.enabled = false;
       pc.addTrack(t, stream);
     });
 
-    // 4. SDP 握手
+    // 4. SDP握手（直接发，不等ICE收集完成，让OpenAI处理Trickle ICE）
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
+    setStatus("正在握手...");
     const sdpRes = await fetch(
       `${OPENAI_TRANSLATIONS}?model=gpt-realtime-translate`,
       {
@@ -302,18 +321,17 @@ async function connect() {
       }
     );
     const answerSdp = await sdpRes.text();
-    if (!sdpRes.ok) throw new Error("OpenAI SDP错误 " + sdpRes.status + ": " + answerSdp);
+    if (!sdpRes.ok) throw new Error("OpenAI握手失败 " + sdpRes.status + ": " + answerSdp);
 
     await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
-    // 5. 等待 ICE 连接
-    setStatus("等待ICE连接...");
+    // 5. 等待ICE连接（多STUN下通常很快）
     await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("ICE连接超时，请重试")), 15000);
+      const timeout = setTimeout(() => reject(new Error("连接超时，请重试")), 12000);
       const check = () => {
         const s = pc?.iceConnectionState;
         if (s === "connected" || s === "completed") { clearTimeout(timeout); resolve(); }
-        else if (s === "failed") { clearTimeout(timeout); reject(new Error("ICE连接失败")); }
+        else if (s === "failed") { clearTimeout(timeout); reject(new Error("ICE连接失败，请重试")); }
       };
       pc.oniceconnectionstatechange = check;
       check();
@@ -377,8 +395,9 @@ micBtn.addEventListener("pointerup",     e => { e.preventDefault(); stopSpeaking
 micBtn.addEventListener("pointercancel", e => { e.preventDefault(); stopSpeaking(); });
 micBtn.addEventListener("pointerleave",  e => { if (holding) stopSpeaking(); });
 
-// 页面加载完自动连接，不需要用户先按按钮
+// 页面加载：先预热Supabase，同时开始连接
 window.addEventListener("load", () => {
+  warmupSupabase(); // 异步预热，不等结果
   connect();
 });
 </script>
