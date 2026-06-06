@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>GloTalk 双人翻译通话</title>
+  <style>
+    * { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0; min-height: 100vh; min-height: 100dvh;
+      background: #0a0a0a; color: #f0f0f0;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+    }
+    .app { width: min(100%, 400px); display: flex; flex-direction: column; gap: 16px; }
+    .logo { font-size: 32px; font-weight: 800; letter-spacing: -1px; color: #fff; }
+    .logo span { color: #22c55e; }
+    .logo small { font-size: 13px; font-weight: 400; color: #555; display: block; margin-top: 2px; }
+
+    .card {
+      background: #111; border: 1px solid #222;
+      border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px;
+    }
+
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 12px; color: #555; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .field input, .field select {
+      background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px;
+      color: #f0f0f0; font: inherit; font-size: 16px; padding: 12px 14px;
+      outline: none; -webkit-user-select: text; user-select: text;
+      transition: border-color 0.2s;
+    }
+    .field input:focus, .field select:focus { border-color: #22c55e44; }
+    .field select option { background: #1a1a1a; }
+
+    .room-row { display: flex; gap: 8px; }
+    .room-row input { flex: 1; }
+    .room-btn {
+      background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px;
+      color: #22c55e; font: inherit; font-size: 13px; font-weight: 700;
+      padding: 0 14px; cursor: pointer; white-space: nowrap;
+      transition: background 0.15s;
+    }
+    .room-btn:active { background: #222; }
+
+    .join-btn {
+      width: 100%; height: 58px; border: none; border-radius: 14px;
+      background: #22c55e; color: #000; font: inherit;
+      font-size: 17px; font-weight: 800; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .join-btn:active { transform: scale(0.97); }
+    .join-btn:disabled { background: #1a1a1a; color: #444; cursor: wait; }
+    .join-btn.danger { background: #ef4444; color: #fff; }
+
+    .transcript-box {
+      min-height: 140px; max-height: 200px; overflow-y: auto;
+      background: #0d1a0f; border: 1px solid #1a3320;
+      border-radius: 14px; padding: 16px;
+      font-size: 20px; font-weight: 600; line-height: 1.4;
+      color: #22c55e; word-break: break-word; white-space: pre-wrap;
+    }
+    .transcript-box:empty::before { content: "译文显示在这里"; color: #1a3320; font-size: 15px; font-weight: 400; }
+
+    .mic-btn {
+      width: 100%; height: 66px; border: none; border-radius: 14px;
+      font: inherit; font-size: 17px; font-weight: 800; cursor: pointer;
+      transition: all 0.15s; touch-action: none;
+    }
+    .mic-btn.idle { background: #1a1a1a; color: #444; cursor: not-allowed; }
+    .mic-btn.ready { background: #22c55e; color: #000; }
+    .mic-btn.recording { background: #ef4444; color: #fff; box-shadow: 0 0 0 4px #ef444433; }
+    .mic-btn.connecting { background: #1a1a1a; color: #555; cursor: wait; }
+    .mic-btn:active:not(.idle):not(.connecting) { transform: scale(0.97); }
+
+    .status { font-size: 13px; color: #444; text-align: center; min-height: 18px; }
+    .status.ok { color: #22c55e; }
+    .status.error { color: #ef4444; }
+    .status.info { color: #60a5fa; }
+
+    .peers { display: flex; gap: 8px; flex-wrap: wrap; }
+    .peer-badge {
+      background: #1a3320; border: 1px solid #22c55e33;
+      border-radius: 20px; padding: 4px 12px;
+      font-size: 12px; color: #22c55e; font-weight: 600;
+    }
+
+    .pulse { display: inline-block; width: 7px; height: 7px; background: #ef4444; border-radius: 50%; margin-right: 6px; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+
+    .divider { height: 1px; background: #1a1a1a; margin: 4px 0; }
+    .hint { font-size: 11px; color: #333; text-align: center; line-height: 1.5; }
+
+    /* 连接前隐藏通话区域 */
+    .call-section { display: none; }
+    .call-section.visible { display: flex; flex-direction: column; gap: 12px; }
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="logo">Glo<span>Talk</span><small>双人实时翻译通话 · Beta</small></div>
+
+  <!-- 加入房间区域 -->
+  <div class="card" id="joinCard">
+    <div class="field">
+      <label>房间号（6位数字，双方填同一个）</label>
+      <div class="room-row">
+        <input type="text" id="roomInput" placeholder="例如：123456" maxlength="6"
+          inputmode="numeric" pattern="[0-9]*" />
+        <button class="room-btn" onclick="generateRoom()">随机生成</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>我的名字</label>
+      <input type="text" id="nameInput" placeholder="例如：小明" maxlength="20" />
+    </div>
+    <div class="field">
+      <label>我要听的语言（翻译输出）</label>
+      <select id="langSelect">
+        <option value="en">🇺🇸 英文</option>
+        <option value="zh">🇨🇳 中文</option>
+        <option value="ja">🇯🇵 日文</option>
+        <option value="ko">🇰🇷 韩文</option>
+        <option value="es">🇪🇸 西班牙文</option>
+        <option value="fr">🇫🇷 法文</option>
+        <option value="de">🇩🇪 德文</option>
+      </select>
+    </div>
+    <button class="join-btn" id="joinBtn" onclick="joinRoom()">加入翻译通话</button>
+  </div>
+
+  <!-- 通话中区域 -->
+  <div class="call-section" id="callSection">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="font-size:13px; color:#555;">
+          房间 <span id="roomDisplay" style="color:#f0f0f0; font-weight:700;"></span>
+        </div>
+        <div class="peers" id="peersDisplay"></div>
+      </div>
+      <div class="divider"></div>
+      <div id="transcript" class="transcript-box"></div>
+      <div id="status" class="status">准备就绪</div>
+    </div>
+
+    <button class="mic-btn idle" id="micBtn" type="button">请等待连接...</button>
+
+    <button class="join-btn danger" onclick="leaveRoom()" style="height:46px; font-size:15px;">
+      挂断离开
+    </button>
+  </div>
+
+  <div class="hint">需要 HTTPS · 请允许麦克风权限 · 双方填同一房间号即可通话</div>
+</div>
+
+<audio id="remoteAudio" autoplay playsinline style="display:none"></audio>
+
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
+<script>
+// ===== 配置 =====
+const SUPABASE_URL_SESSION = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-realtime-session";
+const SUPABASE_URL_LIVEKIT  = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-livekit-token";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
+const LIVEKIT_URL = "wss://glotalk-nppyx7kk.livekit.cloud";
+const OPENAI_TRANSLATIONS = "https://api.openai.com/v1/realtime/translations";
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun.cloudflare.com:3478" },
+  ],
+  iceCandidatePoolSize: 10,
+};
+
+// ===== 状态 =====
+let livekitRoom = null;
+let pc = null, dc = null, localStream = null, realStream = null;
+let holding = false, rtcReady = false;
+
+// ===== UI 元素 =====
+const joinCard     = document.getElementById("joinCard");
+const callSection  = document.getElementById("callSection");
+const roomInput    = document.getElementById("roomInput");
+const nameInput    = document.getElementById("nameInput");
+const langSelect   = document.getElementById("langSelect");
+const joinBtn      = document.getElementById("joinBtn");
+const micBtn       = document.getElementById("micBtn");
+const statusEl     = document.getElementById("status");
+const transcript   = document.getElementById("transcript");
+const roomDisplay  = document.getElementById("roomDisplay");
+const peersDisplay = document.getElementById("peersDisplay");
+const remoteAudio  = document.getElementById("remoteAudio");
+
+// ===== 工具函数 =====
+function generateRoom() {
+  roomInput.value = Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function setStatus(msg, type = "") {
+  statusEl.textContent = msg;
+  statusEl.className = "status" + (type ? " " + type : "");
+}
+
+function appendText(delta) {
+  if (!delta) return;
+  transcript.textContent += delta;
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+function newLine() {
+  if (!transcript.textContent) return;
+  const lines = transcript.textContent.split("\n");
+  transcript.textContent = (lines.length > 5 ? lines.slice(-5) : lines).join("\n") + "\n";
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+function updatePeers() {
+  if (!livekitRoom) return;
+  peersDisplay.innerHTML = "";
+  livekitRoom.remoteParticipants.forEach(p => {
+    const badge = document.createElement("div");
+    badge.className = "peer-badge";
+    badge.textContent = "👤 " + (p.identity || "对方");
+    peersDisplay.appendChild(badge);
+  });
+}
+
+// ===== 加入房间 =====
+async function joinRoom() {
+  const roomName = roomInput.value.trim();
+  const myName   = nameInput.value.trim() || "用户" + Math.floor(Math.random()*1000);
+  const lang     = langSelect.value;
+
+  if (roomName.length < 4) { alert("请输入至少4位房间号"); return; }
+
+  joinBtn.disabled = true;
+  joinBtn.textContent = "连接中...";
+
+  try {
+    // 1. 获取LiveKit Token
+    const tokenRes = await fetch(SUPABASE_URL_LIVEKIT, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${SUPABASE_ANON}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ roomName, participantName: myName, outputLanguage: lang })
+    });
+    const tokenData = await tokenRes.json();
+    if (!tokenRes.ok) throw new Error("LiveKit Token失败: " + tokenData.error);
+
+    // 2. 加入LiveKit房间
+    livekitRoom = new LivekitClient.Room({
+      adaptiveStream: true,
+      dynacast: true,
+    });
+
+    livekitRoom.on(LivekitClient.RoomEvent.ParticipantConnected, p => {
+      setStatus("🟢 " + p.identity + " 加入了通话", "ok");
+      updatePeers();
+    });
+    livekitRoom.on(LivekitClient.RoomEvent.ParticipantDisconnected, p => {
+      setStatus(p.identity + " 离开了通话", "info");
+      updatePeers();
+    });
+    livekitRoom.on(LivekitClient.RoomEvent.Disconnected, () => {
+      setStatus("通话已断开", "error");
+      cleanup();
+    });
+
+    await livekitRoom.connect(LIVEKIT_URL, tokenData.token);
+
+    // 3. 切换到通话界面
+    joinCard.style.display = "none";
+    callSection.classList.add("visible");
+    roomDisplay.textContent = roomName;
+    updatePeers();
+
+    // 4. 启动GPT-Realtime-Translate连接
+    await connectTranslation(lang);
+
+  } catch (err) {
+    joinBtn.disabled = false;
+    joinBtn.textContent = "加入翻译通话";
+    alert("连接失败: " + err.message);
+  }
+}
+
+// ===== GPT-Realtime-Translate 连接 =====
+async function connectTranslation(lang) {
+  setStatus("正在连接翻译引擎...", "info");
+  micBtn.className = "mic-btn connecting";
+  micBtn.textContent = "翻译引擎连接中...";
+
+  try {
+    // 静音占位流
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const dest = ctx.createMediaStreamDestination();
+    localStream = dest.stream;
+
+    // 并行：获取翻译Token + 创建WebRTC offer
+    pc = new RTCPeerConnection(RTC_CONFIG);
+    pc.ontrack = e => {
+      remoteAudio.srcObject = e.streams[0];
+      remoteAudio.play().catch(() => {});
+    };
+
+    dc = pc.createDataChannel("oai-events");
+    dc.onmessage = e => {
+      try {
+        const ev = JSON.parse(e.data);
+        if (ev.type === "session.output_transcript.delta" ||
+            ev.type === "response.audio_transcript.delta") {
+          appendText(ev.delta || "");
+        }
+        if (ev.type === "session.output_transcript.done" ||
+            ev.type === "response.audio_transcript.done") {
+          newLine();
+        }
+        if (ev.type === "error") {
+          setStatus("翻译错误: " + (ev.error?.message || ""), "error");
+        }
+      } catch {}
+    };
+    dc.onopen = () => {
+      rtcReady = true;
+      micBtn.className = "mic-btn ready";
+      micBtn.textContent = "按住说话";
+      setStatus("🟢 翻译就绪，按住说话", "ok");
+    };
+
+    localStream.getTracks().forEach(t => { t.enabled = false; pc.addTrack(t, localStream); });
+
+    const [secretRes, offer] = await Promise.all([
+      fetch(SUPABASE_URL_SESSION, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${SUPABASE_ANON}`,
+          "apikey": SUPABASE_ANON,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ outputLanguage: lang })
+      }),
+      pc.createOffer().then(o => { pc.setLocalDescription(o); return o; })
+    ]);
+
+    const secretText = await secretRes.text();
+    if (!secretRes.ok) throw new Error("翻译密钥失败: " + secretText);
+    const { client_secret } = JSON.parse(secretText);
+    if (!client_secret) throw new Error("没有收到client_secret");
+
+    const sdpRes = await fetch(
+      `${OPENAI_TRANSLATIONS}?model=gpt-realtime-translate`,
+      {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${client_secret}`, "Content-Type": "application/sdp" },
+        body: offer.sdp
+      }
+    );
+    const answerSdp = await sdpRes.text();
+    if (!sdpRes.ok) throw new Error("OpenAI握手失败: " + sdpRes.status);
+    await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("ICE超时，请重试")), 12000);
+      const check = () => {
+        const s = pc?.iceConnectionState;
+        if (s === "connected" || s === "completed") { clearTimeout(timeout); resolve(); }
+        else if (s === "failed") { clearTimeout(timeout); reject(new Error("ICE连接失败")); }
+      };
+      pc.oniceconnectionstatechange = check;
+      check();
+    });
+
+  } catch (err) {
+    micBtn.className = "mic-btn idle";
+    micBtn.textContent = "翻译连接失败";
+    setStatus(err.message, "error");
+  }
+}
+
+// ===== 按住说话 =====
+async function startSpeaking() {
+  if (!rtcReady) return;
+  holding = true;
+  micBtn.className = "mic-btn recording";
+  micBtn.innerHTML = '<span class="pulse"></span>松开停止';
+
+  if (!realStream) {
+    setStatus("请允许麦克风权限...");
+    try {
+      realStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+      const realTrack = realStream.getAudioTracks()[0];
+      const sender = pc.getSenders().find(s => s.track?.kind === "audio");
+      if (sender) await sender.replaceTrack(realTrack);
+    } catch (e) {
+      setStatus("麦克风权限被拒绝", "error");
+      holding = false;
+      micBtn.className = "mic-btn ready";
+      micBtn.textContent = "按住说话";
+      return;
+    }
+  }
+  realStream.getTracks().forEach(t => t.enabled = true);
+  setStatus("🎤 正在录音...", "ok");
+}
+
+function stopSpeaking() {
+  if (!holding) return;
+  holding = false;
+  realStream?.getTracks().forEach(t => t.enabled = false);
+  micBtn.className = "mic-btn ready";
+  micBtn.textContent = "按住说话";
+  setStatus("🟢 翻译就绪，按住说话", "ok");
+}
+
+micBtn.addEventListener("pointerdown", e => { e.preventDefault(); startSpeaking(); });
+micBtn.addEventListener("pointerup",     e => { e.preventDefault(); stopSpeaking(); });
+micBtn.addEventListener("pointercancel", e => { e.preventDefault(); stopSpeaking(); });
+micBtn.addEventListener("pointerleave",  e => { if (holding) stopSpeaking(); });
+
+// ===== 离开房间 =====
+async function leaveRoom() {
+  cleanup();
+  joinCard.style.display = "";
+  callSection.classList.remove("visible");
+  joinBtn.disabled = false;
+  joinBtn.textContent = "加入翻译通话";
+}
+
+function cleanup() {
+  rtcReady = false; holding = false;
+  if (dc)         { try { dc.close(); } catch {} dc = null; }
+  if (pc)         { try { pc.close(); } catch {} pc = null; }
+  if (realStream) { realStream.getTracks().forEach(t => t.stop()); realStream = null; }
+  if (localStream){ localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  if (livekitRoom){ livekitRoom.disconnect(); livekitRoom = null; }
+  remoteAudio.srcObject = null;
+  micBtn.className = "mic-btn idle";
+  micBtn.textContent = "请等待连接...";
+  peersDisplay.innerHTML = "";
+}
+</script>
+</body>
+</html>
