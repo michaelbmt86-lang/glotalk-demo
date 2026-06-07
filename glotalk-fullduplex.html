@@ -421,7 +421,9 @@ function connectSignaling(room, rtcConfig) {
         // 先加入的时间戳更小 → impolite（不礼貌，坚持自己）
         // 后加入的时间戳更大 → polite（礼貌，让步）
         isPolite = myTimestamp === Math.max(...timestamps);
-        setStatus(`角色: ${isPolite ? "polite(后加入)" : "impolite(先加入)"}`, "info");
+        const msg = `角色: ${isPolite ? "polite(后加入)" : "impolite(先加入)"}`;
+        setStatus(msg, "info");
+        console.log("Status:", msg);
 
         // 设置Perfect Negotiation（只设置一次）
         if (!handleSignal) {
@@ -438,12 +440,16 @@ function connectSignaling(room, rtcConfig) {
       if (handleSignal) await handleSignal(payload);
       if (payload.type === "leave") {
         setIndicator("", "对方已离开");
-        setStatus("对方已挂断", "error");
+        const msg = "对方已挂断";
+        setStatus(msg, "error");
+        console.log("Status:", msg);
       }
     })
     .subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
-        setStatus("已进入房间，等待对方...", "info");
+        const msg = "已进入房间，等待对方...";
+        setStatus(msg, "info");
+        console.log("Status:", msg);
         await supabaseChannel.track({ ts: myTimestamp });
       }
     });
@@ -517,8 +523,11 @@ async function startTranslation(peerStream) {
 
   } catch (err) {
     transPc = null;
-    setStatus("翻译引擎失败: " + err.message, "error");
+    const msg = "翻译失败: " + (err.message || String(err));
+    setStatus(msg, "error");
     setIndicator("", "翻译连接失败");
+    // 错误停留10秒不消失
+    console.error("startTranslation error:", err);
   }
 }
 
