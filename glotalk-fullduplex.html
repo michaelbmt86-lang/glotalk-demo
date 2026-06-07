@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -414,22 +415,29 @@ function connectSignaling(room, rtcConfig) {
   let handleSignal = null;
 
   supabaseChannel
-    .on("presence", { event: "sync" }, () => {
+    .on("presence", { event: "sync" }, async () => {
       const state = supabaseChannel.presenceState();
       const timestamps = Object.keys(state).map(Number).sort();
-      if (timestamps.length >= 2) {
-        // 先加入的时间戳更小 → impolite（不礼貌，坚持自己）
-        // 后加入的时间戳更大 → polite（礼貌，让步）
+      if (timestamps.length >= 2 && !handleSignal) {
         isPolite = myTimestamp === Math.max(...timestamps);
         setStatus(`角色: ${isPolite ? "polite(后加入)" : "impolite(先加入)"}`, "info");
 
-        // 设置Perfect Negotiation（只设置一次）
-        if (!handleSignal) {
-          handleSignal = setupPerfectNegotiation(p2pPc, supabaseChannel, isPolite);
-          // polite peer主动触发协商
-          if (!isPolite) {
-            // impolite peer（先加入的）立刻发offer触发连接
-            p2pPc.onnegotiationneeded && p2pPc.onnegotiationneeded();
+        // 设置Perfect Negotiation
+        handleSignal = setupPerfectNegotiation(p2pPc, supabaseChannel, isPolite);
+
+        // impolite peer（先加入的）主动发offer
+        if (!isPolite) {
+          try {
+            setStatus("发送连接offer...", "info");
+            const offer = await p2pPc.createOffer();
+            await p2pPc.setLocalDescription(offer);
+            await supabaseChannel.send({
+              type: "broadcast", event: "signal",
+              payload: { type: "sdp", description: p2pPc.localDescription }
+            });
+            setStatus("offer已发送，等待对方响应...", "info");
+          } catch(e) {
+            setStatus("发送offer失败: " + e.message, "error");
           }
         }
       }
