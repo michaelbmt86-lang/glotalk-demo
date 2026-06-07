@@ -306,12 +306,26 @@ async function createP2P(rtcConfig) {
     const s = p2pPc?.connectionState;
     setStatus("P2P: " + s, s === "connected" ? "ok" : "info");
     if (s === "connected") setIndicator("", "🟢 通话已接通，请说话");
-    if (s === "failed") { setStatus("连接失败，请重试", "error"); }
+    if (s === "disconnected") setStatus("连接暂时中断，等待恢复...", "info");
+    if (s === "failed") setStatus("连接失败，请重试", "error");
   };
 
   p2pPc.oniceconnectionstatechange = () => {
     const s = p2pPc?.iceConnectionState;
-    if (s === "failed") { p2pPc.restartIce(); setStatus("ICE重启中...", "info"); }
+    setStatus("ICE: " + s, "info");
+    if (s === "failed") {
+      p2pPc.restartIce();
+      setStatus("ICE重启中...", "info");
+    }
+    if (s === "disconnected") {
+      setStatus("ICE暂时断开，等待恢复...", "info");
+      setTimeout(() => {
+        if (p2pPc?.iceConnectionState === "disconnected") {
+          p2pPc.restartIce();
+          setStatus("ICE重启中...", "info");
+        }
+      }, 2000);
+    }
   };
 
   // 添加本机麦克风
