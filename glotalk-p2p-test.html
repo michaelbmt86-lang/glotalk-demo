@@ -257,32 +257,27 @@ async function start() {
 
   ch.on("presence", { event:"sync" }, async () => {
     const state   = ch.presenceState();
-    const members = Object.keys(state);
-    log("房间人数: "+members.length, "info");
+    const members = Object.keys(state).sort(); // 字母序排序
+    log("房间人数: "+members.length+" 成员:"+members.join(","), "info");
 
     if (members.length >= 2 && !pc) {
-      // 两人都在线了！时间戳小的（先加入的）发offer
-      const allTs = members.map(k => {
-        const arr = state[k];
-        return arr[0]?.ts || 0;
-      });
-      const minTs = Math.min(...allTs);
-      const myPresence = state[myId];
-      const myPresenceTs = myPresence?.[0]?.ts || myTs;
+      // 用ID字母序决定角色：排序后第一个发offer，第二个等待
+      // 这个方法100%可靠，不依赖时间戳
+      const isCaller = members[0] === myId;
+      log((isCaller ? "✅ 我发offer" : "我等待offer") + " (ID排序: "+members[0]+"<"+members[1]+")", "info");
 
-      if (myPresenceTs === minTs) {
-        // 我是先加入的，我发offer
-        log("我先加入，发offer...", "ok");
+      if (isCaller) {
         await createPC();
         const d = pc.createDataChannel("chat");
         setupDC(d);
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         await bcast({ type:"offer", sdp:pc.localDescription.sdp });
+        log("offer已发送！", "ok");
       } else {
-        log("对方先加入，等待offer...", "info");
-        if (!pc) await createPC();
+        await createPC();
         pc.ondatachannel = e => setupDC(e.channel);
+        log("等待对方offer...", "info");
       }
     }
   })
