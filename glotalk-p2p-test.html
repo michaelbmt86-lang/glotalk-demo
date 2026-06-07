@@ -7,11 +7,10 @@
   <title>GloTalk P2P测试</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <style>
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    input, textarea { -webkit-user-select: text !important; user-select: text !important; }
-    body { margin: 0; min-height: 100vh; background: #0a0a0a; color: #f0f0f0; font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; padding: 20px; -webkit-user-select: none; user-select: none; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+    body { min-height: 100vh; background: #0a0a0a; color: #f0f0f0; font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; padding: 20px; }
     .app { width: min(100%, 420px); display: flex; flex-direction: column; gap: 12px; }
-    h2 { color: #22c55e; margin: 0; font-size: 24px; }
+    h2 { color: #22c55e; font-size: 24px; }
     h2 span { color: #fff; }
     .log { background: #111; border: 1px solid #222; border-radius: 12px; padding: 14px; min-height: 240px; max-height: 320px; overflow-y: auto; font-size: 13px; line-height: 1.8; }
     .ok   { color: #22c55e; }
@@ -19,168 +18,142 @@
     .info { color: #60a5fa; }
     .msg  { color: #f0f0f0; }
     .them { color: #f59e0b; }
-    #status { font-size: 13px; text-align: center; min-height: 18px; color: #555; padding: 4px; }
-    #status.ok  { color: #22c55e; }
-    #status.err { color: #ef4444; }
+    #statusBar { font-size: 13px; text-align: center; padding: 6px; border-radius: 8px; background: #111; border: 1px solid #222; }
+    #statusBar.ok  { color: #22c55e; border-color: #22c55e44; }
+    #statusBar.err { color: #ef4444; border-color: #ef444444; }
+    #pingBar { font-size: 12px; color: #22c55e; text-align: center; min-height: 16px; }
     #msgInput {
-      width: 100%; padding: 12px 14px;
-      background: #1a1a1a; border: 1px solid #333;
+      width: 100%; padding: 14px;
+      background: #1a1a1a; border: 2px solid #333;
       border-radius: 10px; color: #f0f0f0;
-      font-size: 15px; font-family: inherit;
+      font-size: 16px; font-family: inherit;
       outline: none;
-      -webkit-user-select: text !important;
-      user-select: text !important;
+      /* iOS Safari必须用这两个才能输入 */
+      -webkit-user-select: auto !important;
+      user-select: auto !important;
     }
-    #msgInput:focus { border-color: #22c55e44; }
-    button { width: 100%; height: 52px; border: none; border-radius: 12px; font: inherit; font-size: 16px; font-weight: 800; cursor: pointer; -webkit-user-select: none; user-select: none; }
+    #msgInput::placeholder { color: #444; }
+    #msgInput:focus { border-color: #22c55e; }
+    #msgInput:disabled { opacity: 0.4; }
+    .btn { width: 100%; height: 52px; border: none; border-radius: 12px; font-size: 16px; font-weight: 800; cursor: pointer; }
     #sendBtn { background: #22c55e; color: #000; }
     #sendBtn:disabled { background: #1a1a1a; color: #444; cursor: not-allowed; }
-    #leaveBtn { background: #ef4444; color: #fff; height: 44px; font-size: 14px; margin-top: 4px; }
-    .ping { font-size: 12px; color: #22c55e; text-align: center; min-height: 16px; }
+    #resetBtn { background: #ef4444; color: #fff; height: 44px; font-size: 14px; }
     .audio-row { display: flex; align-items: center; gap: 8px; background: #111; border: 1px solid #222; border-radius: 10px; padding: 10px 14px; }
     .audio-label { font-size: 12px; color: #555; white-space: nowrap; }
+    audio { flex: 1; height: 32px; }
   </style>
 </head>
 <body>
 <div class="app">
   <h2>Glo<span>Talk</span> P2P测试</h2>
-  <p style="color:#555;font-size:12px;margin:0">房间固定888888 · 文字+音频 · 不调用OpenAI · 完全免费</p>
+  <p style="color:#555;font-size:12px;">房间固定888888 · 文字+音频 · 不调用OpenAI · 完全免费</p>
   <div class="log" id="log"></div>
-  <div id="status">正在初始化...</div>
-  <div class="ping" id="ping"></div>
-  <input type="text" id="msgInput" placeholder="输入消息发给对方（连接成功后可用）" disabled autocomplete="off" />
-  <button id="sendBtn" onclick="sendMsg()" disabled>发送消息</button>
+  <div id="statusBar">正在初始化...</div>
+  <div id="pingBar"></div>
+  <input type="text" id="msgInput" placeholder="输入消息（P2P连接后可用）" disabled />
+  <button class="btn" id="sendBtn" onclick="sendMsg()" disabled>发送消息</button>
   <div class="audio-row">
     <span class="audio-label">对方声音：</span>
-    <audio id="remoteAudio" autoplay playsinline controls style="flex:1;height:32px;"></audio>
+    <audio id="remoteAudio" autoplay playsinline controls></audio>
   </div>
-  <button id="leaveBtn" onclick="location.reload()">重新连接</button>
+  <button class="btn" id="resetBtn" onclick="location.reload()">重新连接</button>
 </div>
-
 <script>
 const SUPABASE_URL      = "https://ryqxhagdbycccosuavtp.supabase.co";
 const SUPABASE_ANON     = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
 const SUPABASE_TURN_URL = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-turn-credentials";
-// 房间号加日期避免残留信令干扰（每天自动换）
-const TODAY = new Date().toISOString().slice(0,10).replace(/-/g,"");
-const ROOM  = "p2p-888888-" + TODAY;
-const myId = "设备" + Math.floor(Math.random() * 9000 + 1000);
+const ROOM   = "glt-888888";
+const myId   = "dev" + Math.floor(Math.random() * 9000 + 1000);
+const myTs   = Date.now();
 
-let rtcConfig = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-  ],
-  iceTransportPolicy: "all",
-};
+let rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }], iceTransportPolicy: "all" };
+let pc = null, dc = null, sb = null, ch = null;
+let localStream = null, pendingIce = [];
+let usedRelay = false, relayTimer = null;
+let pingStart = 0;
 
-let pc = null, dc = null, sbChannel = null, sbClient = null;
-let localStream = null;
-let pendingIce  = [];
-let pingStart   = 0;
+const logEl    = document.getElementById("log");
+const statusEl = document.getElementById("statusBar");
+const pingEl   = document.getElementById("pingBar");
+const msgInput = document.getElementById("msgInput");
+const sendBtn  = document.getElementById("sendBtn");
+const audio    = document.getElementById("remoteAudio");
 
-const logEl      = document.getElementById("log");
-const statusEl   = document.getElementById("status");
-const pingEl     = document.getElementById("ping");
-const msgInput   = document.getElementById("msgInput");
-const sendBtn    = document.getElementById("sendBtn");
-const remoteAudio= document.getElementById("remoteAudio");
-
-function log(msg, type = "info") {
+function log(msg, t="info") {
   const d = document.createElement("div");
-  d.className = type;
+  d.className = t;
   d.textContent = new Date().toLocaleTimeString() + " " + msg;
   logEl.appendChild(d);
   logEl.scrollTop = logEl.scrollHeight;
-  console.log("[P2P]", msg);
 }
-
-function setStatus(msg, type = "") {
+function status(msg, t="") {
   statusEl.textContent = msg;
-  statusEl.className = type;
+  statusEl.className = t;
 }
 
-// ===== 获取TURN凭证 =====
+// ===== TURN =====
 async function initTurn() {
-  log("正在获取TURN凭证...", "info");
   try {
-    const res = await fetch(SUPABASE_TURN_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${SUPABASE_ANON}`,
-        "apikey": SUPABASE_ANON,
-        "Content-Type": "application/json"
-      }
+    const r = await fetch(SUPABASE_TURN_URL, {
+      method:"POST",
+      headers:{"Authorization":`Bearer ${SUPABASE_ANON}`,"apikey":SUPABASE_ANON,"Content-Type":"application/json"}
     });
-    const data = await res.json();
-    // Cloudflare返回格式可能是对象或数组，统一处理
-    let servers = data.iceServers;
-    if (servers && !Array.isArray(servers)) {
-      servers = [servers]; // 对象转数组
-    }
-    if (servers && Array.isArray(servers) && servers.length > 0) {
-      // 优先用TURNS over TCP（TLS加密，穿透VPN）
-      const username   = servers[0].username   || data.username;
-      const credential = servers[0].credential || data.credential;
-      const turnServers = [];
-      if (username && credential) {
-        // 强制使用TCP+TLS的TURNS，绕过VPN对UDP的拦截
-        turnServers.push({
-          urls: "turns:turn.cloudflare.com:5349?transport=tcp",
-          username, credential
-        });
-        turnServers.push({
-          urls: "turn:turn.cloudflare.com:3478?transport=tcp",
-          username, credential
-        });
-      }
+    const d = await r.json();
+    let servers = d.iceServers;
+    if (servers && !Array.isArray(servers)) servers = [servers];
+    if (servers?.length) {
+      const u = servers[0].username   || d.username;
+      const c = servers[0].credential || d.credential;
+      const extra = (u && c) ? [
+        { urls:"turns:turn.cloudflare.com:5349?transport=tcp", username:u, credential:c },
+        { urls:"turn:turn.cloudflare.com:3478?transport=tcp",  username:u, credential:c },
+        { urls:"turn:turn.cloudflare.com:3478?transport=udp",  username:u, credential:c },
+      ] : [];
       rtcConfig = {
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
-          ...turnServers,
-          ...servers,
-        ],
-        iceTransportPolicy: "all",
+        iceServers: [{ urls:"stun:stun.l.google.com:19302" }, ...extra, ...servers],
+        iceTransportPolicy: "all"
       };
-      log("✅ TURN凭证获取成功！含TURNS/TCP: " + rtcConfig.iceServers.length + "个服务器", "ok");
-    } else {
-      log("⚠️ TURN数据异常，用备用STUN: " + JSON.stringify(data).substring(0,100), "err");
+      log("✅ TURN获取成功！" + rtcConfig.iceServers.length + "个服务器", "ok");
     }
-  } catch(e) {
-    log("⚠️ TURN获取失败，只用STUN: " + e.message, "err");
+  } catch(e) { log("⚠️ TURN失败: "+e.message, "err"); }
+}
+
+// ===== ICE =====
+async function addIce(c) {
+  if (!pc) return;
+  if (!pc.remoteDescription) { pendingIce.push(c); return; }
+  try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+}
+async function flushIce() {
+  while(pendingIce.length) {
+    try { await pc.addIceCandidate(new RTCIceCandidate(pendingIce.shift())); } catch {}
   }
 }
 
-// ===== 创建P2P连接 =====
+// ===== P2P =====
 async function createPC() {
-  // 申请麦克风
+  // 麦克风
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    localStream = await navigator.mediaDevices.getUserMedia({ audio:true });
     log("✅ 麦克风已获取", "ok");
-  } catch(e) {
-    log("⚠️ 麦克风失败: " + e.message, "err");
-  }
+  } catch(e) { log("⚠️ 麦克风: "+e.message, "err"); }
 
   pc = new RTCPeerConnection(rtcConfig);
-  log("RTCPeerConnection已创建，TURN服务器数量: " + rtcConfig.iceServers.length, "info");
+  log("PeerConnection已创建，服务器: "+rtcConfig.iceServers.length+"个", "info");
 
-  // 收到对方音频
-  pc.ontrack = (e) => {
+  if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+  pc.ontrack = e => {
     log("✅ 收到对方音频！", "ok");
-    remoteAudio.srcObject = e.streams[0];
-    remoteAudio.play().catch(() => {});
+    audio.srcObject = e.streams[0];
+    audio.play().catch(()=>{});
   };
 
-  // 添加本机音频
-  if (localStream) {
-    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-  }
-
-  // ICE候选
-  pc.onicecandidate = async (e) => {
+  pc.onicecandidate = async e => {
     if (e.candidate) {
-      log("ICE候选: " + e.candidate.type + " " + e.candidate.protocol, "info");
-      await send({ type: "ice", candidate: e.candidate.toJSON() });
+      log("ICE候选: "+e.candidate.type+" "+e.candidate.protocol, "info");
+      await bcast({ type:"ice", candidate:e.candidate.toJSON() });
     } else {
       log("ICE收集完成", "ok");
     }
@@ -188,144 +161,163 @@ async function createPC() {
 
   pc.oniceconnectionstatechange = () => {
     const s = pc.iceConnectionState;
-    log("ICE状态: " + s, s === "connected" || s === "completed" ? "ok" : s === "failed" ? "err" : "info");
-    if (s === "failed") {
-      log("ICE失败！重启中...", "err");
+    log("ICE: "+s, s==="connected"||s==="completed"?"ok":s==="failed"?"err":"info");
+    if (s==="connected"||s==="completed") {
+      clearTimeout(relayTimer);
+    }
+    if (s==="failed" && !usedRelay) {
+      usedRelay = true;
+      log("⚡ 切换relay模式重试...", "info");
+      try { pc.setConfiguration({...rtcConfig, iceTransportPolicy:"relay"}); } catch {}
       pc.restartIce();
     }
-    if (s === "disconnected") {
-      log("ICE断开！2秒后重启...", "err");
-      setTimeout(() => {
-        if (pc?.iceConnectionState === "disconnected") pc.restartIce();
-      }, 2000);
+    if (s==="disconnected") {
+      setTimeout(() => { if(pc?.iceConnectionState==="disconnected") pc.restartIce(); }, 2000);
     }
   };
 
   pc.onconnectionstatechange = () => {
-    log("连接状态: " + pc.connectionState, "info");
+    log("连接: "+pc.connectionState, "info");
   };
+
+  // 15秒自动切relay
+  relayTimer = setTimeout(() => {
+    if (!usedRelay && pc?.iceConnectionState !== "connected" && pc?.iceConnectionState !== "completed") {
+      usedRelay = true;
+      log("⏱️ 15秒超时，切换relay模式...", "info");
+      try { pc.setConfiguration({...rtcConfig, iceTransportPolicy:"relay"}); } catch {}
+      pc.restartIce();
+    }
+  }, 15000);
 }
 
 // ===== DataChannel =====
-function setupDC(dataChannel) {
-  dc = dataChannel;
+function setupDC(d) {
+  dc = d;
   dc.onopen = () => {
-    log("✅ DataChannel开启！P2P连接成功！", "ok");
-    setStatus("🟢 P2P连接成功！可以发消息和通话了", "ok");
+    log("✅ DataChannel开启！P2P完全成功！", "ok");
+    status("🟢 P2P连接成功！可以发消息和通话了", "ok");
     msgInput.disabled = false;
     sendBtn.disabled  = false;
-    msgInput.focus();
+    // 延迟focus，iOS Safari需要
+    setTimeout(() => { try { msgInput.focus(); } catch {} }, 300);
     setInterval(() => {
-      if (dc?.readyState === "open") {
-        pingStart = Date.now();
-        dc.send(JSON.stringify({ type: "ping", t: pingStart }));
-      }
+      if (dc?.readyState==="open") { pingStart=Date.now(); dc.send(JSON.stringify({type:"ping",t:pingStart})); }
     }, 3000);
   };
-  dc.onclose = () => {
-    log("DataChannel关闭", "err");
-    setStatus("连接断开", "err");
-    msgInput.disabled = true;
-    sendBtn.disabled  = true;
-  };
-  dc.onerror = (e) => log("DataChannel错误: " + (e.error?.message || ""), "err");
-  dc.onmessage = (e) => {
+  dc.onclose  = () => { status("连接断开","err"); msgInput.disabled=true; sendBtn.disabled=true; };
+  dc.onerror  = e => log("DC错误: "+(e.error?.message||""), "err");
+  dc.onmessage = e => {
     try {
       const d = JSON.parse(e.data);
-      if (d.type === "ping") { dc.send(JSON.stringify({ type: "pong", t: d.t })); return; }
-      if (d.type === "pong") { pingEl.textContent = "P2P延迟: " + (Date.now() - d.t) + "ms"; return; }
-      if (d.type === "msg")  { log("对方说: " + d.text, "them"); }
-    } catch { log("对方说: " + e.data, "them"); }
+      if (d.type==="ping") { dc.send(JSON.stringify({type:"pong",t:d.t})); return; }
+      if (d.type==="pong") { pingEl.textContent="P2P延迟: "+(Date.now()-d.t)+"ms"; return; }
+      if (d.type==="msg")  { log("对方说: "+d.text, "them"); }
+    } catch { log("对方说: "+e.data, "them"); }
   };
 }
 
-// ===== ICE候选处理（带缓存）=====
-async function handleIce(candidate) {
-  if (!pc) return;
-  if (!pc.remoteDescription) { pendingIce.push(candidate); return; }
-  try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) { console.warn("ICE add:", e); }
+// ===== 信令 =====
+async function bcast(payload) {
+  if (ch) await ch.send({ type:"broadcast", event:"signal", payload });
 }
 
-async function flushIce() {
-  while (pendingIce.length > 0) {
-    const c = pendingIce.shift();
-    try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
-  }
-}
-
-// ===== 信令处理 =====
-async function handleSignal(payload) {
-  if (payload.type === "join") {
-    log("对方加入！我发offer...", "ok");
-    await createPC();
-    const d = pc.createDataChannel("chat");
-    setupDC(d);
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await send({ type: "offer", sdp: pc.localDescription.sdp });
-  }
-  if (payload.type === "offer") {
+async function onSignal(payload) {
+  if (payload.type==="offer") {
     log("收到offer，发answer...", "ok");
-    await createPC();
-    pc.ondatachannel = (e) => setupDC(e.channel);
-    await pc.setRemoteDescription({ type: "offer", sdp: payload.sdp });
+    if (!pc) await createPC();
+    pc.ondatachannel = e => setupDC(e.channel);
+    await pc.setRemoteDescription({ type:"offer", sdp:payload.sdp });
     await flushIce();
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await send({ type: "answer", sdp: pc.localDescription.sdp });
+    const ans = await pc.createAnswer();
+    await pc.setLocalDescription(ans);
+    await bcast({ type:"answer", sdp:pc.localDescription.sdp });
   }
-  if (payload.type === "answer") {
-    log("收到answer，完成握手...", "ok");
-    await pc.setRemoteDescription({ type: "answer", sdp: payload.sdp });
+  if (payload.type==="answer") {
+    log("收到answer！", "ok");
+    await pc.setRemoteDescription({ type:"answer", sdp:payload.sdp });
     await flushIce();
   }
-  if (payload.type === "ice") {
-    await handleIce(payload.candidate);
-  }
+  if (payload.type==="ice") await addIce(payload.candidate);
 }
 
-async function send(payload) {
-  if (sbChannel) await sbChannel.send({ type: "broadcast", event: "signal", payload });
+// ===== 主逻辑：用Presence感知对方 =====
+async function start() {
+  log("我的ID: "+myId, "ok");
+  await initTurn();
+  log("连接信令...", "info");
+
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+  ch = sb.channel(ROOM, {
+    config: {
+      broadcast: { self:false },
+      presence:  { key: myId }
+    }
+  });
+
+  ch.on("presence", { event:"sync" }, async () => {
+    const state   = ch.presenceState();
+    const members = Object.keys(state);
+    log("房间人数: "+members.length, "info");
+
+    if (members.length >= 2 && !pc) {
+      // 两人都在线了！时间戳小的（先加入的）发offer
+      const allTs = members.map(k => {
+        const arr = state[k];
+        return arr[0]?.ts || 0;
+      });
+      const minTs = Math.min(...allTs);
+      const myPresence = state[myId];
+      const myPresenceTs = myPresence?.[0]?.ts || myTs;
+
+      if (myPresenceTs === minTs) {
+        // 我是先加入的，我发offer
+        log("我先加入，发offer...", "ok");
+        await createPC();
+        const d = pc.createDataChannel("chat");
+        setupDC(d);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await bcast({ type:"offer", sdp:pc.localDescription.sdp });
+      } else {
+        log("对方先加入，等待offer...", "info");
+        if (!pc) await createPC();
+        pc.ondatachannel = e => setupDC(e.channel);
+      }
+    }
+  })
+  .on("presence", { event:"join" }, ({ key, newPresences }) => {
+    log("加入: "+key, "ok");
+  })
+  .on("presence", { event:"leave" }, ({ key }) => {
+    log("离开: "+key, "err");
+    status("对方已离开", "err");
+  })
+  .on("broadcast", { event:"signal" }, async ({ payload }) => {
+    await onSignal(payload);
+  })
+  .subscribe(async (s) => {
+    log("信令: "+s, s==="SUBSCRIBED"?"ok":"info");
+    if (s==="SUBSCRIBED") {
+      status("已进入房间，等待对方...");
+      await ch.track({ id:myId, ts:myTs });
+    }
+  });
 }
 
 function sendMsg() {
-  const text = msgInput.value.trim();
-  if (!text || !dc || dc.readyState !== "open") return;
-  dc.send(JSON.stringify({ type: "msg", text }));
-  log("我说: " + text, "msg");
+  const t = msgInput.value.trim();
+  if (!t || !dc || dc.readyState!=="open") return;
+  dc.send(JSON.stringify({ type:"msg", text:t }));
+  log("我说: "+t, "msg");
   msgInput.value = "";
 }
 
-document.getElementById("msgInput").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") sendMsg();
+document.getElementById("msgInput").addEventListener("keydown", e => {
+  if (e.key==="Enter") sendMsg();
 });
 
-// ===== 启动 =====
-(async () => {
-  log("我的ID: " + myId, "ok");
-  await initTurn();
-  log("连接信令服务器...", "info");
-
-  sbClient  = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-  sbChannel = sbClient.channel(`glt-p2p-${ROOM}`, {
-    config: { broadcast: { self: false } }
-  });
-
-  sbChannel
-    .on("broadcast", { event: "signal" }, async ({ payload }) => {
-      await handleSignal(payload);
-    })
-    .subscribe(async (status) => {
-      log("信令状态: " + status, status === "SUBSCRIBED" ? "ok" : "info");
-      if (status === "SUBSCRIBED") {
-        setStatus("已进入房间，等待对方...");
-        await send({ type: "join" });
-      }
-      if (status === "CHANNEL_ERROR") {
-        setStatus("信令连接失败！", "err");
-      }
-    });
-})();
+start();
 </script>
 </body>
 </html>
