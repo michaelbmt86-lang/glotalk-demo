@@ -61,7 +61,9 @@
 const SUPABASE_URL      = "https://ryqxhagdbycccosuavtp.supabase.co";
 const SUPABASE_ANON     = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
 const SUPABASE_TURN_URL = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-turn-credentials";
-const ROOM = "p2p-888888";
+// 房间号加日期避免残留信令干扰（每天自动换）
+const TODAY = new Date().toISOString().slice(0,10).replace(/-/g,"");
+const ROOM  = "p2p-888888-" + TODAY;
 const myId = "设备" + Math.floor(Math.random() * 9000 + 1000);
 
 let rtcConfig = {
@@ -111,17 +113,38 @@ async function initTurn() {
       }
     });
     const data = await res.json();
-    if (data.iceServers && Array.isArray(data.iceServers) && data.iceServers.length > 0) {
+    // Cloudflare返回格式可能是对象或数组，统一处理
+    let servers = data.iceServers;
+    if (servers && !Array.isArray(servers)) {
+      servers = [servers]; // 对象转数组
+    }
+    if (servers && Array.isArray(servers) && servers.length > 0) {
+      // 优先用TURNS over TCP（TLS加密，穿透VPN）
+      const username   = servers[0].username   || data.username;
+      const credential = servers[0].credential || data.credential;
+      const turnServers = [];
+      if (username && credential) {
+        // 强制使用TCP+TLS的TURNS，绕过VPN对UDP的拦截
+        turnServers.push({
+          urls: "turns:turn.cloudflare.com:5349?transport=tcp",
+          username, credential
+        });
+        turnServers.push({
+          urls: "turn:turn.cloudflare.com:3478?transport=tcp",
+          username, credential
+        });
+      }
       rtcConfig = {
         iceServers: [
-          ...data.iceServers,
           { urls: "stun:stun.l.google.com:19302" },
+          ...turnServers,
+          ...servers,
         ],
         iceTransportPolicy: "all",
       };
-      log("✅ TURN凭证获取成功！relay候选已启用", "ok");
+      log("✅ TURN凭证获取成功！含TURNS/TCP: " + rtcConfig.iceServers.length + "个服务器", "ok");
     } else {
-      log("⚠️ TURN返回数据异常: " + JSON.stringify(data), "err");
+      log("⚠️ TURN数据异常，用备用STUN: " + JSON.stringify(data).substring(0,100), "err");
     }
   } catch(e) {
     log("⚠️ TURN获取失败，只用STUN: " + e.message, "err");
