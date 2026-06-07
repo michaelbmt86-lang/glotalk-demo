@@ -113,8 +113,20 @@
       </div>
     </div>
     <div class="field">
-      <label>我要听的语言（翻译输出）</label>
-      <select id="langSelect">
+      <label>我说的语言</label>
+      <select id="inputLangSelect">
+        <option value="zh">🇨🇳 中文</option>
+        <option value="en">🇺🇸 英文</option>
+        <option value="ja">🇯🇵 日文</option>
+        <option value="ko">🇰🇷 韩文</option>
+        <option value="es">🇪🇸 西班牙文</option>
+        <option value="fr">🇫🇷 法文</option>
+        <option value="de">🇩🇪 德文</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>我要听的语言</label>
+      <select id="outputLangSelect">
         <option value="en">🇺🇸 英文</option>
         <option value="zh">🇨🇳 中文</option>
         <option value="ja">🇯🇵 日文</option>
@@ -173,6 +185,7 @@ let transPc      = null;  // 翻译WebRTC（连接OpenAI）
 let localStream  = null;  // 本机麦克风
 let roomName     = "";
 let myRole       = null;
+let inputLang    = "zh";
 let outputLang   = "en";
 let isActive     = false;
 let rtcReady     = false;
@@ -188,7 +201,8 @@ let vadInterval  = null;
 const joinCard      = document.getElementById("joinCard");
 const callSection   = document.getElementById("callSection");
 const roomInput     = document.getElementById("roomInput");
-const langSelect    = document.getElementById("langSelect");
+const inputLangSelect = document.getElementById("inputLangSelect");
+const outputLangSelect = document.getElementById("outputLangSelect");
 const joinBtn       = document.getElementById("joinBtn");
 const startBtn      = document.getElementById("startBtn");
 const statusEl      = document.getElementById("status");
@@ -324,7 +338,9 @@ function connectSignaling(room, rtcConfig) {
     .subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
         setStatus("已进入房间，等待对方...", "info");
-        await broadcastSignal(channel, { type: "join" });
+        setTimeout(async () => {
+          await broadcastSignal(channel, { type: "join" });
+        }, 500);
       }
     });
 
@@ -341,23 +357,25 @@ async function broadcastSignal(channel, data) {
   });
 }
 
-async function handleSignal(ws, room, data, rtcConfig) {
+async function handleSignal(channel, room, data, rtcConfig) {
   if (data.type === "join") {
-    myRole = "caller";
-    setStatus("对方已加入，建立连接中...", "info");
-    await createP2PConnection(rtcConfig);
-    const offer = await p2pPc.createOffer();
-    await p2pPc.setLocalDescription(offer);
-    await broadcastSignal(ws, { type: "offer", sdp: offer.sdp });
+    if (myRole === null) {
+      myRole = "caller";
+      setStatus("我是caller，发送offer...", "info");
+      await createP2PConnection(rtcConfig);
+      const offer = await p2pPc.createOffer();
+      await p2pPc.setLocalDescription(offer);
+      await broadcastSignal(channel, { type: "offer", sdp: offer.sdp });
+    }
   }
-  if (data.type === "offer" && myRole !== "caller") {
+  if (data.type === "offer" && myRole === null) {
     myRole = "callee";
     setStatus("收到连接请求...", "info");
     await createP2PConnection(rtcConfig);
     await p2pPc.setRemoteDescription({ type: "offer", sdp: data.sdp });
     const answer = await p2pPc.createAnswer();
     await p2pPc.setLocalDescription(answer);
-    await broadcastSignal(ws, { type: "answer", sdp: answer.sdp });
+    await broadcastSignal(channel, { type: "answer", sdp: answer.sdp });
   }
   if (data.type === "answer") {
     await p2pPc.setRemoteDescription({ type: "answer", sdp: data.sdp });
@@ -474,7 +492,10 @@ async function startTranslation(peerStream, rtcConfig) {
           "apikey": SUPABASE_ANON,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ outputLanguage: outputLang })
+        body: JSON.stringify({
+          inputLanguage: inputLang,
+          outputLanguage: outputLang
+        })
       }),
       transPc.createOffer().then(o => { transPc.setLocalDescription(o); return o; })
     ]);
@@ -584,7 +605,8 @@ function stopTranslation() {
 async function joinRoom() {
   const room = roomInput.value.trim();
   if (room.length < 4) { alert("请输入至少4位房间号"); return; }
-  outputLang = langSelect.value;
+  inputLang = inputLangSelect.value;
+  outputLang = outputLangSelect.value;
   roomName = room;
 
   joinBtn.disabled = true;
