@@ -418,8 +418,9 @@ function connectSignaling(room, rtcConfig) {
     .on("presence", { event: "sync" }, async () => {
       const state = supabaseChannel.presenceState();
       const timestamps = Object.keys(state).map(Number).sort();
-      if (timestamps.length >= 2 && !handleSignal) {
-        isPolite = myTimestamp === Math.max(...timestamps);
+      if (timestamps.length >= 1 && !handleSignal) {
+        const allTs = Object.keys(state).map(Number);
+        isPolite = allTs.length < 2 ? false : myTimestamp === Math.max(...allTs);
         setStatus(`角色: ${isPolite ? "polite(后加入)" : "impolite(先加入)"}`, "info");
 
         // 设置Perfect Negotiation
