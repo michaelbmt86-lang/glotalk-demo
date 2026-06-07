@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -39,6 +40,10 @@
 
   <input type="text" id="msgInput" placeholder="输入消息发给对方..." disabled />
   <button class="btn-send" id="sendBtn" onclick="sendMsg()" disabled>发送消息</button>
+  <div style="display:flex;gap:8px;align-items:center;background:#111;border:1px solid #222;border-radius:10px;padding:10px 14px;">
+    <span style="font-size:12px;color:#555;white-space:nowrap;">对方声音：</span>
+    <audio id="remoteAudio" autoplay playsinline style="width:100%;height:32px;"></audio>
+  </div>
   <button class="btn-leave" onclick="location.reload()">重新连接</button>
 </div>
 
@@ -60,6 +65,7 @@ const RTC_CONFIG = {
 };
 
 let pc = null, dc = null, sbChannel = null, sbClient = null;
+let localStream = null;
 let connected = false;
 let pingInterval = null;
 let pingStart = 0;
@@ -89,7 +95,28 @@ async function send(payload) {
 }
 
 async function createPC() {
+  // 申请麦克风
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    log("✅ 麦克风已获取", "ok");
+  } catch(e) {
+    log("⚠️ 麦克风获取失败: " + e.message + "（文字测试仍可用）", "err");
+  }
+
   pc = new RTCPeerConnection(RTC_CONFIG);
+
+  // 收到对方音频
+  pc.ontrack = (e) => {
+    log("✅ 收到对方音频！", "ok");
+    const audio = document.getElementById("remoteAudio");
+    audio.srcObject = e.streams[0];
+    audio.play().catch(() => {});
+  };
+
+  // 添加本机麦克风
+  if (localStream) {
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  }
 
   // 记录所有ICE候选类型
   pc.onicecandidate = async (e) => {
@@ -220,6 +247,10 @@ async function handleSignal(payload) {
       try { await pc.addIceCandidate(new RTCIceCandidate(payload.candidate)); } catch {}
     }
   }
+}
+
+function cleanup() {
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
 }
 
 function sendMsg() {
