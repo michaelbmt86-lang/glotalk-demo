@@ -4,71 +4,105 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>GloTalk P2P文字测试</title>
+  <title>GloTalk P2P测试</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <style>
-    * { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     input, textarea { -webkit-user-select: text !important; user-select: text !important; }
-    body { margin: 0; min-height: 100vh; background: #0a0a0a; color: #f0f0f0; font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    body { margin: 0; min-height: 100vh; background: #0a0a0a; color: #f0f0f0; font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; padding: 20px; -webkit-user-select: none; user-select: none; }
     .app { width: min(100%, 420px); display: flex; flex-direction: column; gap: 12px; }
     h2 { color: #22c55e; margin: 0; font-size: 24px; }
     h2 span { color: #fff; }
-    .log { background: #111; border: 1px solid #222; border-radius: 12px; padding: 14px; min-height: 220px; max-height: 300px; overflow-y: auto; font-size: 13px; line-height: 1.8; }
+    .log { background: #111; border: 1px solid #222; border-radius: 12px; padding: 14px; min-height: 240px; max-height: 320px; overflow-y: auto; font-size: 13px; line-height: 1.8; }
     .ok   { color: #22c55e; }
     .err  { color: #ef4444; }
     .info { color: #60a5fa; }
     .msg  { color: #f0f0f0; }
     .them { color: #f59e0b; }
-    .status { font-size: 13px; text-align: center; min-height: 18px; color: #555; }
-    .status.ok  { color: #22c55e; }
-    .status.err { color: #ef4444; }
-    input[type=text] { width: 100%; padding: 12px 14px; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; color: #f0f0f0; font: inherit; font-size: 15px; outline: none; -webkit-user-select: text; user-select: text; }
-    button { width: 100%; height: 52px; border: none; border-radius: 12px; font: inherit; font-size: 16px; font-weight: 800; cursor: pointer; }
-    .btn-send { background: #22c55e; color: #000; }
-    .btn-send:disabled { background: #1a1a1a; color: #444; cursor: not-allowed; }
-    .btn-leave { background: #ef4444; color: #fff; height: 44px; font-size: 14px; }
-    .ping { font-size: 12px; color: #555; text-align: center; }
+    #status { font-size: 13px; text-align: center; min-height: 18px; color: #555; padding: 4px; }
+    #status.ok  { color: #22c55e; }
+    #status.err { color: #ef4444; }
+    #msgInput {
+      width: 100%; padding: 12px 14px;
+      background: #1a1a1a; border: 1px solid #333;
+      border-radius: 10px; color: #f0f0f0;
+      font-size: 15px; font-family: inherit;
+      outline: none;
+      -webkit-user-select: text !important;
+      user-select: text !important;
+    }
+    #msgInput:focus { border-color: #22c55e44; }
+    button { width: 100%; height: 52px; border: none; border-radius: 12px; font: inherit; font-size: 16px; font-weight: 800; cursor: pointer; -webkit-user-select: none; user-select: none; }
+    #sendBtn { background: #22c55e; color: #000; }
+    #sendBtn:disabled { background: #1a1a1a; color: #444; cursor: not-allowed; }
+    #leaveBtn { background: #ef4444; color: #fff; height: 44px; font-size: 14px; margin-top: 4px; }
+    .ping { font-size: 12px; color: #22c55e; text-align: center; min-height: 16px; }
+    .audio-row { display: flex; align-items: center; gap: 8px; background: #111; border: 1px solid #222; border-radius: 10px; padding: 10px 14px; }
+    .audio-label { font-size: 12px; color: #555; white-space: nowrap; }
   </style>
 </head>
 <body>
 <div class="app">
   <h2>Glo<span>Talk</span> P2P测试</h2>
-  <p style="color:#555;font-size:12px;margin:0">房间固定888888 · 纯P2P文字 · 不调用OpenAI · 完全免费</p>
-
+  <p style="color:#555;font-size:12px;margin:0">房间固定888888 · 文字+音频 · 不调用OpenAI · 完全免费</p>
   <div class="log" id="log"></div>
-  <div class="status" id="status">正在连接...</div>
+  <div id="status">正在初始化...</div>
   <div class="ping" id="ping"></div>
-
-  <input type="text" id="msgInput" placeholder="输入消息发给对方..." disabled />
-  <button class="btn-send" id="sendBtn" onclick="sendMsg()" disabled>发送消息</button>
-  <div style="display:flex;gap:8px;align-items:center;background:#111;border:1px solid #222;border-radius:10px;padding:10px 14px;">
-    <span style="font-size:12px;color:#555;white-space:nowrap;">对方声音：</span>
-    <audio id="remoteAudio" autoplay playsinline style="width:100%;height:32px;"></audio>
+  <input type="text" id="msgInput" placeholder="输入消息发给对方（连接成功后可用）" disabled autocomplete="off" />
+  <button id="sendBtn" onclick="sendMsg()" disabled>发送消息</button>
+  <div class="audio-row">
+    <span class="audio-label">对方声音：</span>
+    <audio id="remoteAudio" autoplay playsinline controls style="flex:1;height:32px;"></audio>
   </div>
-  <button class="btn-leave" onclick="location.reload()">重新连接</button>
+  <button id="leaveBtn" onclick="location.reload()">重新连接</button>
 </div>
 
 <script>
-const SUPABASE_URL  = "https://ryqxhagdbycccosuavtp.supabase.co";
-const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
-const ROOM = "p2p-test-888888";
+const SUPABASE_URL      = "https://ryqxhagdbycccosuavtp.supabase.co";
+const SUPABASE_ANON     = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
+const SUPABASE_TURN_URL = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-turn-credentials";
+const ROOM = "p2p-888888";
 const myId = "设备" + Math.floor(Math.random() * 9000 + 1000);
 
-const SUPABASE_URL_TURN = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-turn-credentials";
-
-// 动态获取真实TURN凭证
-let RTC_CONFIG = {
+let rtcConfig = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun.cloudflare.com:3478" },
   ],
   iceTransportPolicy: "all",
 };
 
-async function initTurnConfig() {
+let pc = null, dc = null, sbChannel = null, sbClient = null;
+let localStream = null;
+let pendingIce  = [];
+let pingStart   = 0;
+
+const logEl      = document.getElementById("log");
+const statusEl   = document.getElementById("status");
+const pingEl     = document.getElementById("ping");
+const msgInput   = document.getElementById("msgInput");
+const sendBtn    = document.getElementById("sendBtn");
+const remoteAudio= document.getElementById("remoteAudio");
+
+function log(msg, type = "info") {
+  const d = document.createElement("div");
+  d.className = type;
+  d.textContent = new Date().toLocaleTimeString() + " " + msg;
+  logEl.appendChild(d);
+  logEl.scrollTop = logEl.scrollHeight;
+  console.log("[P2P]", msg);
+}
+
+function setStatus(msg, type = "") {
+  statusEl.textContent = msg;
+  statusEl.className = type;
+}
+
+// ===== 获取TURN凭证 =====
+async function initTurn() {
+  log("正在获取TURN凭证...", "info");
   try {
-    const res = await fetch(SUPABASE_URL_TURN, {
+    const res = await fetch(SUPABASE_TURN_URL, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${SUPABASE_ANON}`,
@@ -77,77 +111,49 @@ async function initTurnConfig() {
       }
     });
     const data = await res.json();
-    if (data.iceServers && Array.isArray(data.iceServers)) {
-      RTC_CONFIG = {
+    if (data.iceServers && Array.isArray(data.iceServers) && data.iceServers.length > 0) {
+      rtcConfig = {
         iceServers: [
           ...data.iceServers,
           { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
         ],
         iceTransportPolicy: "all",
       };
-      log("✅ TURN凭证获取成功！", "ok");
+      log("✅ TURN凭证获取成功！relay候选已启用", "ok");
+    } else {
+      log("⚠️ TURN返回数据异常: " + JSON.stringify(data), "err");
     }
   } catch(e) {
-    log("⚠️ TURN获取失败，用备用STUN: " + e.message, "err");
+    log("⚠️ TURN获取失败，只用STUN: " + e.message, "err");
   }
 }
 
-let pc = null, dc = null, sbChannel = null, sbClient = null;
-let localStream = null;
-let connected = false;
-let pingInterval = null;
-let pingStart = 0;
-
-const logEl   = document.getElementById("log");
-const statusEl= document.getElementById("status");
-const pingEl  = document.getElementById("ping");
-const msgInput= document.getElementById("msgInput");
-const sendBtn = document.getElementById("sendBtn");
-
-function log(msg, type = "info") {
-  const d = document.createElement("div");
-  d.className = type;
-  d.textContent = new Date().toLocaleTimeString() + " " + msg;
-  logEl.appendChild(d);
-  logEl.scrollTop = logEl.scrollHeight;
-  console.log(msg);
-}
-
-function setStatus(msg, type = "") {
-  statusEl.textContent = msg;
-  statusEl.className = "status" + (type ? " " + type : "");
-}
-
-async function send(payload) {
-  if (sbChannel) await sbChannel.send({ type: "broadcast", event: "signal", payload });
-}
-
+// ===== 创建P2P连接 =====
 async function createPC() {
   // 申请麦克风
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     log("✅ 麦克风已获取", "ok");
   } catch(e) {
-    log("⚠️ 麦克风获取失败: " + e.message + "（文字测试仍可用）", "err");
+    log("⚠️ 麦克风失败: " + e.message, "err");
   }
 
-  pc = new RTCPeerConnection(RTC_CONFIG);
+  pc = new RTCPeerConnection(rtcConfig);
+  log("RTCPeerConnection已创建，TURN服务器数量: " + rtcConfig.iceServers.length, "info");
 
   // 收到对方音频
   pc.ontrack = (e) => {
     log("✅ 收到对方音频！", "ok");
-    const audio = document.getElementById("remoteAudio");
-    audio.srcObject = e.streams[0];
-    audio.play().catch(() => {});
+    remoteAudio.srcObject = e.streams[0];
+    remoteAudio.play().catch(() => {});
   };
 
-  // 添加本机麦克风
+  // 添加本机音频
   if (localStream) {
     localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
   }
 
-  // 记录所有ICE候选类型
+  // ICE候选
   pc.onicecandidate = async (e) => {
     if (e.candidate) {
       log("ICE候选: " + e.candidate.type + " " + e.candidate.protocol, "info");
@@ -159,7 +165,7 @@ async function createPC() {
 
   pc.oniceconnectionstatechange = () => {
     const s = pc.iceConnectionState;
-    log("ICE状态: " + s, s === "connected" || s === "completed" ? "ok" : "info");
+    log("ICE状态: " + s, s === "connected" || s === "completed" ? "ok" : s === "failed" ? "err" : "info");
     if (s === "failed") {
       log("ICE失败！重启中...", "err");
       pc.restartIce();
@@ -175,65 +181,56 @@ async function createPC() {
   pc.onconnectionstatechange = () => {
     log("连接状态: " + pc.connectionState, "info");
   };
-
-  return pc;
 }
 
+// ===== DataChannel =====
 function setupDC(dataChannel) {
   dc = dataChannel;
   dc.onopen = () => {
-    connected = true;
-    log("✅ DataChannel已开启！P2P连接成功！", "ok");
-    setStatus("🟢 P2P连接成功！可以发消息了", "ok");
+    log("✅ DataChannel开启！P2P连接成功！", "ok");
+    setStatus("🟢 P2P连接成功！可以发消息和通话了", "ok");
     msgInput.disabled = false;
-    sendBtn.disabled = false;
+    sendBtn.disabled  = false;
     msgInput.focus();
-
-    // 开始ping测试延迟
-    pingInterval = setInterval(() => {
+    setInterval(() => {
       if (dc?.readyState === "open") {
         pingStart = Date.now();
         dc.send(JSON.stringify({ type: "ping", t: pingStart }));
       }
     }, 3000);
   };
-
   dc.onclose = () => {
-    connected = false;
-    log("DataChannel已关闭", "err");
+    log("DataChannel关闭", "err");
     setStatus("连接断开", "err");
     msgInput.disabled = true;
-    sendBtn.disabled = true;
-    clearInterval(pingInterval);
+    sendBtn.disabled  = true;
   };
-
-  dc.onerror = (e) => {
-    log("DataChannel错误: " + e.error?.message, "err");
-  };
-
+  dc.onerror = (e) => log("DataChannel错误: " + (e.error?.message || ""), "err");
   dc.onmessage = (e) => {
     try {
-      const data = JSON.parse(e.data);
-      if (data.type === "ping") {
-        dc.send(JSON.stringify({ type: "pong", t: data.t }));
-        return;
-      }
-      if (data.type === "pong") {
-        const rtt = Date.now() - data.t;
-        pingEl.textContent = "P2P延迟: " + rtt + "ms";
-        return;
-      }
-      if (data.type === "msg") {
-        log("对方说: " + data.text, "them");
-      }
-    } catch {
-      log("对方说: " + e.data, "them");
-    }
+      const d = JSON.parse(e.data);
+      if (d.type === "ping") { dc.send(JSON.stringify({ type: "pong", t: d.t })); return; }
+      if (d.type === "pong") { pingEl.textContent = "P2P延迟: " + (Date.now() - d.t) + "ms"; return; }
+      if (d.type === "msg")  { log("对方说: " + d.text, "them"); }
+    } catch { log("对方说: " + e.data, "them"); }
   };
 }
 
-let pendingIce = [];
+// ===== ICE候选处理（带缓存）=====
+async function handleIce(candidate) {
+  if (!pc) return;
+  if (!pc.remoteDescription) { pendingIce.push(candidate); return; }
+  try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) { console.warn("ICE add:", e); }
+}
 
+async function flushIce() {
+  while (pendingIce.length > 0) {
+    const c = pendingIce.shift();
+    try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+  }
+}
+
+// ===== 信令处理 =====
 async function handleSignal(payload) {
   if (payload.type === "join") {
     log("对方加入！我发offer...", "ok");
@@ -244,42 +241,28 @@ async function handleSignal(payload) {
     await pc.setLocalDescription(offer);
     await send({ type: "offer", sdp: pc.localDescription.sdp });
   }
-
   if (payload.type === "offer") {
     log("收到offer，发answer...", "ok");
     await createPC();
     pc.ondatachannel = (e) => setupDC(e.channel);
     await pc.setRemoteDescription({ type: "offer", sdp: payload.sdp });
-    // 应用缓存的ICE
-    for (const c of pendingIce) {
-      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
-    }
-    pendingIce = [];
+    await flushIce();
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     await send({ type: "answer", sdp: pc.localDescription.sdp });
   }
-
   if (payload.type === "answer") {
     log("收到answer，完成握手...", "ok");
     await pc.setRemoteDescription({ type: "answer", sdp: payload.sdp });
-    for (const c of pendingIce) {
-      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
-    }
-    pendingIce = [];
+    await flushIce();
   }
-
   if (payload.type === "ice") {
-    if (!pc?.remoteDescription) {
-      pendingIce.push(payload.candidate);
-    } else {
-      try { await pc.addIceCandidate(new RTCIceCandidate(payload.candidate)); } catch {}
-    }
+    await handleIce(payload.candidate);
   }
 }
 
-function cleanup() {
-  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+async function send(payload) {
+  if (sbChannel) await sbChannel.send({ type: "broadcast", event: "signal", payload });
 }
 
 function sendMsg() {
@@ -290,19 +273,18 @@ function sendMsg() {
   msgInput.value = "";
 }
 
-msgInput.addEventListener("keydown", (e) => {
+document.getElementById("msgInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendMsg();
 });
 
-// 用async IIFE包装，支持顶层await
+// ===== 启动 =====
 (async () => {
   log("我的ID: " + myId, "ok");
-  log("获取TURN凭证...");
-  await initTurnConfig();
-  log("连接信令服务器...");
+  await initTurn();
+  log("连接信令服务器...", "info");
 
-  sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-  sbChannel = sbClient.channel(`p2ptest-${ROOM}`, {
+  sbClient  = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+  sbChannel = sbClient.channel(`glt-p2p-${ROOM}`, {
     config: { broadcast: { self: false } }
   });
 
@@ -314,7 +296,10 @@ msgInput.addEventListener("keydown", (e) => {
       log("信令状态: " + status, status === "SUBSCRIBED" ? "ok" : "info");
       if (status === "SUBSCRIBED") {
         setStatus("已进入房间，等待对方...");
-        await sbChannel.send({ type: "broadcast", event: "signal", payload: { type: "join" } });
+        await send({ type: "join" });
+      }
+      if (status === "CHANNEL_ERROR") {
+        setStatus("信令连接失败！", "err");
       }
     });
 })();
