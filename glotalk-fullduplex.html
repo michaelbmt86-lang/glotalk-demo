@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GloTalk 全双工翻译通话</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <style>
     * { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
     body {
@@ -125,8 +124,8 @@
       </select>
     </div>
     <div class="field">
-      <label>我要听的语言</label>
-      <select id="outputLangSelect">
+      <label>我要听的语言（翻译输出）</label>
+      <select id="langSelect">
         <option value="en">🇺🇸 英文</option>
         <option value="zh">🇨🇳 中文</option>
         <option value="ja">🇯🇵 日文</option>
@@ -169,40 +168,40 @@
 const SUPABASE_URL_SESSION  = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-realtime-session";
 const SUPABASE_URL_TURN     = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-turn-credentials";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
-const SUPABASE_REALTIME_URL = "wss://ryqxhagdbycccosuavtp.supabase.co/realtime/v1/websocket";
 const OPENAI_TRANSLATIONS   = "https://api.openai.com/v1/realtime/translations";
 
 // VAD配置
-const VAD_THRESHOLD    = 0.015;  // 说话检测阈值
-const VAD_HOLD_MS      = 800;    // 说话结束后保持多久
-const VAD_FRAME_MS     = 20;     // VAD检测帧间隔
+const VAD_THRESHOLD = 0.015;
+const VAD_HOLD_MS   = 800;
+const VAD_FRAME_MS  = 20;
 
 // ===== 状态 =====
-let supabaseWs   = null;
-let supabaseClient = null;
-let p2pPc        = null;  // P2P WebRTC（双机互通原始音频）
-let transPc      = null;  // 翻译WebRTC（连接OpenAI）
-let localStream  = null;  // 本机麦克风
-let roomName     = "";
-let myRole       = null;
-let inputLang    = "zh";
-let outputLang   = "en";
-let isActive     = false;
-let rtcReady     = false;
+let supabaseChannel = null;
+let supabaseClient  = null;
+let p2pPc           = null;
+let transPc         = null;
+let localStream     = null;
+let roomName        = "";
+let outputLang      = "en";
+let inputLang       = "zh";
+let isActive        = false;
+let rtcReady        = false;
+let makingOffer     = false;   // Perfect Negotiation: 防止重入
+let ignoreOffer     = false;   // Perfect Negotiation: impolite peer忽略碰撞offer
+let isPolite        = false;   // Perfect Negotiation: 角色（用加入时间戳决定）
 
 // VAD状态
-let audioCtx     = null;
-let analyser     = null;
-let vadTimer     = null;
-let isSpeaking   = false;
-let vadInterval  = null;
+let audioCtx    = null;
+let analyser    = null;
+let vadTimer    = null;
+let isSpeaking  = false;
+let vadInterval = null;
 
 // ===== UI =====
 const joinCard      = document.getElementById("joinCard");
 const callSection   = document.getElementById("callSection");
 const roomInput     = document.getElementById("roomInput");
-const inputLangSelect = document.getElementById("inputLangSelect");
-const outputLangSelect = document.getElementById("outputLangSelect");
+const langSelect    = document.getElementById("langSelect");
 const joinBtn       = document.getElementById("joinBtn");
 const startBtn      = document.getElementById("startBtn");
 const statusEl      = document.getElementById("status");
@@ -260,7 +259,7 @@ async function getTurnConfig() {
   };
 }
 
-// ===== VAD：实时检测说话 =====
+// ===== VAD =====
 function startVAD(stream) {
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   const source = audioCtx.createMediaStreamSource(stream);
@@ -268,191 +267,187 @@ function startVAD(stream) {
   analyser.fftSize = 512;
   analyser.smoothingTimeConstant = 0.3;
   source.connect(analyser);
-
   const buffer = new Uint8Array(analyser.frequencyBinCount);
 
   vadInterval = setInterval(() => {
     if (!analyser) return;
     analyser.getByteFrequencyData(buffer);
-
-    // 计算RMS能量
     let sum = 0;
     for (let i = 0; i < buffer.length; i++) sum += buffer[i] * buffer[i];
     const rms = Math.sqrt(sum / buffer.length) / 255;
-
-    // 更新音量条
     vadFill.style.width = Math.min(rms * 800, 100) + "%";
 
     if (rms > VAD_THRESHOLD) {
-      // 检测到说话
       clearTimeout(vadTimer);
-      if (!isSpeaking) {
-        isSpeaking = true;
-        onSpeechStart();
-      }
+      if (!isSpeaking) { isSpeaking = true; setIndicator("speaking", "🎤 正在说话..."); }
       vadTimer = setTimeout(() => {
         isSpeaking = false;
-        onSpeechEnd();
+        setIndicator("", rtcReady ? "🟢 请说话..." : "等待连接...");
+        vadFill.style.width = "0%";
       }, VAD_HOLD_MS);
     }
   }, VAD_FRAME_MS);
 }
 
 function stopVAD() {
-  clearInterval(vadInterval);
-  clearTimeout(vadTimer);
-  vadInterval = null;
-  isSpeaking = false;
-  vadFill.style.width = "0%";
+  clearInterval(vadInterval); clearTimeout(vadTimer);
+  vadInterval = null; isSpeaking = false; vadFill.style.width = "0%";
   if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
   analyser = null;
 }
 
-// ===== 说话开始/结束回调 =====
-function onSpeechStart() {
-  setIndicator("speaking", "🎤 正在说话...");
-  // 确保麦克风音轨开启（发送给对方）
-  if (localStream) localStream.getTracks().forEach(t => t.enabled = true);
+// ===== PERFECT NEGOTIATION PATTERN（W3C标准，微信/Discord用的就是这套）=====
+function setupPerfectNegotiation(pc, channel, polite) {
+  // 当需要重新协商时自动发offer
+  pc.onnegotiationneeded = async () => {
+    try {
+      makingOffer = true;
+      await pc.setLocalDescription();
+      await channel.send({
+        type: "broadcast", event: "signal",
+        payload: { type: "sdp", description: pc.localDescription }
+      });
+    } catch (err) {
+      setStatus("协商失败: " + err.message, "error");
+    } finally {
+      makingOffer = false;
+    }
+  };
+
+  pc.onicecandidate = async ({ candidate }) => {
+    if (candidate) {
+      await channel.send({
+        type: "broadcast", event: "signal",
+        payload: { type: "ice", candidate }
+      });
+    }
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    setStatus("ICE: " + pc.iceConnectionState, "info");
+    if (pc.iceConnectionState === "failed") pc.restartIce();
+  };
+
+  pc.onconnectionstatechange = () => {
+    setStatus("连接: " + pc.connectionState, "info");
+    if (pc.connectionState === "connected") {
+      setStatus("🟢 通话已接通，请自然说话", "ok");
+      setIndicator("", "🟢 请说话...");
+    }
+  };
+
+  // 收到对方音频 → 送去翻译
+  pc.ontrack = async ({ streams }) => {
+    setStatus("✅ 收到对方音频，启动翻译引擎...", "ok");
+    await startTranslation(streams[0]);
+  };
+
+  // 处理收到的信令消息
+  return async (payload) => {
+    try {
+      if (payload.type === "sdp") {
+        const offerCollision = payload.description.type === "offer" &&
+          (makingOffer || pc.signalingState !== "stable");
+
+        ignoreOffer = !polite && offerCollision;
+        if (ignoreOffer) return; // impolite peer忽略碰撞
+
+        // polite peer回滚自己的offer，接受对方的
+        await pc.setRemoteDescription(payload.description);
+        if (payload.description.type === "offer") {
+          await pc.setLocalDescription();
+          await channel.send({
+            type: "broadcast", event: "signal",
+            payload: { type: "sdp", description: pc.localDescription }
+          });
+        }
+      }
+
+      if (payload.type === "ice" && !ignoreOffer) {
+        try {
+          await pc.addIceCandidate(payload.candidate);
+        } catch (err) {
+          if (!ignoreOffer) setStatus("ICE添加失败: " + err.message, "error");
+        }
+      }
+    } catch (err) {
+      setStatus("信令处理错误: " + err.message, "error");
+    }
+  };
 }
 
-function onSpeechEnd() {
-  setIndicator("", "待机中，请说话...");
-  vadFill.style.width = "0%";
-}
-
-// ===== Supabase Realtime 信令 =====
+// ===== Supabase 信令 =====
 function connectSignaling(room, rtcConfig) {
-  const supabase = window.supabase.createClient(
-    "https://ryqxhagdbycccosuavtp.supabase.co",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ"
+  supabaseClient = window.supabase.createClient(
+    "https://ryqxhagdbycccosuavtp.supabase.co", SUPABASE_ANON
   );
 
-  const channel = supabase.channel(`fullduplex-${room}`, {
-    config: { broadcast: { self: false } }
+  // 用加入时间戳决定polite/impolite角色（先加入的是impolite，后加入的是polite）
+  const myTimestamp = Date.now();
+
+  supabaseChannel = supabaseClient.channel(`glt-${room}`, {
+    config: { broadcast: { self: false }, presence: { key: String(myTimestamp) } }
   });
 
-  channel
+  // 创建P2P连接并设置Perfect Negotiation
+  p2pPc = new RTCPeerConnection(rtcConfig);
+
+  // 添加本机麦克风到P2P连接
+  if (localStream) {
+    localStream.getTracks().forEach(t => p2pPc.addTrack(t, localStream));
+  }
+
+  // 暂时用null，等presence确认角色后再设置
+  let handleSignal = null;
+
+  supabaseChannel
+    .on("presence", { event: "sync" }, () => {
+      const state = supabaseChannel.presenceState();
+      const timestamps = Object.keys(state).map(Number).sort();
+      if (timestamps.length >= 2) {
+        // 先加入的时间戳更小 → impolite（不礼貌，坚持自己）
+        // 后加入的时间戳更大 → polite（礼貌，让步）
+        isPolite = myTimestamp === Math.max(...timestamps);
+        setStatus(`角色: ${isPolite ? "polite(后加入)" : "impolite(先加入)"}`, "info");
+
+        // 设置Perfect Negotiation（只设置一次）
+        if (!handleSignal) {
+          handleSignal = setupPerfectNegotiation(p2pPc, supabaseChannel, isPolite);
+          // polite peer主动触发协商
+          if (!isPolite) {
+            // impolite peer（先加入的）立刻发offer触发连接
+            p2pPc.onnegotiationneeded && p2pPc.onnegotiationneeded();
+          }
+        }
+      }
+    })
     .on("broadcast", { event: "signal" }, async ({ payload }) => {
-      await handleSignal(channel, room, payload, rtcConfig);
+      if (handleSignal) await handleSignal(payload);
+      if (payload.type === "leave") {
+        setIndicator("", "对方已离开");
+        setStatus("对方已挂断", "error");
+      }
     })
     .subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
         setStatus("已进入房间，等待对方...", "info");
-        setTimeout(async () => {
-          await broadcastSignal(channel, { type: "join" });
-        }, 500);
+        await supabaseChannel.track({ ts: myTimestamp });
       }
     });
-
-  supabaseClient = supabase;
-  supabaseWs = channel;
-  supabaseWs._room = room;
-}
-
-async function broadcastSignal(channel, data) {
-  await channel.send({
-    type: "broadcast",
-    event: "signal",
-    payload: data
-  });
-}
-
-async function handleSignal(channel, room, data, rtcConfig) {
-  if (data.type === "join") {
-    if (myRole === null) {
-      myRole = "caller";
-      setStatus("我是caller，发送offer...", "info");
-      await createP2PConnection(rtcConfig);
-      const offer = await p2pPc.createOffer();
-      await p2pPc.setLocalDescription(offer);
-      await broadcastSignal(channel, { type: "offer", sdp: offer.sdp });
-    }
-  }
-  if (data.type === "offer" && myRole === null) {
-    myRole = "callee";
-    setStatus("收到连接请求...", "info");
-    await createP2PConnection(rtcConfig);
-    await p2pPc.setRemoteDescription({ type: "offer", sdp: data.sdp });
-    const answer = await p2pPc.createAnswer();
-    await p2pPc.setLocalDescription(answer);
-    await broadcastSignal(channel, { type: "answer", sdp: answer.sdp });
-  }
-  if (data.type === "answer") {
-    await p2pPc.setRemoteDescription({ type: "answer", sdp: data.sdp });
-  }
-  if (data.type === "ice") {
-    setStatus("收到ICE候选", "info");
-    try { await p2pPc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch(err) {
-      setStatus("ICE候选添加失败: " + err.message, "error");
-    }
-  }
-  if (data.type === "leave") {
-    setIndicator("", "对方已离开");
-    setStatus("对方已挂断", "error");
-  }
-}
-
-// ===== P2P连接（双机互通原始音频）=====
-async function createP2PConnection(rtcConfig) {
-  if (!localStream) {
-    setStatus("⚠️ localStream为空！", "error");
-    return;
-  }
-  setStatus("P2P连接对象已创建", "info");
-  p2pPc = new RTCPeerConnection(rtcConfig);
-
-  // 收到对方音频 → 送给GPT-Realtime-Translate翻译
-  p2pPc.ontrack = async (e) => {
-    const peerStream = e.streams[0];
-    setStatus("✅ 收到对方音频轨道！启动翻译...", "ok");
-    await startTranslation(peerStream, rtcConfig);
-  };
-
-  p2pPc.onicecandidate = (e) => {
-    if (e.candidate) {
-      setStatus("发送ICE候选: " + e.candidate.type, "info");
-      broadcastSignal(supabaseWs, { type: "ice", candidate: e.candidate });
-    } else {
-      setStatus("ICE候选收集完成", "info");
-    }
-  };
-
-  p2pPc.onconnectionstatechange = () => {
-    setStatus("P2P状态: " + p2pPc.connectionState, "info");
-    if (p2pPc.connectionState === "connected") {
-      setStatus("🟢 通话已接通，自然说话即可", "ok");
-    }
-    if (p2pPc.connectionState === "failed" || p2pPc.connectionState === "disconnected") {
-      setStatus("P2P连接中断", "error");
-    }
-  };
-
-  p2pPc.oniceconnectionstatechange = () => {
-    setStatus("ICE状态: " + p2pPc.iceConnectionState, "info");
-  };
-
-  // 把本机麦克风添加到P2P连接（让对方听到我的声音）
-  if (localStream) {
-    localStream.getTracks().forEach(t => p2pPc.addTrack(t, localStream));
-  }
 }
 
 // ===== 翻译引擎（连接OpenAI，翻译对方的声音）=====
-async function startTranslation(peerStream, rtcConfig) {
-  setStatus("翻译引擎启动中...", "info");
+async function startTranslation(peerStream) {
+  if (transPc) return; // 防止重复启动
   setIndicator("translating", "翻译引擎启动中...");
 
   try {
+    const rtcConfig = await getTurnConfig();
     transPc = new RTCPeerConnection(rtcConfig);
-    setStatus("翻译WebRTC已创建", "info");
 
-    // 收到翻译后的音频 → 播放给本机用户
     transPc.ontrack = (e) => {
-      // 关键：suppressLocalAudioPlayback防止翻译声音被麦克风再次收入
       const audioEl = remoteAudio;
-      if ('suppressLocalAudioPlayback' in audioEl) {
-        audioEl.suppressLocalAudioPlayback = true;
-      }
+      if ("suppressLocalAudioPlayback" in audioEl) audioEl.suppressLocalAudioPlayback = true;
       audioEl.srcObject = e.streams[0];
       audioEl.play().catch(() => {});
       setIndicator("", "🟢 全双工翻译就绪，请说话");
@@ -461,41 +456,24 @@ async function startTranslation(peerStream, rtcConfig) {
       startBtn.textContent = "停止翻译";
     };
 
-    // 把对方的声音送给OpenAI翻译
+    // 把对方声音送给OpenAI
     peerStream.getTracks().forEach(t => transPc.addTrack(t, peerStream));
 
-    // 数据通道接收字幕
     const tdc = transPc.createDataChannel("oai-events");
     tdc.onmessage = (e) => {
       try {
         const ev = JSON.parse(e.data);
-        if (ev.type === "session.output_transcript.delta" ||
-            ev.type === "response.audio_transcript.delta") {
-          appendText(ev.delta || "");
-        }
-        if (ev.type === "session.output_transcript.done" ||
-            ev.type === "response.audio_transcript.done") {
-          newLine();
-        }
-        if (ev.type === "error") {
-          setStatus("翻译错误: " + (ev.error?.message || ""), "error");
-        }
+        if (ev.type === "session.output_transcript.delta" || ev.type === "response.audio_transcript.delta") appendText(ev.delta || "");
+        if (ev.type === "session.output_transcript.done" || ev.type === "response.audio_transcript.done") newLine();
+        if (ev.type === "error") setStatus("翻译错误: " + (ev.error?.message || ""), "error");
       } catch {}
     };
 
-    // 并行获取翻译密钥和SDP offer
     const [secretRes, offer] = await Promise.all([
       fetch(SUPABASE_URL_SESSION, {
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${SUPABASE_ANON}`,
-          "apikey": SUPABASE_ANON,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          inputLanguage: inputLang,
-          outputLanguage: outputLang
-        })
+        headers: { "Authorization": `Bearer ${SUPABASE_ANON}`, "apikey": SUPABASE_ANON, "Content-Type": "application/json" },
+        body: JSON.stringify({ inputLanguage: inputLang, outputLanguage: outputLang })
       }),
       transPc.createOffer().then(o => { transPc.setLocalDescription(o); return o; })
     ]);
@@ -507,14 +485,10 @@ async function startTranslation(peerStream, rtcConfig) {
 
     const sdpRes = await fetch(
       `${OPENAI_TRANSLATIONS}?model=gpt-realtime-translate`,
-      {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${client_secret}`, "Content-Type": "application/sdp" },
-        body: offer.sdp
-      }
+      { method: "POST", headers: { "Authorization": `Bearer ${client_secret}`, "Content-Type": "application/sdp" }, body: offer.sdp }
     );
     const answerSdp = await sdpRes.text();
-    if (!sdpRes.ok) throw new Error("OpenAI握手失败: " + sdpRes.status);
+    if (!sdpRes.ok) throw new Error("OpenAI握手失败: " + sdpRes.status + " " + answerSdp);
     await transPc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
     await new Promise((resolve, reject) => {
@@ -529,18 +503,15 @@ async function startTranslation(peerStream, rtcConfig) {
     });
 
   } catch (err) {
-    setStatus("翻译引擎启动失败: " + err.message, "error");
+    transPc = null;
+    setStatus("翻译引擎失败: " + err.message, "error");
     setIndicator("", "翻译连接失败");
   }
 }
 
-// ===== 开始/停止翻译 =====
+// ===== 开始/停止 =====
 async function toggleTranslation() {
-  if (isActive) {
-    stopTranslation();
-  } else {
-    await beginTranslation();
-  }
+  if (isActive) stopTranslation(); else await beginTranslation();
 }
 
 async function beginTranslation() {
@@ -550,27 +521,15 @@ async function beginTranslation() {
   isActive = true;
 
   try {
-    // 申请麦克风权限（全双工，持续开麦）
     localStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,   // AEC3回声消除
-        noiseSuppression: true,   // 噪音抑制
-        autoGainControl: true,    // 自动增益
-        sampleRate: 24000,        // OpenAI推荐采样率
-      }
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 24000 }
     });
-
-    // 启动VAD（检测说话状态）
     startVAD(localStream);
     setIndicator("", "等待对方加入...");
-
-    // 获取TURN配置并连接信令
     setStatus("获取网络配置...", "info");
     const rtcConfig = await getTurnConfig();
     connectSignaling(roomName, rtcConfig);
-
     startBtn.disabled = false;
-
   } catch (err) {
     isActive = false;
     startBtn.className = "start-btn idle";
@@ -581,40 +540,33 @@ async function beginTranslation() {
 }
 
 function stopTranslation() {
-  isActive = false;
-  rtcReady = false;
+  isActive = false; rtcReady = false;
   stopVAD();
-
-  if (supabaseWs) {
-    try { broadcastSignal(supabaseWs, { type: "leave" }); supabaseClient?.removeChannel(supabaseWs); } catch {}
-    supabaseWs = null;
-    supabaseClient = null;
+  if (supabaseChannel) {
+    try { supabaseChannel.send({ type: "broadcast", event: "signal", payload: { type: "leave" } }); } catch {}
+    try { supabaseClient.removeChannel(supabaseChannel); } catch {}
+    supabaseChannel = null; supabaseClient = null;
   }
   if (transPc) { try { transPc.close(); } catch {} transPc = null; }
   if (p2pPc)   { try { p2pPc.close(); }   catch {} p2pPc = null; }
   if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
   remoteAudio.srcObject = null;
-
   startBtn.className = "start-btn idle";
   startBtn.textContent = "开始翻译通话";
-  setIndicator("", "已停止");
-  setStatus("翻译已停止");
+  setIndicator("", "已停止"); setStatus("翻译已停止");
 }
 
 // ===== 加入房间 =====
 async function joinRoom() {
   const room = roomInput.value.trim();
   if (room.length < 4) { alert("请输入至少4位房间号"); return; }
-  inputLang = inputLangSelect.value;
-  outputLang = outputLangSelect.value;
+  outputLang = langSelect.value;
+  inputLang  = document.getElementById("inputLangSelect")?.value || "zh";
   roomName = room;
-
   joinBtn.disabled = true;
   joinCard.style.display = "none";
   callSection.classList.add("visible");
   roomDisplay.textContent = room;
-
-  // 自动开始翻译
   await beginTranslation();
 }
 
@@ -623,16 +575,11 @@ function leaveRoom() {
   callSection.classList.remove("visible");
   joinCard.style.display = "";
   joinBtn.disabled = false;
-  myRole = null;
   transcript.textContent = "";
 }
 
-// 预热Supabase
 window.addEventListener("load", () => {
-  fetch(SUPABASE_URL_SESSION, {
-    method: "OPTIONS",
-    headers: { "Authorization": `Bearer ${SUPABASE_ANON}` }
-  }).catch(() => {});
+  fetch(SUPABASE_URL_SESSION, { method: "OPTIONS", headers: { "Authorization": `Bearer ${SUPABASE_ANON}` } }).catch(() => {});
 });
 </script>
 </body>
