@@ -363,7 +363,10 @@ async function handleSignal(ws, room, data, rtcConfig) {
     await p2pPc.setRemoteDescription({ type: "answer", sdp: data.sdp });
   }
   if (data.type === "ice") {
-    try { await p2pPc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch {}
+    setStatus("收到ICE候选", "info");
+    try { await p2pPc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch(err) {
+      setStatus("ICE候选添加失败: " + err.message, "error");
+    }
   }
   if (data.type === "leave") {
     setIndicator("", "对方已离开");
@@ -373,6 +376,10 @@ async function handleSignal(ws, room, data, rtcConfig) {
 
 // ===== P2P连接（双机互通原始音频）=====
 async function createP2PConnection(rtcConfig) {
+  if (!localStream) {
+    setStatus("⚠️ localStream为空！", "error");
+    return;
+  }
   setStatus("P2P连接对象已创建", "info");
   p2pPc = new RTCPeerConnection(rtcConfig);
 
@@ -384,7 +391,12 @@ async function createP2PConnection(rtcConfig) {
   };
 
   p2pPc.onicecandidate = (e) => {
-    if (e.candidate) broadcastSignal(supabaseWs, { type: "ice", candidate: e.candidate });
+    if (e.candidate) {
+      setStatus("发送ICE候选: " + e.candidate.type, "info");
+      broadcastSignal(supabaseWs, { type: "ice", candidate: e.candidate });
+    } else {
+      setStatus("ICE候选收集完成", "info");
+    }
   };
 
   p2pPc.onconnectionstatechange = () => {
