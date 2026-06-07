@@ -522,21 +522,55 @@ async function beginTranslation() {
   isActive = true;
 
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 24000 }
-    });
+    // 步骤1：申请麦克风
+    setStatus("申请麦克风权限...", "info");
+    // Safari iOS对约束非常严格，只用最基本的audio:true
+    // sampleRate等高级约束在Safari上会触发OverconstrainedError
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        }
+      });
+    } catch (e1) {
+      // 如果上面失败，用最简单的约束重试
+      setStatus("重试麦克风...", "info");
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+    setStatus("麦克风已获取", "ok");
+
+    // 步骤2：启动VAD
     startVAD(localStream);
     setIndicator("", "等待对方加入...");
+
+    // 步骤3：获取TURN配置
     setStatus("获取网络配置...", "info");
-    const rtcConfig = await getTurnConfig();
+    let rtcConfig;
+    try {
+      rtcConfig = await getTurnConfig();
+      setStatus("网络配置完成", "ok");
+    } catch(e) {
+      rtcConfig = {
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        iceCandidatePoolSize: 10
+      };
+      setStatus("使用备用网络配置", "info");
+    }
+
+    // 步骤4：连接信令
+    setStatus("连接信令服务...", "info");
     connectSignaling(roomName, rtcConfig);
     startBtn.disabled = false;
+
   } catch (err) {
     isActive = false;
     startBtn.className = "start-btn idle";
     startBtn.textContent = "开始翻译通话";
     startBtn.disabled = false;
-    setStatus(err.message, "error");
+    setStatus("错误: " + (err.message || String(err)), "error");
+    console.error("beginTranslation error:", err);
   }
 }
 
