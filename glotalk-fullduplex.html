@@ -373,12 +373,13 @@ async function handleSignal(ws, room, data, rtcConfig) {
 
 // ===== P2P连接（双机互通原始音频）=====
 async function createP2PConnection(rtcConfig) {
+  setStatus("P2P连接对象已创建", "info");
   p2pPc = new RTCPeerConnection(rtcConfig);
 
   // 收到对方音频 → 送给GPT-Realtime-Translate翻译
   p2pPc.ontrack = async (e) => {
     const peerStream = e.streams[0];
-    setStatus("P2P已接通，启动翻译...", "info");
+    setStatus("✅ 收到对方音频轨道！启动翻译...", "ok");
     await startTranslation(peerStream, rtcConfig);
   };
 
@@ -387,12 +388,17 @@ async function createP2PConnection(rtcConfig) {
   };
 
   p2pPc.onconnectionstatechange = () => {
+    setStatus("P2P状态: " + p2pPc.connectionState, "info");
     if (p2pPc.connectionState === "connected") {
       setStatus("🟢 通话已接通，自然说话即可", "ok");
     }
     if (p2pPc.connectionState === "failed" || p2pPc.connectionState === "disconnected") {
       setStatus("P2P连接中断", "error");
     }
+  };
+
+  p2pPc.oniceconnectionstatechange = () => {
+    setStatus("ICE状态: " + p2pPc.iceConnectionState, "info");
   };
 
   // 把本机麦克风添加到P2P连接（让对方听到我的声音）
@@ -403,10 +409,12 @@ async function createP2PConnection(rtcConfig) {
 
 // ===== 翻译引擎（连接OpenAI，翻译对方的声音）=====
 async function startTranslation(peerStream, rtcConfig) {
+  setStatus("翻译引擎启动中...", "info");
   setIndicator("translating", "翻译引擎启动中...");
 
   try {
     transPc = new RTCPeerConnection(rtcConfig);
+    setStatus("翻译WebRTC已创建", "info");
 
     // 收到翻译后的音频 → 播放给本机用户
     transPc.ontrack = (e) => {
