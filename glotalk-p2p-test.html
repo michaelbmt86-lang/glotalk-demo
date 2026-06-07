@@ -53,16 +53,44 @@ const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 const ROOM = "p2p-test-888888";
 const myId = "设备" + Math.floor(Math.random() * 9000 + 1000);
 
-// 用所有可能的ICE服务器，包括TURN
-const RTC_CONFIG = {
+const SUPABASE_URL_TURN = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-turn-credentials";
+
+// 动态获取真实TURN凭证
+let RTC_CONFIG = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
     { urls: "stun:stun.cloudflare.com:3478" },
-    { urls: "turn:turn.cloudflare.com:3478", username: "glotalk", credential: "glotalk2026" },
   ],
-  iceTransportPolicy: "all", // 允许所有ICE候选类型
+  iceTransportPolicy: "all",
 };
+
+async function initTurnConfig() {
+  try {
+    const res = await fetch(SUPABASE_URL_TURN, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${SUPABASE_ANON}`,
+        "apikey": SUPABASE_ANON,
+        "Content-Type": "application/json"
+      }
+    });
+    const data = await res.json();
+    if (data.iceServers && Array.isArray(data.iceServers)) {
+      RTC_CONFIG = {
+        iceServers: [
+          ...data.iceServers,
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+        ],
+        iceTransportPolicy: "all",
+      };
+      log("✅ TURN凭证获取成功！", "ok");
+    }
+  } catch(e) {
+    log("⚠️ TURN获取失败，用备用STUN: " + e.message, "err");
+  }
+}
 
 let pc = null, dc = null, sbChannel = null, sbClient = null;
 let localStream = null;
@@ -265,26 +293,30 @@ msgInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendMsg();
 });
 
-// 连接Supabase信令
-log("我的ID: " + myId, "ok");
-log("连接信令服务器...");
+// 用async IIFE包装，支持顶层await
+(async () => {
+  log("我的ID: " + myId, "ok");
+  log("获取TURN凭证...");
+  await initTurnConfig();
+  log("连接信令服务器...");
 
-sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-sbChannel = sbClient.channel(`p2ptest-${ROOM}`, {
-  config: { broadcast: { self: false } }
-});
-
-sbChannel
-  .on("broadcast", { event: "signal" }, async ({ payload }) => {
-    await handleSignal(payload);
-  })
-  .subscribe(async (status) => {
-    log("信令状态: " + status, status === "SUBSCRIBED" ? "ok" : "info");
-    if (status === "SUBSCRIBED") {
-      setStatus("已进入房间，等待对方...");
-      await sbChannel.send({ type: "broadcast", event: "signal", payload: { type: "join" } });
-    }
+  sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+  sbChannel = sbClient.channel(`p2ptest-${ROOM}`, {
+    config: { broadcast: { self: false } }
   });
+
+  sbChannel
+    .on("broadcast", { event: "signal" }, async ({ payload }) => {
+      await handleSignal(payload);
+    })
+    .subscribe(async (status) => {
+      log("信令状态: " + status, status === "SUBSCRIBED" ? "ok" : "info");
+      if (status === "SUBSCRIBED") {
+        setStatus("已进入房间，等待对方...");
+        await sbChannel.send({ type: "broadcast", event: "signal", payload: { type: "join" } });
+      }
+    });
+})();
 </script>
 </body>
 </html>
