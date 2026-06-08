@@ -161,22 +161,23 @@ async function createPC() {
 
   if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
-  // 用同一个stream处理音视频（Safari iOS要求）
+  // 分别处理音频和视频轨道
+  let remoteStream = new MediaStream();
   pc.ontrack = e => {
     log("✅ 收到对方轨道: " + e.track.kind, "ok");
-    const stream = e.streams[0];
-    if (!stream) return;
+    remoteStream.addTrack(e.track);
 
-    // 音频元素
-    if (!audio.srcObject) {
-      audio.srcObject = stream;
-      audio.play().catch(()=>{});
+    // 音频
+    const audioEl = document.getElementById("remoteAudio");
+    if (audioEl) {
+      audioEl.srcObject = remoteStream;
+      audioEl.play().catch(()=>{});
     }
 
-    // 视频元素（同一个stream包含音视频）
+    // 视频
     const remoteVideo = document.getElementById("remoteVideo");
-    if (remoteVideo && !remoteVideo.srcObject) {
-      remoteVideo.srcObject = stream;
+    if (remoteVideo) {
+      remoteVideo.srcObject = remoteStream;
       remoteVideo.play().catch(()=>{});
     }
   };
@@ -291,6 +292,10 @@ async function start() {
     const members = Object.keys(state).sort(); // 字母序排序
     log("房间人数: "+members.length+" 成员:"+members.join(","), "info");
 
+    if (members.length > 2) {
+      log("⚠️ 房间人数超过2人("+members.length+"人)，请重新连接！", "err");
+      return;
+    }
     if (members.length >= 2 && !pc) {
       // 用ID字母序决定角色：排序后第一个发offer，第二个等待
       // 这个方法100%可靠，不依赖时间戳
