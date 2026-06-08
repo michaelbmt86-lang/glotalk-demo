@@ -77,7 +77,12 @@
     </div>
     <button class="btn btn-dark" id="videoBtn" onclick="toggleVideo()"></button>
     <div class="card">
+      <!-- 收到的译文（对方说的） -->
+      <div style="font-size:11px;color:#555;margin-bottom:4px;" id="theirLabel"></div>
       <div id="transcript" class="transcript-box"></div>
+      <!-- 自己说的原文（input transcript） -->
+      <div style="font-size:11px;color:#555;margin:8px 0 4px;" id="myLabel"></div>
+      <div id="myTranscript" class="transcript-box" style="min-height:60px;max-height:80px;color:#60a5fa;background:#0d0f1a;border-color:#1a2033;font-size:15px;"></div>
       <div class="vad-bar"><div class="vad-fill" id="vadFill"></div></div>
     </div>
     <div class="indicator">
@@ -99,6 +104,7 @@
 // ===== 多语言UI =====
 const UI = {
   zh: {
+    theirLabel:"收到的译文 ↓", myLabel:"我说的内容 ↓",
     sub:"全双工实时翻译通话 · Beta", langLabel:"我的语言",
     joinBtn:"开始翻译通话", hangupBtn:"挂断离开",
     myVid:"我的画面", theirVid:"对方画面",
@@ -113,6 +119,7 @@ const UI = {
     tapToPlay:"请点击页面任意位置以播放声音",
   },
   en: {
+    theirLabel:"Received Translation ↓", myLabel:"What I Said ↓",
     sub:"Full-Duplex Real-Time Translation · Beta", langLabel:"My Language",
     joinBtn:"Start Translation Call", hangupBtn:"Hang Up",
     myVid:"My Camera", theirVid:"Their Camera",
@@ -141,6 +148,8 @@ function applyUI() {
   document.getElementById("theirVidLabel").textContent = t("theirVid");
   document.getElementById("videoBtn").textContent    = t("videoOn");
   document.getElementById("indText").textContent     = t("waiting");
+  document.getElementById("theirLabel").textContent  = t("theirLabel");
+  document.getElementById("myLabel").textContent     = t("myLabel");
   document.getElementById("hintText").textContent    = t("hint");
 }
 applyUI();
@@ -332,6 +341,7 @@ async function startTranslation(peerAudioTrack) {
         if (ev.type && !["session.created","output_audio_buffer.started"].includes(ev.type)) {
           addLog("DC: "+ev.type, "#60a5fa");
         }
+        // 收到的译文（对方说的话翻译后）
         if (ev.type==="session.output_transcript.delta"||ev.type==="response.audio_transcript.delta") {
           const delta = ev.delta||ev.text||"";
           if (delta) {
@@ -345,6 +355,23 @@ async function startTranslation(peerAudioTrack) {
           const tb = document.getElementById("transcript");
           const lines = tb.textContent.split("\n");
           tb.textContent = (lines.length>6?lines.slice(-6):lines).join("\n")+"\n";
+          tb.scrollTop = tb.scrollHeight;
+        }
+        // 自己说的原文（input transcript）
+        if (ev.type==="session.input_transcript.delta") {
+          const delta = ev.delta||ev.text||"";
+          if (delta) {
+            const tb = document.getElementById("myTranscript");
+            tb.textContent += delta;
+            tb.scrollTop = tb.scrollHeight;
+          }
+        }
+        if (ev.type==="session.input_transcript.done") {
+          const tb = document.getElementById("myTranscript");
+          // 记录完整的一句话到日志
+          addLog("我说: ["+tb.textContent.trim().split("\n").pop()+"]", "#60a5fa");
+          const lines = tb.textContent.split("\n");
+          tb.textContent = (lines.length>4?lines.slice(-4):lines).join("\n")+"\n";
           tb.scrollTop = tb.scrollHeight;
         }
         if (ev.type==="error") addLog("Trans error: "+(ev.error?.message||""), "#ef4444");
@@ -638,6 +665,7 @@ function cleanup() {
   if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
   if (videoStream) { videoStream.getTracks().forEach(t=>t.stop()); videoStream=null; }
   document.getElementById("remoteAudio").srcObject = null;
+  document.getElementById("myTranscript").textContent = "";
   document.getElementById("localVideo").srcObject  = null;
   document.getElementById("remoteVideo").srcObject = null;
   document.getElementById("videoRow").style.display = "none";
