@@ -4,6 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GloTalk</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -18,20 +19,21 @@
     .field { display: flex; flex-direction: column; gap: 6px; }
     .field label { font-size: 11px; color: #555; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
     .field select { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; color: #f0f0f0; font: inherit; font-size: 15px; padding: 11px 14px; outline: none; }
-    .field select:focus { border-color: #22c55e44; }
     .field select option { background: #1a1a1a; }
-    .join-btn { width: 100%; height: 56px; border: none; border-radius: 14px; background: #22c55e; color: #000; font: inherit; font-size: 17px; font-weight: 800; cursor: pointer; transition: all 0.15s; -webkit-user-select: none; user-select: none; }
-    .join-btn:active { transform: scale(0.97); }
-    .join-btn:disabled { background: #1a1a1a; color: #444; cursor: wait; }
-    .join-btn.danger { background: #ef4444; color: #fff; }
+    .btn { width: 100%; height: 56px; border: none; border-radius: 14px; font: inherit; font-size: 17px; font-weight: 800; cursor: pointer; transition: all 0.15s; -webkit-user-select: none; user-select: none; }
+    .btn-green  { background: #22c55e; color: #000; }
+    .btn-red    { background: #ef4444; color: #fff; height: 46px; font-size: 15px; }
+    .btn-dark   { background: #1a1a1a; color: #60a5fa; border: 1px solid #2a2a2a; height: 44px; font-size: 14px; }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { background: #1a1a1a; color: #444; cursor: wait; }
     .transcript-box { min-height: 100px; max-height: 140px; overflow-y: auto; background: #0d1a0f; border: 1px solid #1a3320; border-radius: 14px; padding: 14px; font-size: 18px; font-weight: 600; line-height: 1.4; color: #22c55e; word-break: break-word; white-space: pre-wrap; }
     .vad-bar { height: 3px; background: #1a1a1a; border-radius: 2px; overflow: hidden; }
     .vad-fill { height: 100%; background: #22c55e; border-radius: 2px; transition: width 0.1s; width: 0%; }
     .indicator { display: flex; align-items: center; gap: 8px; background: #111; border: 1px solid #222; border-radius: 10px; padding: 10px 14px; }
-    .dot { width: 10px; height: 10px; border-radius: 50%; background: #333; transition: all 0.2s; flex-shrink: 0; }
-    .dot.speaking { background: #22c55e; animation: breathe 1s infinite; }
-    .dot.translating { background: #60a5fa; animation: breathe 0.5s infinite; }
-    @keyframes breathe { 0%,100%{transform:scale(1)}50%{transform:scale(1.3)} }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #333; flex-shrink: 0; }
+    .dot.speaking    { background: #22c55e; animation: pulse 1s infinite; }
+    .dot.translating { background: #60a5fa; animation: pulse 0.5s infinite; }
+    @keyframes pulse { 0%,100%{transform:scale(1)}50%{transform:scale(1.3)} }
     .ind-text { font-size: 13px; color: #666; font-weight: 600; }
     #statusBar { font-size: 13px; text-align: center; padding: 4px; min-height: 18px; color: #555; }
     #statusBar.ok   { color: #22c55e; }
@@ -44,13 +46,13 @@
     .call-section { display: none; flex-direction: column; gap: 12px; }
     .call-section.visible { display: flex; }
     .hint { font-size: 11px; color: #333; text-align: center; line-height: 1.5; }
+    #screenLog { background:#0a0a0a; border:1px solid #1a1a1a; border-radius:8px; padding:8px; font-size:11px; max-height:140px; overflow-y:auto; display:none; font-family: monospace; }
   </style>
 </head>
 <body>
 <div class="app">
-  <div class="logo">Glo<span>Talk</span><small id="logoSubtitle"></small></div>
+  <div class="logo">Glo<span>Talk</span><small id="logoSub"></small></div>
 
-  <!-- 加入房间 -->
   <div class="card" id="joinCard">
     <div class="field">
       <label id="myLangLabel"></label>
@@ -59,24 +61,21 @@
         <option value="en">🇺🇸 English</option>
       </select>
     </div>
-    <button class="join-btn" id="joinBtn" onclick="joinRoom()"></button>
+    <button class="btn btn-green" id="joinBtn" onclick="joinRoom()"></button>
   </div>
 
-  <!-- 通话中 -->
   <div class="call-section" id="callSection">
-    <!-- 视频区域（默认隐藏）-->
-    <div class="video-row" id="videoRow" style="display:none;">
+    <div class="video-row" id="videoRow" style="display:none">
       <div class="video-col">
-        <span class="video-label" id="myVideoLabel"></span>
+        <span class="video-label" id="myVidLabel"></span>
         <video id="localVideo" autoplay playsinline muted></video>
       </div>
       <div class="video-col">
-        <span class="video-label" id="theirVideoLabel"></span>
+        <span class="video-label" id="theirVidLabel"></span>
         <video id="remoteVideo" autoplay playsinline></video>
       </div>
     </div>
-    <!-- 视频开关按钮 -->
-    <button class="join-btn" id="videoToggleBtn" onclick="toggleVideo()" style="height:44px;font-size:14px;background:#1a1a1a;color:#60a5fa;border:1px solid #2a2a2a;"></button>
+    <button class="btn btn-dark" id="videoBtn" onclick="toggleVideo()"></button>
     <div class="card">
       <div id="transcript" class="transcript-box"></div>
       <div class="vad-bar"><div class="vad-fill" id="vadFill"></div></div>
@@ -86,193 +85,115 @@
       <div class="ind-text" id="indText"></div>
     </div>
     <div id="statusBar"></div>
-    <button class="join-btn danger" id="hangupBtn" onclick="leaveRoom()" style="height:46px;font-size:15px;"></button>
+    <button class="btn btn-red" onclick="leaveRoom()" id="hangupBtn"></button>
   </div>
 
   <div class="hint" id="hintText"></div>
-  <!-- 屏幕日志（调试用）-->
-  <div id="screenLog" style="background:#111;border:1px solid #222;border-radius:10px;padding:10px;font-size:11px;color:#666;max-height:150px;overflow-y:auto;display:none;"></div>
-  <button onclick="toggleLog()" style="width:100%;height:36px;border:none;border-radius:8px;background:#1a1a1a;color:#555;font-size:12px;cursor:pointer;">🔍 Debug Log</button>
+  <div id="screenLog"></div>
+  <button onclick="toggleLog()" style="width:100%;height:32px;border:none;border-radius:6px;background:#111;color:#333;font-size:11px;cursor:pointer;margin-top:4px;">🔍 Debug Log</button>
 </div>
 
 <audio id="remoteAudio" autoplay playsinline style="display:none"></audio>
 
 <script>
-// ===== 多语言界面文字 =====
+// ===== 多语言UI =====
 const UI = {
   zh: {
-    subtitle:    "全双工实时翻译通话 · Beta",
-    myLangLabel: "我的语言",
-    joinBtn:     "开始翻译通话",
-    hangupBtn:   "挂断离开",
-    myVideo:     "我的画面",
-    theirVideo:  "对方画面",
-    videoOn:     "📹 开启视频",
-    videoOff:    "📹 关闭视频",
-    waiting:     "等待对方加入...",
-    connecting:  "正在建立连接...",
-    p2pOk:       "通话已接通，翻译启动中...",
-    transReady:  "🟢 翻译就绪！正常说话即可",
-    speaking:    "🎤 正在说话...",
-    standby:     "🟢 请说话...",
-    transStart:  "翻译引擎启动中...",
-    transFail:   "翻译连接失败",
-    peerJoined:  "对方已加入！建立连接中...",
-    peerLeft:    "对方已离开",
-    peerHangup:  "对方已挂断",
-    micReq:      "申请麦克风+摄像头...",
-    netConfig:   "获取网络配置...",
-    sigConn:     "连接信令服务...",
-    roomFull:    "房间已有2人，请稍后重试",
-    error:       "错误: ",
-    transError:  "翻译错误: ",
-    hint:        "需要 HTTPS · 全双工模式 · 正常说话即可",
-    transcriptPlaceholder: "译文显示在这里",
-    offerSending: "发送连接请求...",
-    offerWaiting: "等待对方连接...",
+    sub:"全双工实时翻译通话 · Beta", langLabel:"我的语言",
+    joinBtn:"开始翻译通话", hangupBtn:"挂断离开",
+    myVid:"我的画面", theirVid:"对方画面",
+    videoOn:"📹 开启视频", videoOff:"📹 关闭视频",
+    waiting:"等待对方加入...", connecting:"建立连接中...",
+    p2pOk:"通话接通，翻译启动中...", transReady:"🟢 翻译就绪！请说话",
+    speaking:"🎤 正在说话...", standby:"🟢 请说话...",
+    transStart:"翻译引擎启动中...", transFail:"翻译连接失败",
+    peerJoined:"对方已加入！", peerLeft:"对方已离开",
+    peerHangup:"对方已挂断", hint:"需要 HTTPS · 全双工 · 自然说话",
+    transErr:"翻译错误: ", err:"错误: ",
+    tapToPlay:"请点击页面任意位置以播放声音",
   },
   en: {
-    subtitle:    "Full-Duplex Real-Time Translation · Beta",
-    myLangLabel: "My Language",
-    joinBtn:     "Start Translation Call",
-    hangupBtn:   "Hang Up",
-    myVideo:     "My Camera",
-    theirVideo:  "Their Camera",
-    videoOn:     "📹 Turn On Video",
-    videoOff:    "📹 Turn Off Video",
-    waiting:     "Waiting for the other person...",
-    connecting:  "Establishing connection...",
-    p2pOk:       "Connected, starting translation...",
-    transReady:  "🟢 Ready! Speak naturally",
-    speaking:    "🎤 Speaking...",
-    standby:     "🟢 Please speak...",
-    transStart:  "Starting translation engine...",
-    transFail:   "Translation connection failed",
-    peerJoined:  "Other person joined! Connecting...",
-    peerLeft:    "Other person left",
-    peerHangup:  "Other person hung up",
-    micReq:      "Requesting microphone + camera...",
-    netConfig:   "Getting network configuration...",
-    sigConn:     "Connecting to signaling service...",
-    roomFull:    "Room is full (2 people max), please try later",
-    error:       "Error: ",
-    transError:  "Translation error: ",
-    hint:        "Requires HTTPS · Full-duplex mode · Speak naturally",
-    transcriptPlaceholder: "Translation appears here",
-    offerSending: "Sending connection request...",
-    offerWaiting: "Waiting for connection...",
+    sub:"Full-Duplex Real-Time Translation · Beta", langLabel:"My Language",
+    joinBtn:"Start Translation Call", hangupBtn:"Hang Up",
+    myVid:"My Camera", theirVid:"Their Camera",
+    videoOn:"📹 Turn On Video", videoOff:"📹 Turn Off Video",
+    waiting:"Waiting for other person...", connecting:"Connecting...",
+    p2pOk:"Connected, starting translation...", transReady:"🟢 Ready! Speak naturally",
+    speaking:"🎤 Speaking...", standby:"🟢 Please speak...",
+    transStart:"Starting translation engine...", transFail:"Translation failed",
+    peerJoined:"Other person joined!", peerLeft:"Other person left",
+    peerHangup:"Other person hung up", hint:"Requires HTTPS · Full-duplex · Speak naturally",
+    transErr:"Translation error: ", err:"Error: ",
+    tapToPlay:"Tap anywhere to enable audio",
   }
 };
 
-// 语言对应的翻译输出语言
-const TRANSLATE_TO = { zh: "en", en: "zh" };
-
-let myLang = "zh"; // 默认中文
-
-function t(key) { return UI[myLang][key] || key; }
+let myLang = "zh";
+const t = k => UI[myLang][k] || k;
 
 function applyUI() {
-  document.getElementById("logoSubtitle").textContent   = t("subtitle");
-  document.getElementById("myLangLabel").textContent    = t("myLangLabel");
-  document.getElementById("joinBtn").textContent        = t("joinBtn");
-  document.getElementById("hangupBtn").textContent      = t("hangupBtn");
-  document.getElementById("myVideoLabel").textContent   = t("myVideo");
-  document.getElementById("theirVideoLabel").textContent= t("theirVideo");
-  document.getElementById("indText").textContent        = t("waiting");
-  document.getElementById("hintText").textContent       = t("hint");
-  document.getElementById("statusBar").textContent      = "";
-  document.getElementById("videoToggleBtn").textContent = t("videoOn");
-  // 字幕框placeholder
-  const tb = document.getElementById("transcript");
-  tb.setAttribute("data-placeholder", t("transcriptPlaceholder"));
   document.documentElement.lang = myLang;
+  document.getElementById("logoSub").textContent     = t("sub");
+  document.getElementById("myLangLabel").textContent = t("langLabel");
+  document.getElementById("joinBtn").textContent     = t("joinBtn");
+  document.getElementById("hangupBtn").textContent   = t("hangupBtn");
+  document.getElementById("myVidLabel").textContent  = t("myVid");
+  document.getElementById("theirVidLabel").textContent = t("theirVid");
+  document.getElementById("videoBtn").textContent    = t("videoOn");
+  document.getElementById("indText").textContent     = t("waiting");
+  document.getElementById("hintText").textContent    = t("hint");
 }
-
-// CSS for transcript placeholder
-const style = document.createElement("style");
-style.textContent = `#transcript:empty::before { content: attr(data-placeholder); color: #1a3320; font-size: 14px; font-weight: 400; }`;
-document.head.appendChild(style);
-
-function onLangChange() {
-  myLang = document.getElementById("myLang").value;
-  applyUI();
-}
-
-// 初始化UI
 applyUI();
 
+function onLangChange() { myLang = document.getElementById("myLang").value; applyUI(); }
+
+// ===== 日志 =====
+const screenLog = document.getElementById("screenLog");
+function addLog(msg, color="#555") {
+  const d = document.createElement("div");
+  d.style.color = color;
+  d.textContent = new Date().toLocaleTimeString() + " " + msg;
+  screenLog.appendChild(d);
+  screenLog.scrollTop = screenLog.scrollHeight;
+}
+function toggleLog() {
+  screenLog.style.display = screenLog.style.display === "none" ? "block" : "none";
+}
+function setStatus(msg, type="") {
+  document.getElementById("statusBar").textContent = msg;
+  document.getElementById("statusBar").className = type;
+  const c = type==="ok"?"#22c55e":type==="err"?"#ef4444":type==="info"?"#60a5fa":"#555";
+  addLog(msg, c);
+}
+function setIndicator(state, text) {
+  document.getElementById("dot").className = "dot"+(state?" "+state:"");
+  document.getElementById("indText").textContent = text;
+}
+
 // ===== 配置 =====
-const SUPABASE_URL      = "https://ryqxhagdbycccosuavtp.supabase.co";
-const SUPABASE_ANON     = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
-const SUPABASE_TURN_URL = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-turn-credentials";
-const SUPABASE_SESSION  = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-realtime-session";
-const OPENAI_TRANS      = "https://api.openai.com/v1/realtime/translations";
+const SUPABASE_URL   = "https://ryqxhagdbycccosuavtp.supabase.co";
+const SUPABASE_ANON  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
+const TURN_URL       = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-turn-credentials";
+const SESSION_URL    = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-realtime-session";
+const OPENAI_TRANS   = "https://api.openai.com/v1/realtime/translations";
 const ROOM = "glt-fd-888888";
 const myId = "dev" + Math.floor(Math.random() * 9000 + 1000);
 const myTs = Date.now();
 
 // ===== 状态 =====
-let rtcConfig  = { iceServers:[{urls:"stun:stun.l.google.com:19302"}], iceTransportPolicy:"all" };
-let sb=null, ch=null, p2pPc=null, transPc=null;
-let localStream=null, pendingIce=[];
-let usedRelay=false, relayTimer=null, rtcReady=false;
+let rtcConfig = { iceServers:[{urls:"stun:stun.l.google.com:19302"}], iceTransportPolicy:"all" };
+let sb=null, ch=null, pc=null, transPc=null;
+let localStream=null, videoStream=null;
+let videoEnabled=false, rtcReady=false;
+let makingOffer=false, ignoreOffer=false, isPolite=false;
+let pendingIce=[];
 let audioCtx=null, analyser=null, vadTimer=null, isSpeaking=false, vadInterval=null;
-const VAD_THRESHOLD=0.015, VAD_HOLD_MS=800, VAD_FRAME_MS=20;
-
-// ===== UI =====
-const joinCard   = document.getElementById("joinCard");
-const callSection= document.getElementById("callSection");
-const joinBtn    = document.getElementById("joinBtn");
-const transcript = document.getElementById("transcript");
-const vadFill    = document.getElementById("vadFill");
-const dot        = document.getElementById("dot");
-const indText    = document.getElementById("indText");
-const statusBar  = document.getElementById("statusBar");
-const remoteAudio= document.getElementById("remoteAudio");
-const localVideo = document.getElementById("localVideo");
-const remoteVideo= document.getElementById("remoteVideo");
-
-const screenLogEl = document.getElementById("screenLog");
-function addLog(msg, color="#666") {
-  const d = document.createElement("div");
-  d.style.color = color;
-  d.style.borderBottom = "1px solid #1a1a1a";
-  d.style.paddingBottom = "2px";
-  d.style.marginBottom = "2px";
-  d.textContent = new Date().toLocaleTimeString() + " " + msg;
-  screenLogEl.appendChild(d);
-  screenLogEl.scrollTop = screenLogEl.scrollHeight;
-}
-function toggleLog() {
-  screenLogEl.style.display = screenLogEl.style.display === "none" ? "block" : "none";
-}
-function setStatus(msg, type="") {
-  statusBar.textContent = msg;
-  statusBar.className = type;
-  console.log("[GloTalk]", msg);
-  const color = type==="ok"?"#22c55e":type==="err"?"#ef4444":type==="info"?"#60a5fa":"#666";
-  addLog(msg, color);
-}
-function setIndicator(state, text) {
-  dot.className = "dot"+(state?" "+state:"");
-  indText.textContent = text;
-}
-function appendText(delta) {
-  if (!delta) return;
-  transcript.textContent += delta;
-  transcript.scrollTop = transcript.scrollHeight;
-}
-function newLine() {
-  if (!transcript.textContent) return;
-  const lines = transcript.textContent.split("\n");
-  transcript.textContent = (lines.length>6 ? lines.slice(-6) : lines).join("\n")+"\n";
-  transcript.scrollTop = transcript.scrollHeight;
-}
+const VAD_THRESHOLD=0.015, VAD_HOLD_MS=800;
 
 // ===== TURN =====
 async function initTurn() {
   try {
-    const r = await fetch(SUPABASE_TURN_URL, {
+    const r = await fetch(TURN_URL, {
       method:"POST",
       headers:{"Authorization":`Bearer ${SUPABASE_ANON}`,"apikey":SUPABASE_ANON,"Content-Type":"application/json"}
     });
@@ -283,16 +204,14 @@ async function initTurn() {
       const u = servers[0].username||d.username;
       const c = servers[0].credential||d.credential;
       const extra = (u&&c) ? [
-        {urls:"turns:turn.cloudflare.com:5349?transport=tcp", username:u, credential:c},
-        {urls:"turn:turn.cloudflare.com:3478?transport=tcp",  username:u, credential:c},
-        {urls:"turn:turn.cloudflare.com:3478?transport=udp",  username:u, credential:c},
+        {urls:"turns:turn.cloudflare.com:5349?transport=tcp",username:u,credential:c},
+        {urls:"turn:turn.cloudflare.com:3478?transport=tcp", username:u,credential:c},
+        {urls:"turn:turn.cloudflare.com:3478?transport=udp", username:u,credential:c},
       ] : [];
-      rtcConfig = {
-        iceServers:[{urls:"stun:stun.l.google.com:19302"}, ...extra, ...servers],
-        iceTransportPolicy:"all"
-      };
+      rtcConfig = { iceServers:[{urls:"stun:stun.l.google.com:19302"},...extra,...servers], iceTransportPolicy:"all" };
+      addLog("TURN ready: "+rtcConfig.iceServers.length+" servers", "#22c55e");
     }
-  } catch(e) { console.warn("TURN:", e); }
+  } catch(e) { addLog("TURN failed: "+e.message, "#ef4444"); }
 }
 
 // ===== VAD =====
@@ -309,294 +228,258 @@ function startVAD(stream) {
       analyser.getByteFrequencyData(buf);
       let sum=0; for(let i=0;i<buf.length;i++) sum+=buf[i]*buf[i];
       const rms = Math.sqrt(sum/buf.length)/255;
-      vadFill.style.width = Math.min(rms*800,100)+"%";
+      document.getElementById("vadFill").style.width = Math.min(rms*800,100)+"%";
       if (rms>VAD_THRESHOLD) {
         clearTimeout(vadTimer);
-        if (!isSpeaking) { isSpeaking=true; setIndicator("speaking", t("speaking")); }
+        if (!isSpeaking) { isSpeaking=true; setIndicator("speaking",t("speaking")); }
         vadTimer = setTimeout(()=>{
           isSpeaking=false;
           setIndicator(rtcReady?"":"translating", rtcReady?t("standby"):t("transStart"));
-          vadFill.style.width="0%";
+          document.getElementById("vadFill").style.width="0%";
         }, VAD_HOLD_MS);
       }
-    }, VAD_FRAME_MS);
-  } catch(e) { console.warn("VAD:", e); }
+    }, 20);
+  } catch(e) { addLog("VAD error: "+e.message, "#ef4444"); }
 }
 function stopVAD() {
-  clearInterval(vadInterval); clearTimeout(vadTimer);
-  vadInterval=null; isSpeaking=false; vadFill.style.width="0%";
-  if (audioCtx) { audioCtx.close().catch(()=>{}); audioCtx=null; }
-  analyser=null;
-}
-
-// ===== ICE =====
-async function addIce(c) {
-  if (!p2pPc) return;
-  if (!p2pPc.remoteDescription) { pendingIce.push(c); return; }
-  try { await p2pPc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
-}
-async function flushIce() {
-  while(pendingIce.length) {
-    try { await p2pPc.addIceCandidate(new RTCIceCandidate(pendingIce.shift())); } catch {}
-  }
-}
-
-// ===== P2P连接 =====
-async function createP2P() {
-  p2pPc = new RTCPeerConnection(rtcConfig);
-  let remoteStream = new MediaStream();
-
-  p2pPc.ontrack = async (e) => {
-    addLog("P2P track: " + e.track.kind, "#60a5fa");
-    remoteStream.addTrack(e.track);
-
-    // 视频轨道：显示在屏幕上
-    if (e.track.kind === "video") {
-      if (remoteVideo) remoteVideo.srcObject = remoteStream;
-    }
-
-    // 音频轨道：只送给翻译引擎，不直接播放给用户
-    // 这样用户只听翻译后的声音，不听原声
-    if (e.track.kind === "audio") {
-      setStatus(t("p2pOk"), "ok");
-      setIndicator("translating", t("transStart"));
-      addLog("Sending peer audio to translation engine...", "#60a5fa");
-      const audioOnly = new MediaStream([e.track]);
-      await startTranslation(audioOnly);
-    }
-  };
-
-  p2pPc.onicecandidate = async (e) => {
-    if (e.candidate) await bcast({type:"ice", candidate:e.candidate.toJSON()});
-  };
-
-  p2pPc.oniceconnectionstatechange = () => {
-    const s = p2pPc.iceConnectionState;
-    if (s==="connected"||s==="completed") clearTimeout(relayTimer);
-    if (s==="failed"&&!usedRelay) {
-      usedRelay=true;
-      try { p2pPc.setConfiguration({...rtcConfig, iceTransportPolicy:"relay"}); } catch {}
-      p2pPc.restartIce();
-    }
-    if (s==="disconnected") {
-      setTimeout(()=>{ if(p2pPc?.iceConnectionState==="disconnected") p2pPc.restartIce(); }, 2000);
-    }
-  };
-
-  if (localStream) localStream.getTracks().forEach(t => p2pPc.addTrack(t, localStream));
-
-  relayTimer = setTimeout(()=>{
-    if (!usedRelay && p2pPc?.iceConnectionState!=="connected" && p2pPc?.iceConnectionState!=="completed") {
-      usedRelay=true;
-      try { p2pPc.setConfiguration({...rtcConfig, iceTransportPolicy:"relay"}); } catch {}
-      p2pPc.restartIce();
-    }
-  }, 15000);
+  clearInterval(vadInterval); clearTimeout(vadTimer); vadInterval=null; isSpeaking=false;
+  document.getElementById("vadFill").style.width="0%";
+  if (audioCtx) { audioCtx.close().catch(()=>{}); audioCtx=null; } analyser=null;
 }
 
 // ===== 翻译引擎 =====
-// 关键：输出语言 = 我的语言（我听自己能懂的）
-// 对方说X语言 → 翻译成我的语言 → 我听懂
-async function startTranslation(peerStream) {
+async function startTranslation(peerAudioTrack) {
   if (transPc) return;
-  const outputLanguage = myLang;
-  console.log("[Trans] Starting translation, outputLanguage:", outputLanguage);
-  setStatus("翻译引擎连接中... / Connecting translation...", "info");
+  addLog("Starting translation engine, lang="+myLang, "#60a5fa");
 
   try {
     transPc = new RTCPeerConnection(rtcConfig);
-    console.log("[Trans] RTCPeerConnection created");
 
+    // 收到翻译音频 → 播放（不让麦克风收到）
     transPc.ontrack = (e) => {
-      console.log("[Trans] ✅ Received translated audio track!");
-      addLog("✅ Trans: received audio track", "#22c55e");
-      // 用audio元素播放（最可靠），同时用suppressLocalAudioPlayback防回声
-      const audio = remoteAudio;
-      // suppressLocalAudioPlayback: 告诉浏览器这个音频不要被麦克风收入
-      if ("suppressLocalAudioPlayback" in audio) {
-        audio.suppressLocalAudioPlayback = true;
-        console.log("[Trans] suppressLocalAudioPlayback = true");
-      }
+      addLog("Trans: received translated audio!", "#22c55e");
+      const audio = document.getElementById("remoteAudio");
+      if ("suppressLocalAudioPlayback" in audio) audio.suppressLocalAudioPlayback = true;
       audio.srcObject = e.streams[0];
-      // resume AudioContext确保Chrome允许播放
-      if (audioCtx && audioCtx.state === "suspended") {
-        audioCtx.resume().then(() => console.log("[Trans] AudioContext resumed"));
-      }
-      audio.play().then(() => {
-        console.log("[Trans] ✅ Audio playing!");
-        addLog("✅ Trans: audio playing!", "#22c55e");
-      }).catch((err) => {
-        console.warn("[Trans] Auto-play blocked:", err);
-        addLog("⚠️ Trans: autoplay blocked - "+err.message, "#ef4444");
-        // 显示提示让用户点击页面解锁音频
-        setStatus(myLang === "zh" ? "请点击页面任意位置以播放声音" : "Tap anywhere to enable audio", "info");
-        document.addEventListener("click", () => {
-          audio.play().then(() => {
-            setStatus(t("transReady"), "ok");
-          }).catch(()=>{});
-        }, { once: true });
+      if (audioCtx?.state === "suspended") audioCtx.resume();
+      audio.play().then(()=>{
+        addLog("Trans: audio playing!", "#22c55e");
+        rtcReady=true;
+        setIndicator("", t("standby"));
+        setStatus(t("transReady"), "ok");
+      }).catch(err=>{
+        addLog("Trans: autoplay blocked - tap screen!", "#ef4444");
+        setStatus(t("tapToPlay"), "info");
+        document.addEventListener("click", ()=>{ audio.play(); }, {once:true});
       });
-      rtcReady = true;
-      setIndicator("", t("standby"));
-      setStatus(t("transReady"), "ok");
     };
 
-    transPc.oniceconnectionstatechange = () => {
-      console.log("[Trans] ICE state:", transPc.iceConnectionState);
-    };
+    // 把对方音频轨道送给OpenAI翻译
+    const audioStream = new MediaStream([peerAudioTrack]);
+    audioStream.getTracks().forEach(t => transPc.addTrack(t, audioStream));
 
-    peerStream.getTracks().forEach(t => transPc.addTrack(t, peerStream));
-
-    // DataChannel接收字幕（Safari iOS兼容）
+    // DataChannel接收字幕
     const tdc = transPc.createDataChannel("oai-events");
-
     function handleMsg(data) {
       try {
         const ev = JSON.parse(data);
-        // 收到任何消息都记录
-        if (ev.type && ev.type !== "session.created") {
-          addLog("DC: " + ev.type, "#60a5fa");
+        if (ev.type && !["session.created","output_audio_buffer.started"].includes(ev.type)) {
+          addLog("DC: "+ev.type, "#60a5fa");
         }
         if (ev.type==="session.output_transcript.delta"||ev.type==="response.audio_transcript.delta") {
-          // 记录delta内容帮助调试
-          const delta = ev.delta || ev.text || "";
-          addLog("delta: [" + delta + "]", "#22c55e");
-          if (delta) appendText(delta);
+          const delta = ev.delta||ev.text||"";
+          if (delta) {
+            addLog("delta: ["+delta+"]", "#22c55e");
+            const tb = document.getElementById("transcript");
+            tb.textContent += delta;
+            tb.scrollTop = tb.scrollHeight;
+          }
         }
         if (ev.type==="session.output_transcript.done"||ev.type==="response.audio_transcript.done") {
-          const final = ev.transcript || ev.text || "";
-          addLog("done: [" + final + "]", "#22c55e");
-          if (final && !transcript.textContent.includes(final)) appendText(final);
-          newLine();
+          const tb = document.getElementById("transcript");
+          const lines = tb.textContent.split("\n");
+          tb.textContent = (lines.length>6?lines.slice(-6):lines).join("\n")+"\n";
+          tb.scrollTop = tb.scrollHeight;
         }
-        if (ev.type==="error") {
-          addLog("Trans error: "+(ev.error?.message||""), "#ef4444");
-          setStatus(t("transError")+(ev.error?.message||""), "err");
-        }
-      } catch(e) {
-        addLog("DC parse error: "+e.message, "#ef4444");
-      }
+        if (ev.type==="error") addLog("Trans error: "+(ev.error?.message||""), "#ef4444");
+      } catch(e) { addLog("DC parse err: "+e.message, "#ef4444"); }
     }
-
-    tdc.onopen  = () => addLog("DataChannel opened!", "#22c55e");
-    tdc.onclose = () => addLog("DataChannel closed", "#ef4444");
-    tdc.onerror = (e) => addLog("DataChannel error: "+e, "#ef4444");
-    tdc.onmessage = (e) => { handleMsg(e.data); };
-
-    // Safari iOS备用
-    transPc.ondatachannel = (e) => {
-      addLog("ondatachannel triggered (Safari fallback)", "#f59e0b");
-      e.channel.onopen    = () => addLog("Fallback DC opened!", "#22c55e");
-      e.channel.onmessage = (m) => handleMsg(m.data);
+    tdc.onopen    = () => addLog("DataChannel opened!", "#22c55e");
+    tdc.onclose   = () => addLog("DataChannel closed", "#ef4444");
+    tdc.onmessage = e => handleMsg(e.data);
+    transPc.ondatachannel = e => {
+      addLog("ondatachannel (Safari)", "#f59e0b");
+      e.channel.onopen    = () => addLog("Safari DC opened!", "#22c55e");
+      e.channel.onmessage = m => handleMsg(m.data);
     };
 
-    console.log("[Trans] Fetching session key and creating offer...");
+    // 并行获取密钥和offer
     const [secretRes, offer] = await Promise.all([
-      fetch(SUPABASE_SESSION, {
+      fetch(SESSION_URL, {
         method:"POST",
         headers:{"Authorization":`Bearer ${SUPABASE_ANON}`,"apikey":SUPABASE_ANON,"Content-Type":"application/json"},
-        body: JSON.stringify({ outputLanguage })
+        body: JSON.stringify({ outputLanguage: myLang })
       }),
       transPc.createOffer().then(o=>{ transPc.setLocalDescription(o); return o; })
     ]);
 
     const secretText = await secretRes.text();
-    console.log("[Trans] Session response:", secretRes.status, secretText.substring(0,100));
-    addLog("Trans session: "+secretRes.status, secretRes.ok?"#22c55e":"#ef4444");
+    addLog("Session: "+secretRes.status, secretRes.ok?"#22c55e":"#ef4444");
     if (!secretRes.ok) throw new Error(secretRes.status+" "+secretText);
     const { client_secret } = JSON.parse(secretText);
     if (!client_secret) throw new Error("no client_secret");
 
-    console.log("[Trans] Got client_secret, sending SDP offer...");
     const sdpRes = await fetch(
       `${OPENAI_TRANS}?model=gpt-realtime-translate`,
       {method:"POST", headers:{"Authorization":`Bearer ${client_secret}`,"Content-Type":"application/sdp"}, body:offer.sdp}
     );
     const answerSdp = await sdpRes.text();
-    console.log("[Trans] SDP response:", sdpRes.status, answerSdp.substring(0,50));
-    addLog("Trans SDP: "+sdpRes.status, sdpRes.ok?"#22c55e":"#ef4444");
-    if (!sdpRes.ok) throw new Error(sdpRes.status+" "+answerSdp.substring(0,100));
+    addLog("SDP: "+sdpRes.status, sdpRes.ok?"#22c55e":"#ef4444");
+    if (!sdpRes.ok) throw new Error(sdpRes.status+" "+answerSdp.substring(0,80));
     await transPc.setRemoteDescription({type:"answer", sdp:answerSdp});
-    console.log("[Trans] SDP exchange complete, waiting for ICE...");
 
     await new Promise((resolve,reject)=>{
-      const timeout = setTimeout(()=>reject(new Error("timeout")), 15000);
-      const check = ()=>{
-        const s = transPc?.iceConnectionState;
+      const timeout = setTimeout(()=>reject(new Error("Trans ICE timeout")), 15000);
+      transPc.oniceconnectionstatechange = () => {
+        const s = transPc.iceConnectionState;
+        addLog("Trans ICE: "+s, "#60a5fa");
         if (s==="connected"||s==="completed") { clearTimeout(timeout); resolve(); }
-        if (s==="failed") { clearTimeout(timeout); reject(new Error("ICE failed")); }
+        if (s==="failed") { clearTimeout(timeout); reject(new Error("Trans ICE failed")); }
       };
-      transPc.oniceconnectionstatechange = check;
-      check();
+      if (transPc.iceConnectionState==="connected"||transPc.iceConnectionState==="completed") {
+        clearTimeout(timeout); resolve();
+      }
     });
 
   } catch(err) {
     transPc=null;
-    addLog("❌ Trans error: "+err.message, "#ef4444");
-    setStatus(t("transError")+err.message, "err");
+    addLog("Trans FAILED: "+err.message, "#ef4444");
+    setStatus(t("transFail"), "err");
     setIndicator("", t("transFail"));
   }
 }
 
-// ===== 信令 =====
-async function bcast(payload) {
-  if (ch) await ch.send({type:"broadcast", event:"signal", payload});
+// ===== PERFECT NEGOTIATION（W3C标准，微信/Discord用的就是这套）=====
+function setupPC() {
+  pc = new RTCPeerConnection(rtcConfig);
+
+  // onnegotiationneeded：需要协商时自动发offer
+  pc.onnegotiationneeded = async () => {
+    try {
+      makingOffer = true;
+      addLog("onnegotiationneeded → setLocalDescription", "#60a5fa");
+      await pc.setLocalDescription();
+      await bcast({ type:"sdp", sdp: pc.localDescription });
+    } catch(e) {
+      addLog("negotiation error: "+e.message, "#ef4444");
+    } finally {
+      makingOffer = false;
+    }
+  };
+
+  // ICE候选
+  pc.onicecandidate = async ({candidate}) => {
+    if (candidate) {
+      await bcast({ type:"ice", candidate: candidate.toJSON() });
+    }
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    const s = pc.iceConnectionState;
+    addLog("P2P ICE: "+s, s==="connected"||s==="completed"?"#22c55e":s==="failed"?"#ef4444":"#60a5fa");
+    if (s==="failed") pc.restartIce();
+    if (s==="disconnected") setTimeout(()=>{ if(pc?.iceConnectionState==="disconnected") pc.restartIce(); }, 2000);
+  };
+
+  pc.onconnectionstatechange = () => {
+    addLog("P2P conn: "+pc.connectionState, "#60a5fa");
+    if (pc.connectionState==="connected") setStatus(t("p2pOk"), "ok");
+  };
+
+  // 收到对方轨道
+  let remoteStream = new MediaStream();
+  pc.ontrack = async ({track, streams}) => {
+    addLog("P2P ontrack: "+track.kind, "#22c55e");
+    remoteStream.addTrack(track);
+
+    if (track.kind==="video") {
+      document.getElementById("remoteVideo").srcObject = remoteStream;
+    }
+
+    if (track.kind==="audio") {
+      // 只送给翻译引擎，不直接播放
+      setIndicator("translating", t("transStart"));
+      await startTranslation(track);
+    }
+  };
+
+  // 添加本机麦克风（Perfect Negotiation：addTrack会自动触发onnegotiationneeded）
+  if (localStream) {
+    localStream.getTracks().forEach(track => {
+      pc.addTrack(track, localStream);
+      addLog("Added local track: "+track.kind, "#22c55e");
+    });
+  }
+
+  return pc;
 }
-async function onSignal(payload) {
-  if (payload.type==="offer") {
-    setStatus(t("connecting"), "info");
-    await createP2P();
-    await p2pPc.setRemoteDescription({type:"offer", sdp:payload.sdp});
-    await flushIce();
-    const ans = await p2pPc.createAnswer();
-    await p2pPc.setLocalDescription(ans);
-    await bcast({type:"answer", sdp:p2pPc.localDescription.sdp});
+
+// ===== 信令处理（Perfect Negotiation标准模式）=====
+async function handleSignal(payload) {
+  if (payload.type === "sdp") {
+    const desc = payload.sdp;
+    const offerCollision = desc.type==="offer" && (makingOffer || pc.signalingState!=="stable");
+    ignoreOffer = !isPolite && offerCollision;
+    if (ignoreOffer) { addLog("Ignoring colliding offer (impolite)", "#f59e0b"); return; }
+
+    addLog("setRemoteDescription: "+desc.type, "#60a5fa");
+    await pc.setRemoteDescription(desc);
+
+    if (desc.type === "offer") {
+      addLog("Creating answer...", "#60a5fa");
+      await pc.setLocalDescription();
+      await bcast({ type:"sdp", sdp: pc.localDescription });
+    }
   }
-  if (payload.type==="answer") {
-    await p2pPc.setRemoteDescription({type:"answer", sdp:payload.sdp});
-    await flushIce();
+
+  if (payload.type === "ice") {
+    try {
+      if (!pc.remoteDescription) { pendingIce.push(payload.candidate); return; }
+      await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
+    } catch(e) {
+      if (!ignoreOffer) addLog("ICE add error: "+e.message, "#ef4444");
+    }
   }
-  if (payload.type==="ice") await addIce(payload.candidate);
-  if (payload.type==="leave") {
+
+  if (payload.type === "leave") {
     setIndicator("", t("peerLeft"));
     setStatus(t("peerHangup"), "err");
   }
 }
 
+async function bcast(payload) {
+  if (ch) await ch.send({type:"broadcast", event:"signal", payload});
+}
+
 // ===== 视频开关 =====
-let videoEnabled = false;
-let videoStream  = null;
-
 async function toggleVideo() {
-  const btn = document.getElementById("videoToggleBtn");
-  const row  = document.getElementById("videoRow");
-
+  const btn = document.getElementById("videoBtn");
+  const row = document.getElementById("videoRow");
   if (!videoEnabled) {
-    // 开启视频
     try {
       videoStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode:"user", width:{ideal:640}, height:{ideal:480} }
       });
-      localVideo.srcObject = videoStream;
-      // 把视频轨道加入P2P连接
-      if (p2pPc) {
-        videoStream.getVideoTracks().forEach(t => p2pPc.addTrack(t, videoStream));
-      }
+      document.getElementById("localVideo").srcObject = videoStream;
+      if (pc) videoStream.getVideoTracks().forEach(t => pc.addTrack(t, videoStream));
       row.style.display = "flex";
       videoEnabled = true;
       btn.textContent = t("videoOff");
       btn.style.color = "#ef4444";
-    } catch(e) {
-      setStatus("Camera error: "+e.message, "err");
-    }
+    } catch(e) { setStatus(t("err")+e.message, "err"); }
   } else {
-    // 关闭视频
-    if (videoStream) {
-      videoStream.getTracks().forEach(t => t.stop());
-      videoStream = null;
-    }
-    localVideo.srcObject  = null;
-    remoteVideo.srcObject = null;
+    if (videoStream) { videoStream.getTracks().forEach(t=>t.stop()); videoStream=null; }
+    document.getElementById("localVideo").srcObject = null;
     row.style.display = "none";
     videoEnabled = false;
     btn.textContent = t("videoOn");
@@ -604,50 +487,65 @@ async function toggleVideo() {
   }
 }
 
-// ===== 加入房间 =====
+// ===== 主流程 =====
 async function joinRoom() {
   myLang = document.getElementById("myLang").value;
-  joinBtn.disabled = true;
-  joinCard.style.display = "none";
-  callSection.classList.add("visible");
+  document.getElementById("joinBtn").disabled = true;
+  document.getElementById("joinCard").style.display = "none";
+  document.getElementById("callSection").classList.add("visible");
   applyUI();
-  setStatus(t("micReq"), "info");
+  setStatus(t("connecting"), "info");
 
   try {
-    // 默认只用音频，视频按需开启
+    // 申请麦克风
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    addLog("Mic ready", "#22c55e");
     startVAD(localStream);
 
-    setStatus(t("netConfig"), "info");
+    // TURN配置
     await initTurn();
-    setStatus(t("sigConn"), "info");
 
+    // Supabase Presence信令
     sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-    ch = sb.channel(ROOM, {
-      config:{broadcast:{self:false}, presence:{key:myId}}
-    });
+    ch = sb.channel(ROOM, { config:{ broadcast:{self:false}, presence:{key:myId} } });
 
-    ch.on("presence", {event:"sync"}, async ()=>{
+    ch.on("presence", {event:"sync"}, ()=>{
       const state   = ch.presenceState();
       const members = Object.keys(state).sort();
-      if (members.length>2) { setStatus(t("roomFull"), "err"); return; }
-      if (members.length===2 && !p2pPc) {
-        const isCaller = members[0]===myId;
-        setStatus(isCaller ? t("offerSending") : t("offerWaiting"), "info");
-        if (isCaller) {
-          await createP2P();
-          const offer = await p2pPc.createOffer();
-          await p2pPc.setLocalDescription(offer);
-          await bcast({type:"offer", sdp:p2pPc.localDescription.sdp});
-        } else {
-          await createP2P();
-        }
+      addLog("Room members: "+members.join(","), "#60a5fa");
+
+      if (members.length > 2) { setStatus(t("err")+"Room full", "err"); return; }
+
+      if (members.length === 2 && !pc) {
+        // ID字母序小的是impolite（主动发offer），大的是polite（让步）
+        isPolite = myId !== members[0];
+        addLog("Role: "+(isPolite?"polite":"impolite")+" id="+myId, "#f59e0b");
+        setupPC();
+        // 清空pending ICE
+        pendingIce.forEach(async c => {
+          try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+        });
+        pendingIce = [];
       }
     })
-    .on("presence", {event:"join"}, ()=>{ setStatus(t("peerJoined"), "info"); })
-    .on("presence", {event:"leave"}, ()=>{ setStatus(t("peerLeft"), "err"); setIndicator("", t("peerLeft")); })
-    .on("broadcast", {event:"signal"}, async ({payload})=>{ await onSignal(payload); })
-    .subscribe(async (status)=>{
+    .on("presence", {event:"join"}, ({key})=>{
+      addLog("Joined: "+key, "#22c55e");
+      setStatus(t("peerJoined"), "info");
+    })
+    .on("presence", {event:"leave"}, ({key})=>{
+      addLog("Left: "+key, "#ef4444");
+      setStatus(t("peerLeft"), "err");
+      setIndicator("", t("peerLeft"));
+    })
+    .on("broadcast", {event:"signal"}, async ({payload})=>{
+      if (!pc && payload.type !== "leave") {
+        pendingIce.push(payload); // 缓存直到pc准备好
+        return;
+      }
+      await handleSignal(payload);
+    })
+    .subscribe(async status=>{
+      addLog("Channel: "+status, status==="SUBSCRIBED"?"#22c55e":"#60a5fa");
       if (status==="SUBSCRIBED") {
         setStatus(t("waiting"), "info");
         setIndicator("", t("waiting"));
@@ -656,41 +554,41 @@ async function joinRoom() {
     });
 
   } catch(err) {
-    setStatus(t("error")+err.message, "err");
-    joinBtn.disabled=false;
-    joinCard.style.display="";
-    callSection.classList.remove("visible");
+    setStatus(t("err")+err.message, "err");
+    document.getElementById("joinBtn").disabled = false;
+    document.getElementById("joinCard").style.display = "";
+    document.getElementById("callSection").classList.remove("visible");
   }
 }
 
 function leaveRoom() {
   bcast({type:"leave"}).catch(()=>{});
   cleanup();
-  callSection.classList.remove("visible");
-  joinCard.style.display="";
-  joinBtn.disabled=false;
-  transcript.textContent="";
+  document.getElementById("callSection").classList.remove("visible");
+  document.getElementById("joinCard").style.display = "";
+  document.getElementById("joinBtn").disabled = false;
+  document.getElementById("transcript").textContent = "";
   applyUI();
 }
 
 function cleanup() {
-  rtcReady=false; usedRelay=false;
-  clearTimeout(relayTimer); pendingIce=[];
+  rtcReady=false; makingOffer=false; ignoreOffer=false; pendingIce=[];
   stopVAD();
-  if (ch)      { try { sb?.removeChannel(ch); } catch {} ch=null; sb=null; }
-  if (transPc) { try { transPc.close(); } catch {} transPc=null; }
-  if (p2pPc)   { try { p2pPc.close(); }   catch {} p2pPc=null; }
-  if (localStream)  { localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
-  if (videoStream)  { videoStream.getTracks().forEach(t=>t.stop()); videoStream=null; }
-  remoteAudio.srcObject=null;
-  if (localVideo)   localVideo.srcObject=null;
-  if (remoteVideo)  remoteVideo.srcObject=null;
+  if (ch)          { try { sb?.removeChannel(ch); } catch {} ch=null; sb=null; }
+  if (transPc)     { try { transPc.close(); } catch {} transPc=null; }
+  if (pc)          { try { pc.close(); }      catch {} pc=null; }
+  if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
+  if (videoStream) { videoStream.getTracks().forEach(t=>t.stop()); videoStream=null; }
+  document.getElementById("remoteAudio").srcObject = null;
+  document.getElementById("localVideo").srcObject  = null;
+  document.getElementById("remoteVideo").srcObject = null;
   document.getElementById("videoRow").style.display = "none";
   videoEnabled = false;
 }
 
+// 预热
 window.addEventListener("load", ()=>{
-  fetch(SUPABASE_SESSION, {method:"OPTIONS", headers:{"Authorization":`Bearer ${SUPABASE_ANON}`}}).catch(()=>{});
+  fetch(SESSION_URL, {method:"OPTIONS", headers:{"Authorization":`Bearer ${SUPABASE_ANON}`}}).catch(()=>{});
 });
 </script>
 </body>
