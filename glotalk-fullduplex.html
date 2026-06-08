@@ -64,7 +64,8 @@
 
   <!-- 通话中 -->
   <div class="call-section" id="callSection">
-    <div class="video-row">
+    <!-- 视频区域（默认隐藏）-->
+    <div class="video-row" id="videoRow" style="display:none;">
       <div class="video-col">
         <span class="video-label" id="myVideoLabel"></span>
         <video id="localVideo" autoplay playsinline muted></video>
@@ -74,6 +75,8 @@
         <video id="remoteVideo" autoplay playsinline></video>
       </div>
     </div>
+    <!-- 视频开关按钮 -->
+    <button class="join-btn" id="videoToggleBtn" onclick="toggleVideo()" style="height:44px;font-size:14px;background:#1a1a1a;color:#60a5fa;border:1px solid #2a2a2a;"></button>
     <div class="card">
       <div id="transcript" class="transcript-box"></div>
       <div class="vad-bar"><div class="vad-fill" id="vadFill"></div></div>
@@ -101,6 +104,8 @@ const UI = {
     hangupBtn:   "挂断离开",
     myVideo:     "我的画面",
     theirVideo:  "对方画面",
+    videoOn:     "📹 开启视频",
+    videoOff:    "📹 关闭视频",
     waiting:     "等待对方加入...",
     connecting:  "正在建立连接...",
     p2pOk:       "通话已接通，翻译启动中...",
@@ -130,6 +135,8 @@ const UI = {
     hangupBtn:   "Hang Up",
     myVideo:     "My Camera",
     theirVideo:  "Their Camera",
+    videoOn:     "📹 Turn On Video",
+    videoOff:    "📹 Turn Off Video",
     waiting:     "Waiting for the other person...",
     connecting:  "Establishing connection...",
     p2pOk:       "Connected, starting translation...",
@@ -171,6 +178,7 @@ function applyUI() {
   document.getElementById("indText").textContent        = t("waiting");
   document.getElementById("hintText").textContent       = t("hint");
   document.getElementById("statusBar").textContent      = "";
+  document.getElementById("videoToggleBtn").textContent = t("videoOn");
   // 字幕框placeholder
   const tb = document.getElementById("transcript");
   tb.setAttribute("data-placeholder", t("transcriptPlaceholder"));
@@ -363,19 +371,27 @@ async function createP2P() {
 // 对方说X语言 → 翻译成我的语言 → 我听懂
 async function startTranslation(peerStream) {
   if (transPc) return;
-  const outputLanguage = myLang; // ← 翻译成我自己的语言！
+  const outputLanguage = myLang;
+  console.log("[Trans] Starting translation, outputLanguage:", outputLanguage);
+  setStatus("翻译引擎连接中... / Connecting translation...", "info");
 
   try {
     transPc = new RTCPeerConnection(rtcConfig);
+    console.log("[Trans] RTCPeerConnection created");
 
     transPc.ontrack = (e) => {
+      console.log("[Trans] ✅ Received translated audio track!");
       const audio = remoteAudio;
       if ("suppressLocalAudioPlayback" in audio) audio.suppressLocalAudioPlayback = true;
       audio.srcObject = e.streams[0];
-      audio.play().catch(()=>{});
+      audio.play().catch((err)=>{ console.warn("[Trans] Audio play failed:", err); });
       rtcReady = true;
       setIndicator("", t("standby"));
       setStatus(t("transReady"), "ok");
+    };
+
+    transPc.oniceconnectionstatechange = () => {
+      console.log("[Trans] ICE state:", transPc.iceConnectionState);
     };
 
     peerStream.getTracks().forEach(t => transPc.addTrack(t, peerStream));
@@ -393,27 +409,32 @@ async function startTranslation(peerStream) {
     tdc.onmessage = (e) => handleMsg(e.data);
     transPc.ondatachannel = (e) => { e.channel.onmessage = (m) => handleMsg(m.data); };
 
+    console.log("[Trans] Fetching session key and creating offer...");
     const [secretRes, offer] = await Promise.all([
       fetch(SUPABASE_SESSION, {
         method:"POST",
         headers:{"Authorization":`Bearer ${SUPABASE_ANON}`,"apikey":SUPABASE_ANON,"Content-Type":"application/json"},
-        body: JSON.stringify({ outputLanguage }) // 翻译成我的语言
+        body: JSON.stringify({ outputLanguage })
       }),
       transPc.createOffer().then(o=>{ transPc.setLocalDescription(o); return o; })
     ]);
 
     const secretText = await secretRes.text();
+    console.log("[Trans] Session response:", secretRes.status, secretText.substring(0,100));
     if (!secretRes.ok) throw new Error(secretRes.status+" "+secretText);
     const { client_secret } = JSON.parse(secretText);
     if (!client_secret) throw new Error("no client_secret");
 
+    console.log("[Trans] Got client_secret, sending SDP offer...");
     const sdpRes = await fetch(
       `${OPENAI_TRANS}?model=gpt-realtime-translate`,
       {method:"POST", headers:{"Authorization":`Bearer ${client_secret}`,"Content-Type":"application/sdp"}, body:offer.sdp}
     );
     const answerSdp = await sdpRes.text();
+    console.log("[Trans] SDP response:", sdpRes.status, answerSdp.substring(0,50));
     if (!sdpRes.ok) throw new Error(sdpRes.status+" "+answerSdp.substring(0,100));
     await transPc.setRemoteDescription({type:"answer", sdp:answerSdp});
+    console.log("[Trans] SDP exchange complete, waiting for ICE...");
 
     await new Promise((resolve,reject)=>{
       const timeout = setTimeout(()=>reject(new Error("timeout")), 15000);
@@ -458,6 +479,47 @@ async function onSignal(payload) {
   }
 }
 
+// ===== 视频开关 =====
+let videoEnabled = false;
+let videoStream  = null;
+
+async function toggleVideo() {
+  const btn = document.getElementById("videoToggleBtn");
+  const row  = document.getElementById("videoRow");
+
+  if (!videoEnabled) {
+    // 开启视频
+    try {
+      videoStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode:"user", width:{ideal:640}, height:{ideal:480} }
+      });
+      localVideo.srcObject = videoStream;
+      // 把视频轨道加入P2P连接
+      if (p2pPc) {
+        videoStream.getVideoTracks().forEach(t => p2pPc.addTrack(t, videoStream));
+      }
+      row.style.display = "flex";
+      videoEnabled = true;
+      btn.textContent = t("videoOff");
+      btn.style.color = "#ef4444";
+    } catch(e) {
+      setStatus("Camera error: "+e.message, "err");
+    }
+  } else {
+    // 关闭视频
+    if (videoStream) {
+      videoStream.getTracks().forEach(t => t.stop());
+      videoStream = null;
+    }
+    localVideo.srcObject  = null;
+    remoteVideo.srcObject = null;
+    row.style.display = "none";
+    videoEnabled = false;
+    btn.textContent = t("videoOn");
+    btn.style.color = "#60a5fa";
+  }
+}
+
 // ===== 加入房间 =====
 async function joinRoom() {
   myLang = document.getElementById("myLang").value;
@@ -468,11 +530,8 @@ async function joinRoom() {
   setStatus(t("micReq"), "info");
 
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: { facingMode:"user", width:{ideal:640}, height:{ideal:480} }
-    });
-    localVideo.srcObject = localStream;
+    // 默认只用音频，视频按需开启
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     startVAD(localStream);
 
     setStatus(t("netConfig"), "info");
@@ -537,10 +596,13 @@ function cleanup() {
   if (ch)      { try { sb?.removeChannel(ch); } catch {} ch=null; sb=null; }
   if (transPc) { try { transPc.close(); } catch {} transPc=null; }
   if (p2pPc)   { try { p2pPc.close(); }   catch {} p2pPc=null; }
-  if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
+  if (localStream)  { localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
+  if (videoStream)  { videoStream.getTracks().forEach(t=>t.stop()); videoStream=null; }
   remoteAudio.srcObject=null;
-  if (localVideo)  localVideo.srcObject=null;
-  if (remoteVideo) remoteVideo.srcObject=null;
+  if (localVideo)   localVideo.srcObject=null;
+  if (remoteVideo)  remoteVideo.srcObject=null;
+  document.getElementById("videoRow").style.display = "none";
+  videoEnabled = false;
 }
 
 window.addEventListener("load", ()=>{
