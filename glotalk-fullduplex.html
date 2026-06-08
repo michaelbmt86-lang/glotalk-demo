@@ -249,18 +249,53 @@ function stopVAD() {
 }
 
 // ===== 翻译引擎 =====
+// 翻译引擎自动重试（最多3次）
+function scheduleTransRetry() {
+  if (transRetryCount >= 3) {
+    addLog("Trans failed after "+transRetryCount+" retries, giving up", "#ef4444");
+    transRetryCount = 0;
+    setStatus(t("transFail"), "err");
+    setIndicator("", t("transFail"));
+    return;
+  }
+  transRetryCount++;
+  const delay = transRetryCount * 3000; // 3s, 6s, 9s
+  addLog("Trans retry "+transRetryCount+"/3 in "+(delay/1000)+"s...", "#f59e0b");
+  setTimeout(async () => {
+    if (!p2pPc || transPc) return; // 已经有翻译连接就不重试
+    const receivers = p2pPc.getReceivers();
+    const audioRx = receivers.find(r => r.track?.kind === "audio");
+    if (audioRx?.track) {
+      addLog("Retrying translation (attempt "+transRetryCount+")...", "#f59e0b");
+      await startTranslation(audioRx.track);
+    } else {
+      addLog("No audio track available for retry", "#ef4444");
+      scheduleTransRetry();
+    }
+  }, delay);
+}
+
 async function startTranslation(peerAudioTrack) {
   if (transPc) return;
   addLog("Starting translation engine, lang="+myLang, "#60a5fa");
 
-  // OpenAI翻译端点只需要STUN，不需要TURN（TURN会导致ICE失败）
+  // 翻译引擎连接OpenAI：需要STUN + TURNS/443穿透VPN
+  // OpenAI自己的STUN服务器在 stun.l.google.com，通过443/TLS穿透VPN防火墙
   const transConfig = {
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
       { urls: "stun:stun1.l.google.com:19302" },
+      // 用Cloudflare TURN的TLS-443穿透VPN（借用P2P的TURN凭证）
+      ...(rtcConfig.iceServers
+        .filter(s => s.urls && (
+          String(s.urls).includes("5349") || 
+          String(s.urls).includes("transport=tcp")
+        ))
+      ),
     ],
     iceTransportPolicy: "all"
   };
+  addLog("Trans config: "+transConfig.iceServers.length+" servers", "#60a5fa");
 
   try {
     transPc = new RTCPeerConnection(transConfig);
@@ -373,31 +408,9 @@ async function startTranslation(peerAudioTrack) {
     });
 
   } catch(err) {
-    addLog("Trans FAILED: "+err.message+", retrying in 3s...", "#ef4444");
-    transPc=null;
-    // 自动重试：最多重试3次，每次间隔递增
-    const retryDelay = (transRetryCount || 0) * 2000 + 3000;
-    transRetryCount = (transRetryCount || 0) + 1;
-    if (transRetryCount <= 3) {
-      addLog("Trans retry "+transRetryCount+"/3 in "+retryDelay+"ms...", "#f59e0b");
-      setTimeout(async ()=>{
-        if (p2pPc && (p2pPc.connectionState==="connected"||p2pPc.connectionState==="connecting")) {
-          addLog("Retrying translation engine (attempt "+transRetryCount+")...", "#f59e0b");
-          const receivers = p2pPc.getReceivers();
-          const audioReceiver = receivers.find(r=>r.track?.kind==="audio");
-          if (audioReceiver?.track) {
-            await startTranslation(audioReceiver.track);
-          } else {
-            addLog("No audio track found for retry", "#ef4444");
-          }
-        }
-      }, retryDelay);
-    } else {
-      addLog("Trans failed after 3 retries", "#ef4444");
-      transRetryCount = 0;
-      setStatus(t("transFail"), "err");
-      setIndicator("", t("transFail"));
-    }
+    addLog("Trans FAILED: "+err.message, "#ef4444");
+    transPc = null;
+    scheduleTransRetry();
   }
 }
 
