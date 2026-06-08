@@ -258,15 +258,12 @@ function stopVAD() {
 }
 
 // ===== 翻译引擎 =====
-// ===== 翻译引擎：使用WebSocket代替WebRTC连接OpenAI =====
-// 原因：OpenAI Realtime WebRTC在Safari iOS上有ICE consent bug（官方已确认）
-// 解决方案：改用WebSocket传输，完全绕过ICE问题
-// 参考：https://github.com/openai/openai-agents-js/issues/1353
+// ===== 翻译引擎：WebRTC连接OpenAI =====
+// 关键：强制使用relay模式（TURN），绕过Safari ICE consent bug
+// 参考：OpenAI官方明确说浏览器用WebRTC，WebSocket在浏览器不支持自定义headers
 
-let transWs = null;        // WebSocket连接到OpenAI
-let transAudioCtx = null;  // 播放翻译音频的AudioContext
-let transWorklet = null;   // 音频处理器
-let peerMediaStream = null; // 对方的音频流
+let transPc = null;
+let peerMediaStream = null;
 
 function scheduleTransRetry() {
   if (transRetryCount >= 3) {
@@ -278,16 +275,18 @@ function scheduleTransRetry() {
   }
   transRetryCount++;
   const delay = transRetryCount * 3000;
-  addLog("Trans WS retry "+transRetryCount+"/3 in "+(delay/1000)+"s...", "#f59e0b");
+  addLog("Trans retry "+transRetryCount+"/3 in "+(delay/1000)+"s...", "#f59e0b");
   setTimeout(async () => {
-    if (peerMediaStream) {
-      addLog("Retrying translation WS (attempt "+transRetryCount+")...", "#f59e0b");
-      await startTranslation(peerMediaStream.getAudioTracks()[0]);
+    if (peerMediaStream && !transPc) {
+      addLog("Retrying translation (attempt "+transRetryCount+")...", "#f59e0b");
+      const audioTrack = peerMediaStream.getAudioTracks()[0];
+      if (audioTrack) await startTranslation(audioTrack);
+      else scheduleTransRetry();
     }
   }, delay);
 }
 
-function handleTransEvent(data) {
+function handleTransMsg(data) {
   try {
     const ev = JSON.parse(data);
     if (ev.type && !["session.created","output_audio_buffer.started",
@@ -320,233 +319,116 @@ function handleTransEvent(data) {
     }
     if (ev.type==="session.input_transcript.done") {
       const tb = document.getElementById("myTranscript");
-      addLog("对方说: ["+tb.textContent.trim().split("\n").filter(Boolean).pop()+"]", "#60a5fa");
+      addLog("对方说: ["+(tb.textContent.trim().split("\n").filter(Boolean).pop()||"")+"]", "#60a5fa");
       const lines = tb.textContent.split("\n");
       tb.textContent = (lines.length>4?lines.slice(-4):lines).join("\n")+"\n";
       tb.scrollTop = tb.scrollHeight;
     }
     if (ev.type==="error") addLog("Trans error: "+(ev.error?.message||""), "#ef4444");
-
-    // 播放翻译后的音频
-    if (ev.type==="response.audio.delta"&&ev.delta) {
-      playTranslatedAudio(ev.delta);
-    }
-  } catch(e) { addLog("Trans parse err: "+e.message, "#ef4444"); }
-}
-
-// 播放Base64编码的PCM音频
-let audioQueue = [];
-let isPlaying = false;
-
-async function playTranslatedAudio(base64Audio) {
-  if (!transAudioCtx) {
-    transAudioCtx = new (window.AudioContext||window.webkitAudioContext)({sampleRate:24000});
-  }
-  if (transAudioCtx.state === "suspended") await transAudioCtx.resume();
-
-  const raw = atob(base64Audio);
-  const pcm = new Int16Array(raw.length/2);
-  for (let i=0; i<pcm.length; i++) {
-    pcm[i] = (raw.charCodeAt(i*2)) | (raw.charCodeAt(i*2+1)<<8);
-  }
-  const float32 = new Float32Array(pcm.length);
-  for (let i=0; i<pcm.length; i++) float32[i] = pcm[i]/32768;
-
-  const buf = transAudioCtx.createBuffer(1, float32.length, 24000);
-  buf.copyToChannel(float32, 0);
-  audioQueue.push(buf);
-  if (!isPlaying) drainAudioQueue();
-}
-
-let nextStartTime = 0;
-function drainAudioQueue() {
-  if (audioQueue.length===0) { isPlaying=false; return; }
-  isPlaying = true;
-  const buf = audioQueue.shift();
-  const src = transAudioCtx.createBufferSource();
-  src.buffer = buf;
-  src.connect(transAudioCtx.destination);
-  const now = transAudioCtx.currentTime;
-  const start = Math.max(now, nextStartTime);
-  src.start(start);
-  nextStartTime = start + buf.duration;
-  src.onended = drainAudioQueue;
-}
-
-// 把对方麦克风音频转成PCM发给OpenAI WebSocket
-let captureCtx = null;
-let captureProcessor = null;
-
-function startAudioCapture(audioTrack) {
-  try {
-    captureCtx = new (window.AudioContext||window.webkitAudioContext)({sampleRate:24000});
-    const stream = new MediaStream([audioTrack]);
-    const source = captureCtx.createMediaStreamSource(stream);
-    captureProcessor = captureCtx.createScriptProcessor(4096, 1, 1);
-    captureProcessor.onaudioprocess = (e) => {
-      if (!transWs || transWs.readyState !== WebSocket.OPEN) return;
-      const float32 = e.inputBuffer.getChannelData(0);
-      const pcm16 = new Int16Array(float32.length);
-      for (let i=0; i<float32.length; i++) {
-        pcm16[i] = Math.max(-32768, Math.min(32767, float32[i]*32768));
-      }
-      const bytes = new Uint8Array(pcm16.buffer);
-      let binary = "";
-      for (let i=0; i<bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      const base64 = btoa(binary);
-      transWs.send(JSON.stringify({
-        type: "input_audio_buffer.append",
-        audio: base64
-      }));
-    };
-    source.connect(captureProcessor);
-    captureProcessor.connect(captureCtx.destination);
-    addLog("Audio capture started (24kHz PCM)", "#22c55e");
-  } catch(e) {
-    addLog("Audio capture error: "+e.message, "#ef4444");
-  }
-}
-
-function stopAudioCapture() {
-  if (captureProcessor) { captureProcessor.disconnect(); captureProcessor=null; }
-  if (captureCtx) { captureCtx.close().catch(()=>{}); captureCtx=null; }
+  } catch(e) { addLog("DC parse err: "+e.message, "#ef4444"); }
 }
 
 async function startTranslation(peerAudioTrack) {
-  if (transWs) return;
+  if (transPc) return;
   peerMediaStream = new MediaStream([peerAudioTrack]);
-  addLog("Starting translation via WebSocket, lang="+myLang, "#60a5fa");
+  addLog("Starting translation (WebRTC relay), lang="+myLang, "#60a5fa");
+
+  // 强制relay模式：完全走TURN，绕过Safari ICE consent bug
+  const turnServers = rtcConfig.iceServers.filter(s => s.username && s.credential);
+  const transConfig = {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      ...turnServers
+    ],
+    iceTransportPolicy: "relay"
+  };
+  addLog("Trans config: "+transConfig.iceServers.length+" servers (forced relay)", "#60a5fa");
 
   try {
-    // 1. 获取session密钥
-    const secretRes = await fetch(SESSION_URL, {
-      method:"POST",
-      headers:{"Authorization":`Bearer ${SUPABASE_ANON}`,"apikey":SUPABASE_ANON,"Content-Type":"application/json"},
-      body: JSON.stringify({ outputLanguage: myLang })
-    });
+    transPc = new RTCPeerConnection(transConfig);
+
+    transPc.ontrack = (e) => {
+      transRetryCount = 0;
+      addLog("Trans: received translated audio!", "#22c55e");
+      const audio = document.getElementById("remoteAudio");
+      if ("suppressLocalAudioPlayback" in audio) audio.suppressLocalAudioPlayback = true;
+      audio.srcObject = e.streams[0];
+      if (audioCtx?.state === "suspended") audioCtx.resume();
+      audio.play().then(()=>{
+        addLog("Trans: audio playing!", "#22c55e");
+        rtcReady = true;
+        setIndicator("", t("standby"));
+        setStatus(t("transReady"), "ok");
+      }).catch(err=>{
+        addLog("Autoplay blocked - tap screen!", "#ef4444");
+        setStatus(t("tapToPlay"), "info");
+        document.addEventListener("click", ()=>{ audio.play(); setStatus(t("transReady"),"ok"); }, {once:true});
+      });
+    };
+
+    transPc.addTrack(peerAudioTrack, peerMediaStream);
+
+    const tdc = transPc.createDataChannel("oai-events");
+    tdc.onopen    = () => addLog("DataChannel opened!", "#22c55e");
+    tdc.onclose   = () => addLog("DataChannel closed", "#ef4444");
+    tdc.onmessage = e => handleTransMsg(e.data);
+    transPc.ondatachannel = e => {
+      addLog("ondatachannel (Safari)", "#f59e0b");
+      e.channel.onopen    = () => addLog("Safari DC opened!", "#22c55e");
+      e.channel.onmessage = m => handleTransMsg(m.data);
+    };
+
+    const [secretRes, offer] = await Promise.all([
+      fetch(SESSION_URL, {
+        method:"POST",
+        headers:{"Authorization":`Bearer ${SUPABASE_ANON}`,"apikey":SUPABASE_ANON,"Content-Type":"application/json"},
+        body: JSON.stringify({ outputLanguage: myLang })
+      }),
+      transPc.createOffer().then(o=>{ transPc.setLocalDescription(o); return o; })
+    ]);
+
     const secretText = await secretRes.text();
     addLog("Session: "+secretRes.status, secretRes.ok?"#22c55e":"#ef4444");
     if (!secretRes.ok) throw new Error(secretRes.status+" "+secretText);
     const { client_secret } = JSON.parse(secretText);
     if (!client_secret) throw new Error("no client_secret");
 
-    // 2. 连接WebSocket
-    const wsUrl = `wss://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate`;
-    transWs = new WebSocket(wsUrl, ["realtime", "openai-insecure-api-key."+client_secret, "openai-beta.realtime-v1"]);
+    const sdpRes = await fetch(
+      `${OPENAI_TRANS}?model=gpt-realtime-translate`,
+      {method:"POST", headers:{"Authorization":`Bearer ${client_secret}`,"Content-Type":"application/sdp"}, body:offer.sdp}
+    );
+    const answerSdp = await sdpRes.text();
+    addLog("SDP: "+sdpRes.status, sdpRes.ok?"#22c55e":"#ef4444");
+    if (!sdpRes.ok) throw new Error(sdpRes.status+" "+answerSdp.substring(0,80));
+    await transPc.setRemoteDescription({type:"answer", sdp:answerSdp});
 
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("WS connect timeout")), 10000);
-      transWs.onopen = () => {
-        clearTimeout(timeout);
-        addLog("Trans WebSocket connected!", "#22c55e");
-        transRetryCount = 0;
-        resolve();
+    await new Promise((resolve,reject)=>{
+      const timeout = setTimeout(()=>reject(new Error("Trans ICE timeout")), 15000);
+      transPc.oniceconnectionstatechange = () => {
+        const s = transPc?.iceConnectionState;
+        addLog("Trans ICE: "+s, s==="connected"||s==="completed"?"#22c55e":s==="failed"?"#ef4444":"#60a5fa");
+        if (s==="connected"||s==="completed") { clearTimeout(timeout); resolve(); }
+        if (s==="failed") { clearTimeout(timeout); reject(new Error("Trans ICE failed")); }
+        if (s==="disconnected") {
+          setTimeout(()=>{
+            if (transPc?.iceConnectionState==="disconnected") {
+              addLog("Trans ICE restarting...", "#f59e0b");
+              try { transPc.restartIce(); } catch {}
+            }
+          }, 2000);
+        }
       };
-      transWs.onerror = (e) => {
-        clearTimeout(timeout);
-        reject(new Error("WS error"));
-      };
-    });
-
-    transWs.onmessage = (e) => handleTransEvent(e.data);
-
-    transWs.onclose = (e) => {
-      addLog("Trans WS closed: "+e.code+" "+e.reason, "#ef4444");
-      transWs = null;
-      stopAudioCapture();
-      rtcReady = false;
-      // 自动重连
-      if (p2pPc && p2pPc.connectionState === "connected") {
-        setTimeout(() => scheduleTransRetry(), 500);
+      if (["connected","completed"].includes(transPc?.iceConnectionState)) {
+        clearTimeout(timeout); resolve();
       }
-    };
-
-    transWs.onerror = (e) => {
-      addLog("Trans WS error", "#ef4444");
-    };
-
-    // 3. 开始捕获对方音频并发送
-    startAudioCapture(peerAudioTrack);
-
-    rtcReady = true;
-    setIndicator("", t("standby"));
-    setStatus(t("transReady"), "ok");
-    addLog("Translation WebSocket ready!", "#22c55e");
+    });
 
   } catch(err) {
-    addLog("Trans WS FAILED: "+err.message, "#ef4444");
-    if (transWs) { try { transWs.close(); } catch {} transWs=null; }
-    stopAudioCapture();
+    addLog("Trans FAILED: "+err.message, "#ef4444");
+    if (transPc) { try { transPc.close(); } catch {} }
+    transPc = null;
     setTimeout(() => scheduleTransRetry(), 100);
   }
-}
-
-// ===== PERFECT NEGOTIATION（W3C标准，微信/Discord用的就是这套）=====
-function setupPC() {
-  pc = new RTCPeerConnection(rtcConfig);
-
-  // onnegotiationneeded：需要协商时自动发offer
-  pc.onnegotiationneeded = async () => {
-    try {
-      makingOffer = true;
-      addLog("onnegotiationneeded → setLocalDescription", "#60a5fa");
-      await pc.setLocalDescription();
-      await bcast({ type:"sdp", sdp: pc.localDescription });
-    } catch(e) {
-      addLog("negotiation error: "+e.message, "#ef4444");
-    } finally {
-      makingOffer = false;
-    }
-  };
-
-  // ICE候选
-  pc.onicecandidate = async ({candidate}) => {
-    if (candidate) {
-      await bcast({ type:"ice", candidate: candidate.toJSON() });
-    }
-  };
-
-  pc.oniceconnectionstatechange = () => {
-    const s = pc.iceConnectionState;
-    addLog("P2P ICE: "+s, s==="connected"||s==="completed"?"#22c55e":s==="failed"?"#ef4444":"#60a5fa");
-    if (s==="failed") pc.restartIce();
-    if (s==="disconnected") setTimeout(()=>{ if(pc?.iceConnectionState==="disconnected") pc.restartIce(); }, 2000);
-  };
-
-  pc.onconnectionstatechange = () => {
-    addLog("P2P conn: "+pc.connectionState, "#60a5fa");
-    if (pc.connectionState==="connected") {
-      // 只有第一次连接时显示p2pOk，翻译引擎已在运行就不重复启动
-      if (!rtcReady) setStatus(t("p2pOk"), "ok");
-    }
-  };
-
-  // 收到对方轨道
-  let remoteStream = new MediaStream();
-  pc.ontrack = async ({track, streams}) => {
-    addLog("P2P ontrack: "+track.kind, "#22c55e");
-    remoteStream.addTrack(track);
-
-    if (track.kind==="video") {
-      document.getElementById("remoteVideo").srcObject = remoteStream;
-    }
-
-    if (track.kind==="audio" && !transPc) {
-      // 只送给翻译引擎，不直接播放（只启动一次）
-      setIndicator("translating", t("transStart"));
-      await startTranslation(track);
-    }
-  };
-
-  // 添加本机麦克风（Perfect Negotiation：addTrack会自动触发onnegotiationneeded）
-  if (localStream) {
-    localStream.getTracks().forEach(track => {
-      pc.addTrack(track, localStream);
-      addLog("Added local track: "+track.kind, "#22c55e");
-    });
-  }
-
-  return pc;
 }
 
 // ===== 信令处理（Perfect Negotiation标准模式）=====
