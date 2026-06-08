@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>GloTalk 翻译引擎稳定性测试</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body { min-height: 100dvh; background: #0a0a0a; color: #f0f0f0; font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .app { width: min(100%, 420px); display: flex; flex-direction: column; gap: 14px; }
+    h2 { color: #22c55e; font-size: 22px; font-weight: 800; }
+    h2 span { color: #fff; }
+    .desc { font-size: 12px; color: #555; line-height: 1.6; }
+    .card { background: #111; border: 1px solid #222; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .stat-row { display: flex; justify-content: space-between; align-items: center; }
+    .stat-label { font-size: 12px; color: #555; }
+    .stat-val { font-size: 14px; font-weight: 700; color: #f0f0f0; }
+    .stat-val.ok  { color: #22c55e; }
+    .stat-val.err { color: #ef4444; }
+    .stat-val.warn{ color: #f59e0b; }
+    .tbox { min-height: 100px; max-height: 150px; overflow-y: auto; background: #0d1a0f; border: 1px solid #1a3320; border-radius: 10px; padding: 12px; font-size: 16px; font-weight: 600; color: #22c55e; line-height: 1.5; word-break: break-word; white-space: pre-wrap; }
+    .tbox:empty::before { content: "翻译结果显示在这里..."; color: #1a3320; font-size: 13px; font-weight: 400; }
+    .vad { height: 4px; background: #1a1a1a; border-radius: 2px; overflow: hidden; }
+    .vad-fill { height: 100%; background: #22c55e; width: 0%; transition: width 0.05s; }
+    .btn { width: 100%; height: 52px; border: none; border-radius: 12px; font: inherit; font-size: 16px; font-weight: 800; cursor: pointer; }
+    .btn-green { background: #22c55e; color: #000; }
+    .btn-red   { background: #ef4444; color: #fff; }
+    .btn:disabled { background: #1a1a1a; color: #444; cursor: not-allowed; }
+    .log { background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 8px; padding: 8px; font-size: 11px; max-height: 160px; overflow-y: auto; font-family: monospace; display: none; }
+    .field { display: flex; flex-direction: column; gap: 5px; }
+    .field label { font-size: 11px; color: #555; font-weight: 600; text-transform: uppercase; }
+    .field select { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px; color: #f0f0f0; font: inherit; font-size: 14px; padding: 10px 12px; outline: none; }
+    .status { font-size: 13px; text-align: center; padding: 6px; border-radius: 8px; background: #111; border: 1px solid #222; font-weight: 600; }
+    .status.ok   { color: #22c55e; border-color: #22c55e44; }
+    .status.err  { color: #ef4444; border-color: #ef444444; }
+    .status.info { color: #60a5fa; border-color: #60a5fa44; }
+    .status.warn { color: #f59e0b; border-color: #f59e0b44; }
+  </style>
+</head>
+<body>
+<div class="app">
+  <h2>Glo<span>Talk</span> 翻译引擎测试</h2>
+  <p class="desc">实验2：单独测试OpenAI翻译引擎稳定性<br>不涉及P2P · 不涉及TURN · 只测翻译</p>
+
+  <!-- 语言选择 -->
+  <div class="card">
+    <div class="field">
+      <label>我说的语言 → 翻译成</label>
+      <select id="langPair">
+        <option value="zh-en">🇨🇳 中文 → 🇺🇸 英文</option>
+        <option value="en-zh">🇺🇸 英文 → 🇨🇳 中文</option>
+        <option value="ja-zh">🇯🇵 日文 → 🇨🇳 中文</option>
+        <option value="ko-zh">🇰🇷 韩文 → 🇨🇳 中文</option>
+      </select>
+    </div>
+    <button class="btn btn-green" id="startBtn" onclick="startTest()">开始翻译测试</button>
+  </div>
+
+  <!-- 翻译结果 -->
+  <div class="card" id="testCard" style="display:none">
+    <div class="tbox" id="transcript"></div>
+    <div class="vad"><div class="vad-fill" id="vadFill"></div></div>
+    <div id="statusEl" class="status info">准备中...</div>
+  </div>
+
+  <!-- 稳定性统计 -->
+  <div class="card" id="statsCard" style="display:none">
+    <div class="stat-row">
+      <span class="stat-label">运行时间</span>
+      <span class="stat-val" id="statTime">0:00</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">ICE状态</span>
+      <span class="stat-val" id="statIce">-</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">断开次数</span>
+      <span class="stat-val" id="statDisconn">0</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">重连次数</span>
+      <span class="stat-val" id="statReconn">0</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">翻译句数</span>
+      <span class="stat-val" id="statSents">0</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Session重建</span>
+      <span class="stat-val" id="statSessions">1</span>
+    </div>
+    <button class="btn btn-red" onclick="stopTest()" style="height:44px;font-size:14px;">停止测试</button>
+  </div>
+
+  <!-- 日志 -->
+  <div id="logBox" class="log"></div>
+  <button onclick="toggleLog()" style="width:100%;height:30px;border:none;border-radius:6px;background:#111;color:#333;font-size:11px;cursor:pointer;">🔍 详细日志</button>
+</div>
+
+<audio id="transAudio" autoplay playsinline style="display:none"></audio>
+
+<script>
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
+const SESSION_URL  = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-realtime-session";
+const OPENAI_TRANS = "https://white.michaelbmt86.workers.dev/openai/v1/realtime/translations";
+
+// 统计数据
+let stats = {
+  startTime: null,
+  disconnCount: 0,
+  reconnCount: 0,
+  sentCount: 0,
+  sessionCount: 1,
+};
+
+// 状态
+let pc = null;
+let localStream = null;
+let running = false;
+let timerInterval = null;
+let statsInterval = null;
+let audioCtx = null, analyser = null, vadInterval = null;
+
+// DOM
+const $ = id => document.getElementById(id);
+
+function log(msg, color="#666") {
+  const d = document.createElement("div");
+  d.style.color = color;
+  d.textContent = new Date().toLocaleTimeString() + " " + msg;
+  $("logBox").appendChild(d);
+  $("logBox").scrollTop = $("logBox").scrollHeight;
+  console.log(msg);
+}
+
+function setStatus(msg, type="info") {
+  $("statusEl").textContent = msg;
+  $("statusEl").className = "status " + type;
+}
+
+function toggleLog() {
+  const b = $("logBox");
+  b.style.display = b.style.display === "none" ? "block" : "none";
+}
+
+function updateStats() {
+  if (!stats.startTime) return;
+  const elapsed = Math.floor((Date.now() - stats.startTime) / 1000);
+  const m = Math.floor(elapsed / 60);
+  const s = elapsed % 60;
+  $("statTime").textContent = m + ":" + s.toString().padStart(2,"0");
+  $("statDisconn").textContent = stats.disconnCount;
+  $("statDisconn").className = "stat-val " + (stats.disconnCount > 5 ? "err" : stats.disconnCount > 2 ? "warn" : "ok");
+  $("statReconn").textContent = stats.reconnCount;
+  $("statSents").textContent = stats.sentCount;
+  $("statSessions").textContent = stats.sessionCount;
+}
+
+// VAD
+function startVAD(stream) {
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = audioCtx.createMediaStreamSource(stream);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 512;
+  src.connect(analyser);
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+  vadInterval = setInterval(() => {
+    analyser.getByteFrequencyData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    const rms = Math.sqrt(sum / buf.length) / 255;
+    $("vadFill").style.width = Math.min(rms * 800, 100) + "%";
+  }, 20);
+}
+
+// 翻译消息处理
+function handleMsg(data) {
+  try {
+    const ev = JSON.parse(data);
+    const skip = ["session.created","output_audio_buffer.started",
+      "input_audio_buffer.speech_started","input_audio_buffer.speech_stopped",
+      "input_audio_buffer.committed","session.updated"];
+    if (!skip.includes(ev.type)) log("DC: " + ev.type, "#60a5fa");
+
+    if (ev.type === "session.output_transcript.delta" || ev.type === "response.audio_transcript.delta") {
+      const delta = ev.delta || ev.text || "";
+      if (delta) {
+        const tb = $("transcript");
+        tb.textContent += delta;
+        tb.scrollTop = tb.scrollHeight;
+      }
+    }
+    if (ev.type === "session.output_transcript.done" || ev.type === "response.audio_transcript.done") {
+      stats.sentCount++;
+      const tb = $("transcript");
+      const lines = tb.textContent.split("\n");
+      tb.textContent = (lines.length > 8 ? lines.slice(-8) : lines).join("\n") + "\n";
+      tb.scrollTop = tb.scrollHeight;
+    }
+    if (ev.type === "error") {
+      log("Error: " + (ev.error?.message || ""), "#ef4444");
+      setStatus("翻译错误: " + (ev.error?.message || ""), "err");
+    }
+  } catch(e) { log("Parse err: " + e.message, "#ef4444"); }
+}
+
+// 建立翻译连接
+async function buildTranslation() {
+  const pair = $("langPair").value;
+  const outputLang = pair.split("-")[1]; // 翻译输出语言
+
+  log("Building translation session, output=" + outputLang, "#60a5fa");
+  setStatus("连接翻译引擎...", "info");
+
+  try {
+    pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceTransportPolicy: "all"
+    });
+
+    // 监控ICE
+    pc.oniceconnectionstatechange = () => {
+      const s = pc.iceConnectionState;
+      log("ICE: " + s, s==="connected"||s==="completed"?"#22c55e":s==="failed"?"#ef4444":"#f59e0b");
+      $("statIce").textContent = s;
+      $("statIce").className = "stat-val " + (s==="connected"||s==="completed"?"ok":s==="failed"?"err":"warn");
+
+      if (s === "disconnected") {
+        stats.disconnCount++;
+        setStatus("ICE断开，尝试重连...", "warn");
+        setTimeout(() => {
+          if (pc?.iceConnectionState === "disconnected") {
+            log("restartIce()", "#f59e0b");
+            try { pc.restartIce(); } catch {}
+          }
+        }, 2000);
+      }
+      if (s === "failed") {
+        stats.disconnCount++;
+        log("ICE failed! 重建session...", "#ef4444");
+        setStatus("连接失败，重建中...", "err");
+        setTimeout(() => rebuildTranslation(), 2000);
+      }
+      if (s === "connected" || s === "completed") {
+        setStatus("🟢 翻译就绪！请说话", "ok");
+        if (stats.reconnCount > 0 || stats.sessionCount > 1) {
+          log("✅ 重连成功！", "#22c55e");
+        }
+      }
+    };
+
+    // 收到翻译音频
+    pc.ontrack = (e) => {
+      log("✅ 收到翻译音频！", "#22c55e");
+      const audio = $("transAudio");
+      if ("suppressLocalAudioPlayback" in audio) audio.suppressLocalAudioPlayback = true;
+      audio.srcObject = e.streams[0];
+      if (audioCtx?.state === "suspended") audioCtx.resume();
+      audio.play().then(() => {
+        log("✅ 音频播放开始！", "#22c55e");
+      }).catch(err => {
+        log("⚠️ 自动播放被拦截，请点击页面", "#f59e0b");
+        setStatus("请点击页面任意位置以播放声音", "warn");
+        document.addEventListener("click", () => { audio.play(); }, { once: true });
+      });
+    };
+
+    // 添加麦克风
+    if (localStream) {
+      localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+    }
+
+    // DataChannel
+    const dc = pc.createDataChannel("oai-events");
+    dc.onopen  = () => log("DC opened!", "#22c55e");
+    dc.onclose = () => log("DC closed", "#ef4444");
+    dc.onmessage = e => handleMsg(e.data);
+    pc.ondatachannel = e => {
+      e.channel.onopen    = () => log("Safari DC opened!", "#22c55e");
+      e.channel.onmessage = m => handleMsg(m.data);
+    };
+
+    // 并行获取密钥+offer
+    const [secretRes, offer] = await Promise.all([
+      fetch(SESSION_URL, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${SUPABASE_ANON}`,
+          "apikey": SUPABASE_ANON,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ outputLanguage: outputLang })
+      }),
+      pc.createOffer().then(o => { pc.setLocalDescription(o); return o; })
+    ]);
+
+    const secretText = await secretRes.text();
+    log("Session: " + secretRes.status, secretRes.ok ? "#22c55e" : "#ef4444");
+    if (!secretRes.ok) throw new Error(secretRes.status + " " + secretText);
+    const { client_secret } = JSON.parse(secretText);
+    if (!client_secret) throw new Error("no client_secret");
+
+    const sdpRes = await fetch(
+      `${OPENAI_TRANS}?model=gpt-realtime-translate`,
+      { method: "POST", headers: { "Authorization": `Bearer ${client_secret}`, "Content-Type": "application/sdp" }, body: offer.sdp }
+    );
+    const answerSdp = await sdpRes.text();
+    log("SDP: " + sdpRes.status, sdpRes.ok ? "#22c55e" : "#ef4444");
+    if (!sdpRes.ok) throw new Error(sdpRes.status + " " + answerSdp.substring(0, 80));
+    await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+    log("SDP exchange complete", "#22c55e");
+
+  } catch(err) {
+    log("FAILED: " + err.message, "#ef4444");
+    setStatus("连接失败: " + err.message, "err");
+    if (running) {
+      log("Retry in 5s...", "#f59e0b");
+      setTimeout(() => rebuildTranslation(), 5000);
+    }
+  }
+}
+
+async function rebuildTranslation() {
+  if (!running) return;
+  stats.sessionCount++;
+  stats.reconnCount++;
+  log("=== 重建Session #" + stats.sessionCount + " ===", "#f59e0b");
+  if (pc) { try { pc.close(); } catch {} pc = null; }
+  await buildTranslation();
+}
+
+async function startTest() {
+  $("startBtn").disabled = true;
+  $("testCard").style.display = "";
+  $("statsCard").style.display = "";
+  $("logBox").style.display = "block";
+
+  log("=== 实验2开始 ===", "#22c55e");
+  log("目标：连续运行，记录稳定性数据", "#60a5fa");
+
+  // 申请麦克风
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    log("✅ 麦克风已获取", "#22c55e");
+    startVAD(localStream);
+  } catch(e) {
+    log("❌ 麦克风失败: " + e.message, "#ef4444");
+    setStatus("麦克风获取失败", "err");
+    $("startBtn").disabled = false;
+    return;
+  }
+
+  running = true;
+  stats.startTime = Date.now();
+  statsInterval = setInterval(updateStats, 1000);
+
+  await buildTranslation();
+}
+
+function stopTest() {
+  running = false;
+  clearInterval(statsInterval);
+  clearInterval(timerInterval);
+  clearInterval(vadInterval);
+
+  if (pc) { try { pc.close(); } catch {} pc = null; }
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+
+  // 最终报告
+  const elapsed = Math.floor((Date.now() - stats.startTime) / 1000);
+  const m = Math.floor(elapsed / 60);
+  const s = elapsed % 60;
+  log("=== 测试结束 ===", "#22c55e");
+  log("运行时间: " + m + "分" + s + "秒", "#22c55e");
+  log("断开次数: " + stats.disconnCount, stats.disconnCount > 5 ? "#ef4444" : "#22c55e");
+  log("重连次数: " + stats.reconnCount, "#f59e0b");
+  log("翻译句数: " + stats.sentCount, "#22c55e");
+  log("Session重建: " + stats.sessionCount, "#f59e0b");
+
+  setStatus("测试已停止", "info");
+  $("startBtn").disabled = false;
+}
+</script>
+</body>
+</html>
