@@ -315,18 +315,52 @@ function handleTransMsg(data) {
 }
 
 // ===== 翻译引擎（WebRTC relay模式，绕过Safari ICE consent bug）=====
+// 问题3：提供两种ICE策略供AB测试
+// relay = 强制TURN（绕过Safari ICE consent bug，但VPN下多一跳）
+// all   = 先尝试直连，失败再用TURN（VPN下可能更快）
+const TRANS_ICE_POLICY = "relay"; // 可改为"all"做AB测试
+
+// 问题2：统一ICE状态处理函数，避免重复定义
+function handleTransIceState(state, resolve, reject) {
+  addLog("Trans ICE: "+state, state==="connected"||state==="completed"?"#22c55e":state==="failed"?"#ef4444":"#60a5fa");
+  if (resolve && (state==="connected"||state==="completed")) { resolve(); return; }
+  if (reject  &&  state==="failed") { reject(new Error("Trans ICE failed")); return; }
+  if (state==="disconnected") {
+    setTimeout(()=>{
+      if (transPc?.iceConnectionState==="disconnected") {
+        addLog("Trans restartIce()","#f59e0b");
+        try { transPc.restartIce(); } catch(e) {
+          addLog("restartIce failed: "+e.message,"#ef4444");
+          if (transPc) { try { transPc.close(); } catch {} }
+          transPc=null;
+          setTimeout(()=>scheduleTransRetry(), 100);
+        }
+      }
+    }, 2000);
+  }
+}
+
 async function startTranslation(peerAudioTrack) {
   if (transPc) return;
   peerMediaStream = new MediaStream([peerAudioTrack]);
-  addLog("Starting translation (relay), lang="+myLang, "#60a5fa");
+  addLog("Starting translation ("+TRANS_ICE_POLICY+"), lang="+myLang, "#60a5fa");
 
-  // 关键：强制relay模式，只走TURN，彻底绕过Safari ICE consent bug
+  // 问题1：监控远端音频轨道状态（Safari iOS常出现muted=true但readyState=live）
+  addLog("Track state: readyState="+peerAudioTrack.readyState+" muted="+peerAudioTrack.muted, "#60a5fa");
+  peerAudioTrack.onmute   = ()=>addLog("⚠️ peerAudioTrack MUTED（Safari常见）","#f59e0b");
+  peerAudioTrack.onunmute = ()=>addLog("✅ peerAudioTrack UNMUTED","#22c55e");
+  peerAudioTrack.onended  = ()=>{
+    addLog("❌ peerAudioTrack ENDED - 需要重新建立翻译","#ef4444");
+    if (transPc) { try { transPc.close(); } catch {} transPc=null; }
+    setTimeout(()=>scheduleTransRetry(), 500);
+  };
+
   const turnOnly = rtcConfig.iceServers.filter(s=>s.username&&s.credential);
   const transConfig = {
     iceServers: turnOnly.length>0 ? turnOnly : rtcConfig.iceServers,
-    iceTransportPolicy: "relay"
+    iceTransportPolicy: TRANS_ICE_POLICY
   };
-  addLog("Trans: "+transConfig.iceServers.length+" TURN servers, relay-only", "#60a5fa");
+  addLog("Trans: "+transConfig.iceServers.length+" servers, policy="+TRANS_ICE_POLICY, "#60a5fa");
 
   try {
     transPc = new RTCPeerConnection(transConfig);
@@ -361,17 +395,10 @@ async function startTranslation(peerAudioTrack) {
       e.channel.onmessage = m=>handleTransMsg(m.data);
     };
 
+    // ICE状态由Promise内的handleTransIceState统一处理
+    // 这里只监控disconnected做早期重启
     transPc.oniceconnectionstatechange = ()=>{
-      const s=transPc?.iceConnectionState;
-      addLog("Trans ICE: "+s, s==="connected"||s==="completed"?"#22c55e":s==="failed"?"#ef4444":"#60a5fa");
-      if (s==="disconnected") {
-        setTimeout(()=>{
-          if (transPc?.iceConnectionState==="disconnected") {
-            addLog("Trans restartIce()","#f59e0b");
-            try { transPc.restartIce(); } catch {}
-          }
-        }, 2000);
-      }
+      handleTransIceState(transPc?.iceConnectionState, null, null);
     };
 
     // 并行获取密钥+offer
@@ -400,24 +427,15 @@ async function startTranslation(peerAudioTrack) {
     await transPc.setRemoteDescription({type:"answer", sdp:answerSdp});
 
     await new Promise((resolve,reject)=>{
-      const timeout = setTimeout(()=>reject(new Error("Trans ICE timeout")), 15000);
+      const timeout = setTimeout(()=>reject(new Error("Trans ICE timeout 15s")), 15000);
+      const _resolve = ()=>{ clearTimeout(timeout); resolve(); };
+      const _reject  = (e)=>{ clearTimeout(timeout); reject(e); };
+      // 统一用handleTransIceState处理，不再重复写状态逻辑
       transPc.oniceconnectionstatechange = ()=>{
-        const s=transPc?.iceConnectionState;
-        addLog("Trans ICE: "+s, s==="connected"||s==="completed"?"#22c55e":s==="failed"?"#ef4444":"#60a5fa");
-        if (s==="connected"||s==="completed") { clearTimeout(timeout); resolve(); }
-        if (s==="failed") { clearTimeout(timeout); reject(new Error("Trans ICE failed")); }
-        if (s==="disconnected") {
-          setTimeout(()=>{
-            if (transPc?.iceConnectionState==="disconnected") {
-              addLog("Trans restartIce()","#f59e0b");
-              try { transPc.restartIce(); } catch {}
-            }
-          }, 2000);
-        }
+        handleTransIceState(transPc?.iceConnectionState, _resolve, _reject);
       };
-      if (["connected","completed"].includes(transPc?.iceConnectionState)) {
-        clearTimeout(timeout); resolve();
-      }
+      // 立即检查当前状态（可能已经connected）
+      handleTransIceState(transPc?.iceConnectionState, _resolve, _reject);
     });
 
   } catch(err) {
