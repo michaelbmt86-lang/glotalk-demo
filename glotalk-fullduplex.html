@@ -186,6 +186,7 @@ let sb=null, ch=null, pc=null, transPc=null;
 let localStream=null, videoStream=null;
 let videoEnabled=false, rtcReady=false;
 let makingOffer=false, ignoreOffer=false, isPolite=false;
+let transRetryCount=0;
 let pendingIce=[];
 let audioCtx=null, analyser=null, vadTimer=null, isSpeaking=false, vadInterval=null;
 const VAD_THRESHOLD=0.015, VAD_HOLD_MS=800;
@@ -266,6 +267,7 @@ async function startTranslation(peerAudioTrack) {
 
     // 收到翻译音频 → 播放（不让麦克风收到）
     transPc.ontrack = (e) => {
+      transRetryCount = 0; // 连接成功，重置重试计数
       addLog("Trans: received translated audio!", "#22c55e");
       const audio = document.getElementById("remoteAudio");
       if ("suppressLocalAudioPlayback" in audio) audio.suppressLocalAudioPlayback = true;
@@ -373,18 +375,29 @@ async function startTranslation(peerAudioTrack) {
   } catch(err) {
     addLog("Trans FAILED: "+err.message+", retrying in 3s...", "#ef4444");
     transPc=null;
-    // 3秒后自动重试翻译连接
-    setTimeout(async ()=>{
-      if (p2pPc && p2pPc.connectionState==="connected") {
-        addLog("Retrying translation engine...", "#f59e0b");
-        // 从P2P连接里重新获取对方音频轨道
-        const receivers = p2pPc.getReceivers();
-        const audioReceiver = receivers.find(r=>r.track?.kind==="audio");
-        if (audioReceiver?.track) {
-          await startTranslation(audioReceiver.track);
+    // 自动重试：最多重试3次，每次间隔递增
+    const retryDelay = (transRetryCount || 0) * 2000 + 3000;
+    transRetryCount = (transRetryCount || 0) + 1;
+    if (transRetryCount <= 3) {
+      addLog("Trans retry "+transRetryCount+"/3 in "+retryDelay+"ms...", "#f59e0b");
+      setTimeout(async ()=>{
+        if (p2pPc && (p2pPc.connectionState==="connected"||p2pPc.connectionState==="connecting")) {
+          addLog("Retrying translation engine (attempt "+transRetryCount+")...", "#f59e0b");
+          const receivers = p2pPc.getReceivers();
+          const audioReceiver = receivers.find(r=>r.track?.kind==="audio");
+          if (audioReceiver?.track) {
+            await startTranslation(audioReceiver.track);
+          } else {
+            addLog("No audio track found for retry", "#ef4444");
+          }
         }
-      }
-    }, 3000);
+      }, retryDelay);
+    } else {
+      addLog("Trans failed after 3 retries", "#ef4444");
+      transRetryCount = 0;
+      setStatus(t("transFail"), "err");
+      setIndicator("", t("transFail"));
+    }
   }
 }
 
@@ -604,7 +617,7 @@ function leaveRoom() {
 }
 
 function cleanup() {
-  rtcReady=false; makingOffer=false; ignoreOffer=false; pendingIce=[];
+  rtcReady=false; makingOffer=false; ignoreOffer=false; pendingIce=[]; transRetryCount=0;
   stopVAD();
   if (ch)          { try { sb?.removeChannel(ch); } catch {} ch=null; sb=null; }
   if (transPc)     { try { transPc.close(); } catch {} transPc=null; }
