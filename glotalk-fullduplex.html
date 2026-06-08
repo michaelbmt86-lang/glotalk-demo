@@ -381,10 +381,22 @@ async function startTranslation(peerStream) {
 
     transPc.ontrack = (e) => {
       console.log("[Trans] ✅ Received translated audio track!");
-      const audio = remoteAudio;
-      if ("suppressLocalAudioPlayback" in audio) audio.suppressLocalAudioPlayback = true;
-      audio.srcObject = e.streams[0];
-      audio.play().catch((err)=>{ console.warn("[Trans] Audio play failed:", err); });
+      // 用Web Audio API播放翻译音频，完全隔离不让麦克风收到
+      try {
+        const transCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const src = transCtx.createMediaStreamSource(e.streams[0]);
+        const dst = transCtx.createMediaStreamDestination();
+        src.connect(dst);
+        src.connect(transCtx.destination); // 播放给用户听
+        // 不连接到任何录音设备
+        console.log("[Trans] Playing via Web Audio API (isolated from mic)");
+      } catch(err) {
+        console.warn("[Trans] Web Audio failed, fallback to audio element:", err);
+        const audio = remoteAudio;
+        if ("suppressLocalAudioPlayback" in audio) audio.suppressLocalAudioPlayback = true;
+        audio.srcObject = e.streams[0];
+        audio.play().catch((e)=>{ console.warn("[Trans] Audio play failed:", e); });
+      }
       rtcReady = true;
       setIndicator("", t("standby"));
       setStatus(t("transReady"), "ok");
