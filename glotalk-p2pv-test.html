@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -160,17 +161,23 @@ async function createPC() {
 
   if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
+  // 用同一个stream处理音视频（Safari iOS要求）
   pc.ontrack = e => {
-    const track = e.track;
-    if (track.kind === "audio") {
-      log("✅ 收到对方音频！", "ok");
-      audio.srcObject = e.streams[0];
+    log("✅ 收到对方轨道: " + e.track.kind, "ok");
+    const stream = e.streams[0];
+    if (!stream) return;
+
+    // 音频元素
+    if (!audio.srcObject) {
+      audio.srcObject = stream;
       audio.play().catch(()=>{});
     }
-    if (track.kind === "video") {
-      log("✅ 收到对方视频！", "ok");
-      const remoteVideo = document.getElementById("remoteVideo");
-      if (remoteVideo) remoteVideo.srcObject = e.streams[0];
+
+    // 视频元素（同一个stream包含音视频）
+    const remoteVideo = document.getElementById("remoteVideo");
+    if (remoteVideo && !remoteVideo.srcObject) {
+      remoteVideo.srcObject = stream;
+      remoteVideo.play().catch(()=>{});
     }
   };
 
