@@ -252,8 +252,17 @@ async function startTranslation(peerAudioTrack) {
   if (transPc) return;
   addLog("Starting translation engine, lang="+myLang, "#60a5fa");
 
+  // OpenAI翻译端点只需要STUN，不需要TURN（TURN会导致ICE失败）
+  const transConfig = {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+    ],
+    iceTransportPolicy: "all"
+  };
+
   try {
-    transPc = new RTCPeerConnection(rtcConfig);
+    transPc = new RTCPeerConnection(transConfig);
 
     // 收到翻译音频 → 播放（不让麦克风收到）
     transPc.ontrack = (e) => {
@@ -393,7 +402,10 @@ function setupPC() {
 
   pc.onconnectionstatechange = () => {
     addLog("P2P conn: "+pc.connectionState, "#60a5fa");
-    if (pc.connectionState==="connected") setStatus(t("p2pOk"), "ok");
+    if (pc.connectionState==="connected") {
+      // 只有第一次连接时显示p2pOk，翻译引擎已在运行就不重复启动
+      if (!rtcReady) setStatus(t("p2pOk"), "ok");
+    }
   };
 
   // 收到对方轨道
@@ -406,8 +418,8 @@ function setupPC() {
       document.getElementById("remoteVideo").srcObject = remoteStream;
     }
 
-    if (track.kind==="audio") {
-      // 只送给翻译引擎，不直接播放
+    if (track.kind==="audio" && !transPc) {
+      // 只送给翻译引擎，不直接播放（只启动一次）
       setIndicator("translating", t("transStart"));
       await startTranslation(track);
     }
