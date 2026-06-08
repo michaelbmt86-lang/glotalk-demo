@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -7,49 +6,137 @@
   <title>GloTalk 翻译引擎稳定性测试</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    body { min-height: 100dvh; background: #0a0a0a; color: #f0f0f0; font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    body {
+      min-height: 100dvh;
+      background: #0a0a0a;
+      color: #f0f0f0;
+      font-family: -apple-system, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
     .app { width: min(100%, 420px); display: flex; flex-direction: column; gap: 14px; }
     h2 { color: #22c55e; font-size: 22px; font-weight: 800; }
     h2 span { color: #fff; }
     .desc { font-size: 12px; color: #555; line-height: 1.6; }
-    .card { background: #111; border: 1px solid #222; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .card {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 14px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
     .stat-row { display: flex; justify-content: space-between; align-items: center; }
     .stat-label { font-size: 12px; color: #555; }
     .stat-val { font-size: 14px; font-weight: 700; color: #f0f0f0; }
-    .stat-val.ok  { color: #22c55e; }
-    .stat-val.err { color: #ef4444; }
-    .stat-val.warn{ color: #f59e0b; }
-    .tbox { min-height: 100px; max-height: 150px; overflow-y: auto; background: #0d1a0f; border: 1px solid #1a3320; border-radius: 10px; padding: 12px; font-size: 16px; font-weight: 600; color: #22c55e; line-height: 1.5; word-break: break-word; white-space: pre-wrap; }
-    .tbox:empty::before { content: "翻译结果显示在这里..."; color: #1a3320; font-size: 13px; font-weight: 400; }
+    .stat-val.ok   { color: #22c55e; }
+    .stat-val.err  { color: #ef4444; }
+    .stat-val.warn { color: #f59e0b; }
+    .tbox {
+      min-height: 100px;
+      max-height: 150px;
+      overflow-y: auto;
+      background: #0d1a0f;
+      border: 1px solid #1a3320;
+      border-radius: 10px;
+      padding: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      color: #22c55e;
+      line-height: 1.5;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+    .tbox:empty::before {
+      content: "翻译结果显示在这里...";
+      color: #1a3320;
+      font-size: 13px;
+      font-weight: 400;
+    }
     .vad { height: 4px; background: #1a1a1a; border-radius: 2px; overflow: hidden; }
     .vad-fill { height: 100%; background: #22c55e; width: 0%; transition: width 0.05s; }
-    .btn { width: 100%; height: 52px; border: none; border-radius: 12px; font: inherit; font-size: 16px; font-weight: 800; cursor: pointer; }
+    .btn {
+      width: 100%;
+      height: 52px;
+      border: none;
+      border-radius: 12px;
+      font: inherit;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+    }
     .btn-green { background: #22c55e; color: #000; }
     .btn-red   { background: #ef4444; color: #fff; }
     .btn:disabled { background: #1a1a1a; color: #444; cursor: not-allowed; }
-    .log { background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 8px; padding: 8px; font-size: 11px; max-height: 160px; overflow-y: auto; font-family: monospace; display: none; }
+    .log {
+      background: #0a0a0a;
+      border: 1px solid #1a1a1a;
+      border-radius: 8px;
+      padding: 8px;
+      font-size: 11px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-family: monospace;
+      display: none;
+    }
     .field { display: flex; flex-direction: column; gap: 5px; }
     .field label { font-size: 11px; color: #555; font-weight: 600; text-transform: uppercase; }
-    .field select { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px; color: #f0f0f0; font: inherit; font-size: 14px; padding: 10px 12px; outline: none; }
-    .status { font-size: 13px; text-align: center; padding: 6px; border-radius: 8px; background: #111; border: 1px solid #222; font-weight: 600; }
+    .field select {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      color: #f0f0f0;
+      font: inherit;
+      font-size: 14px;
+      padding: 10px 12px;
+      outline: none;
+    }
+    .status {
+      font-size: 13px;
+      text-align: center;
+      padding: 6px;
+      border-radius: 8px;
+      background: #111;
+      border: 1px solid #222;
+      font-weight: 600;
+    }
     .status.ok   { color: #22c55e; border-color: #22c55e44; }
     .status.err  { color: #ef4444; border-color: #ef444444; }
     .status.info { color: #60a5fa; border-color: #60a5fa44; }
     .status.warn { color: #f59e0b; border-color: #f59e0b44; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; }
-    .badge-ws  { background: #1a2a1a; color: #22c55e; }
-    .badge-rtc { background: #1a1a2a; color: #60a5fa; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .badge-ws { background: #1a2a1a; color: #22c55e; }
+    .toggle-log {
+      width: 100%;
+      height: 30px;
+      border: none;
+      border-radius: 6px;
+      background: #111;
+      color: #333;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .toggle-log:hover { color: #555; }
   </style>
 </head>
 <body>
 <div class="app">
   <h2>Glo<span>Talk</span> 翻译引擎测试</h2>
   <p class="desc">
-    实验2：单独测试OpenAI翻译引擎稳定性<br>
-    不涉及P2P · 不涉及TURN · 只测翻译<br>
-    <span class="badge badge-ws">WebSocket via Cloudflare</span> 不需要VPN！
+    翻译引擎独立测试 · 不涉及P2P · 不涉及TURN<br>
+    <span class="badge badge-ws">WebSocket via Cloudflare Worker</span> 无需VPN
   </p>
 
+  <!-- 语言选择 + 开始按钮 -->
   <div class="card">
     <div class="field">
       <label>我说的语言 → 翻译成</label>
@@ -63,12 +150,14 @@
     <button class="btn btn-green" id="startBtn" onclick="startTest()">开始翻译测试</button>
   </div>
 
+  <!-- 翻译结果 -->
   <div class="card" id="testCard" style="display:none">
     <div class="tbox" id="transcript"></div>
     <div class="vad"><div class="vad-fill" id="vadFill"></div></div>
     <div id="statusEl" class="status info">准备中...</div>
   </div>
 
+  <!-- 统计面板 -->
   <div class="card" id="statsCard" style="display:none">
     <div class="stat-row">
       <span class="stat-label">运行时间</span>
@@ -80,7 +169,7 @@
     </div>
     <div class="stat-row">
       <span class="stat-label">断开次数</span>
-      <span class="stat-val" id="statDisconn">0</span>
+      <span class="stat-val ok" id="statDisconn">0</span>
     </div>
     <div class="stat-row">
       <span class="stat-label">重连次数</span>
@@ -98,26 +187,44 @@
   </div>
 
   <div id="logBox" class="log"></div>
-  <button onclick="toggleLog()" style="width:100%;height:30px;border:none;border-radius:6px;background:#111;color:#333;font-size:11px;cursor:pointer;">🔍 详细日志</button>
+  <button class="toggle-log" onclick="toggleLog()">🔍 详细日志</button>
 </div>
 
 <script>
-// ===== 配置 =====
-const SUPABASE_ANON  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
-const SESSION_URL    = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-realtime-session";
-// Cloudflare Worker WebSocket中继地址（不需要VPN）
-const WORKER_WS_URL  = "wss://white.michaelbmt86.workers.dev/v1/realtime/translations";
+// ═══════════════════════════════════════════════════════════
+// 配置
+// ═══════════════════════════════════════════════════════════
 
-// ===== 统计 =====
+// Cloudflare Worker地址（Worker持有API Key，客户端不需要OpenAI密钥）
+// 方案参考：cloudflare/openai-workers-relay 官方仓库
+const WORKER_WS = "wss://white.michaelbmt86.workers.dev/v1/realtime/translations";
+const ACCESS_TOKEN = "glotalk2026";
+
+// ═══════════════════════════════════════════════════════════
+// 状态变量
+// ═══════════════════════════════════════════════════════════
 let stats = { startTime: null, disconnCount: 0, reconnCount: 0, sentCount: 0, sessionCount: 1 };
-let ws = null, localStream = null, running = false;
+let ws = null;
+let localStream = null;
+let running = false;
 let statsInterval = null;
-let audioCtx = null, analyser = null, vadInterval = null;
-let processor = null, sourceNode = null;
+let audioCtx = null;
+let analyserNode = null;
+let vadInterval = null;
+let processorNode = null;
+let sourceNode = null;
+
+// 音频播放队列
+let audioQueue = [];
+let isPlaying = false;
+let nextPlayTime = 0;
 
 const $ = id => document.getElementById(id);
 
-function log(msg, color="#666") {
+// ═══════════════════════════════════════════════════════════
+// UI 工具
+// ═══════════════════════════════════════════════════════════
+function log(msg, color = "#666") {
   const d = document.createElement("div");
   d.style.color = color;
   d.textContent = new Date().toLocaleTimeString() + " " + msg;
@@ -125,15 +232,16 @@ function log(msg, color="#666") {
   $("logBox").scrollTop = $("logBox").scrollHeight;
 }
 
-function setStatus(msg, type="info") {
+function setStatus(msg, type = "info") {
   $("statusEl").textContent = msg;
   $("statusEl").className = "status " + type;
-  log(msg, type==="ok"?"#22c55e":type==="err"?"#ef4444":type==="warn"?"#f59e0b":"#60a5fa");
+  const colors = { ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#60a5fa" };
+  log(msg, colors[type] || "#60a5fa");
 }
 
 function toggleLog() {
   const b = $("logBox");
-  b.style.display = b.style.display === "none" ? "block" : "none";
+  b.style.display = b.style.display === "block" ? "none" : "block";
 }
 
 function updateStats() {
@@ -141,74 +249,92 @@ function updateStats() {
   const elapsed = Math.floor((Date.now() - stats.startTime) / 1000);
   const m = Math.floor(elapsed / 60);
   const s = elapsed % 60;
-  $("statTime").textContent = m + ":" + s.toString().padStart(2,"0");
+  $("statTime").textContent = m + ":" + s.toString().padStart(2, "0");
+
   $("statDisconn").textContent = stats.disconnCount;
-  $("statDisconn").className = "stat-val " + (stats.disconnCount>5?"err":stats.disconnCount>2?"warn":"ok");
+  $("statDisconn").className = "stat-val " + (stats.disconnCount > 5 ? "err" : stats.disconnCount > 2 ? "warn" : "ok");
   $("statReconn").textContent = stats.reconnCount;
   $("statSents").textContent = stats.sentCount;
   $("statSessions").textContent = stats.sessionCount;
 }
 
-// VAD
+// ═══════════════════════════════════════════════════════════
+// VAD（说话音量显示）
+// ═══════════════════════════════════════════════════════════
 function startVAD(stream) {
   try {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
     const src = audioCtx.createMediaStreamSource(stream);
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 512;
-    src.connect(analyser);
-    const buf = new Uint8Array(analyser.frequencyBinCount);
+    analyserNode = audioCtx.createAnalyser();
+    analyserNode.fftSize = 512;
+    src.connect(analyserNode);
+    const buf = new Uint8Array(analyserNode.frequencyBinCount);
     vadInterval = setInterval(() => {
-      analyser.getByteFrequencyData(buf);
+      analyserNode.getByteFrequencyData(buf);
       let sum = 0;
       for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
       const rms = Math.sqrt(sum / buf.length) / 255;
       $("vadFill").style.width = Math.min(rms * 800, 100) + "%";
     }, 20);
-  } catch(e) { log("VAD error: " + e.message, "#ef4444"); }
+  } catch (e) {
+    log("VAD error: " + e.message, "#ef4444");
+  }
 }
 
-// 把麦克风音频转成PCM16发给WebSocket
+// ═══════════════════════════════════════════════════════════
+// 麦克风 → PCM16 → WebSocket
+// ═══════════════════════════════════════════════════════════
 function startAudioCapture(stream) {
   try {
     sourceNode = audioCtx.createMediaStreamSource(stream);
-    processor = audioCtx.createScriptProcessor(4096, 1, 1);
-    processor.onaudioprocess = (e) => {
+    // ScriptProcessor：简单可靠，24kHz采样率
+    processorNode = audioCtx.createScriptProcessor(4096, 1, 1);
+
+    processorNode.onaudioprocess = (e) => {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       const float32 = e.inputBuffer.getChannelData(0);
+      // Float32 → Int16
       const pcm16 = new Int16Array(float32.length);
       for (let i = 0; i < float32.length; i++) {
-        pcm16[i] = Math.max(-32768, Math.min(32767, float32[i] * 32768));
+        const clamped = Math.max(-1, Math.min(1, float32[i]));
+        pcm16[i] = clamped < 0 ? clamped * 32768 : clamped * 32767;
       }
+      // Int16 → Base64
       const bytes = new Uint8Array(pcm16.buffer);
       let binary = "";
       for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
       const base64 = btoa(binary);
       ws.send(JSON.stringify({ type: "input_audio_buffer.append", audio: base64 }));
     };
-    sourceNode.connect(processor);
-    processor.connect(audioCtx.destination);
+
+    sourceNode.connect(processorNode);
+    processorNode.connect(audioCtx.destination);
     log("✅ 音频捕获启动（24kHz PCM16）", "#22c55e");
-  } catch(e) { log("Audio capture error: " + e.message, "#ef4444"); }
+  } catch (e) {
+    log("Audio capture error: " + e.message, "#ef4444");
+  }
 }
 
-// 翻译音频播放
-let audioQueue = [], isPlaying = false, nextStartTime = 0;
-
+// ═══════════════════════════════════════════════════════════
+// 翻译音频播放（PCM16 → Web Audio）
+// ═══════════════════════════════════════════════════════════
 function playAudio(base64) {
+  if (!audioCtx) return;
   try {
     const raw = atob(base64);
     const pcm = new Int16Array(raw.length / 2);
     for (let i = 0; i < pcm.length; i++) {
-      pcm[i] = (raw.charCodeAt(i*2)) | (raw.charCodeAt(i*2+1) << 8);
+      pcm[i] = (raw.charCodeAt(i * 2) & 0xff) | ((raw.charCodeAt(i * 2 + 1) & 0xff) << 8);
     }
     const float32 = new Float32Array(pcm.length);
     for (let i = 0; i < pcm.length; i++) float32[i] = pcm[i] / 32768;
+
     const buf = audioCtx.createBuffer(1, float32.length, 24000);
     buf.copyToChannel(float32, 0);
     audioQueue.push(buf);
     if (!isPlaying) drainQueue();
-  } catch(e) {}
+  } catch (e) {
+    log("playAudio error: " + e.message, "#ef4444");
+  }
 }
 
 function drainQueue() {
@@ -219,156 +345,233 @@ function drainQueue() {
   src.buffer = buf;
   src.connect(audioCtx.destination);
   const now = audioCtx.currentTime;
-  const start = Math.max(now, nextStartTime);
+  const start = Math.max(now, nextPlayTime);
   src.start(start);
-  nextStartTime = start + buf.duration;
+  nextPlayTime = start + buf.duration;
   src.onended = drainQueue;
 }
 
-// 处理翻译消息
+// ═══════════════════════════════════════════════════════════
+// OpenAI 消息处理
+// ═══════════════════════════════════════════════════════════
+const SKIP_EVENTS = new Set([
+  "session.created", "session.updated",
+  "output_audio_buffer.started", "output_audio_buffer.stopped",
+  "input_audio_buffer.speech_started", "input_audio_buffer.speech_stopped",
+  "input_audio_buffer.committed",
+]);
+
 function handleMsg(data) {
   try {
     const ev = JSON.parse(data);
-    const skip = ["session.created","output_audio_buffer.started",
-      "input_audio_buffer.speech_started","input_audio_buffer.speech_stopped",
-      "input_audio_buffer.committed","session.updated"];
-    if (ev.type && !skip.includes(ev.type)) log("← " + ev.type, "#60a5fa");
+    if (!SKIP_EVENTS.has(ev.type)) {
+      log("← " + ev.type, "#60a5fa");
+    }
 
+    // 翻译文字（流式增量）
     if (ev.type === "session.output_transcript.delta" || ev.type === "response.audio_transcript.delta") {
-      const d = ev.delta || ev.text || "";
-      if (d) {
+      const delta = ev.delta || ev.text || "";
+      if (delta) {
         const tb = $("transcript");
-        tb.textContent += d;
+        tb.textContent += delta;
         tb.scrollTop = tb.scrollHeight;
       }
     }
+
+    // 翻译句子完成
     if (ev.type === "session.output_transcript.done" || ev.type === "response.audio_transcript.done") {
       stats.sentCount++;
+      // 保留最近8行
       const tb = $("transcript");
-      const lines = tb.textContent.split("\n");
-      tb.textContent = (lines.length > 8 ? lines.slice(-8) : lines).join("\n") + "\n";
+      const lines = tb.textContent.split("\n").filter(l => l.trim());
+      if (lines.length > 8) {
+        tb.textContent = lines.slice(-8).join("\n") + "\n";
+      } else {
+        tb.textContent += "\n";
+      }
       tb.scrollTop = tb.scrollHeight;
     }
+
+    // 翻译音频
     if (ev.type === "response.audio.delta" && ev.delta) {
       playAudio(ev.delta);
     }
+
+    // 错误
     if (ev.type === "error") {
-      log("Error: " + (ev.error?.message || ""), "#ef4444");
+      log("❌ OpenAI Error: " + (ev.error?.message || JSON.stringify(ev.error)), "#ef4444");
     }
-  } catch(e) { log("Parse err: " + e.message, "#ef4444"); }
+  } catch (e) {
+    log("Parse error: " + e.message, "#ef4444");
+  }
 }
 
+// ═══════════════════════════════════════════════════════════
 // 建立WebSocket连接
-async function connectWS() {
+// 方案：Worker持有API Key，客户端直连Worker
+// 参考：cloudflare/openai-workers-relay 官方方案
+// ═══════════════════════════════════════════════════════════
+function connectWS() {
   const pair = $("langPair").value;
-  const outputLang = pair.split("-")[1];
+  const outputLang = pair.split("-")[1]; // "en" / "zh" / etc
 
-  // 先获取session token（通过Supabase，这个走HTTPS不需要VPN）
-  setStatus("获取翻译密钥...", "info");
-  const secretRes = await fetch(SESSION_URL, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${SUPABASE_ANON}`,
-      "apikey": SUPABASE_ANON,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ outputLanguage: outputLang })
-  });
-  const secretText = await secretRes.text();
-  log("Session: " + secretRes.status, secretRes.ok ? "#22c55e" : "#ef4444");
-  if (!secretRes.ok) throw new Error("Session failed: " + secretText);
-  const { client_secret } = JSON.parse(secretText);
-  if (!client_secret) throw new Error("No client_secret");
+  // URL带上model参数和访问令牌
+  const wsUrl = `${WORKER_WS}?model=gpt-realtime-translate&token=${ACCESS_TOKEN}`;
 
-  // 通过Cloudflare Worker建立WebSocket（不需要VPN）
-  setStatus("连接翻译引擎（via Cloudflare）...", "info");
-  const wsUrl = `${WORKER_WS_URL}?model=gpt-realtime-translate`;
+  setStatus("连接翻译引擎（via Cloudflare Worker）...", "info");
+  log("→ 连接 " + wsUrl.replace(ACCESS_TOKEN, "***"), "#60a5fa");
 
-  ws = new WebSocket(wsUrl, [
-    "realtime",
-    `openai-insecure-api-key.${client_secret}`,
-    "openai-beta.realtime-v1"
-  ]);
+  // 客户端不需要传OpenAI认证，只用标准realtime协议头
+  // Worker会用自己的API Key连接OpenAI
+  ws = new WebSocket(wsUrl, ["realtime", "openai-beta.realtime-v1"]);
 
   ws.onopen = () => {
     log("✅ WebSocket连接成功！", "#22c55e");
+
+    // 连接成功后，发送session配置告诉OpenAI输出语言
+    const sessionConfig = {
+      type: "session.update",
+      session: {
+        model: "gpt-realtime-translate",
+        audio: {
+          input: {
+            transcription: { model: "gpt-realtime-whisper" },
+            noise_reduction: null
+            // 注意：不加 language 字段，OpenAI自动检测输入语言
+          },
+          output: {
+            language: outputLang  // 只指定输出语言
+          }
+        }
+      }
+    };
+    ws.send(JSON.stringify(sessionConfig));
+    log("→ session.update 已发送（output: " + outputLang + "）", "#22c55e");
+
     setStatus("🟢 翻译就绪！请说话", "ok");
     $("statConn").textContent = "connected";
     $("statConn").className = "stat-val ok";
-    stats.sessionCount = 1;
-    // 开始捕获麦克风
+
+    // 开始捕获麦克风音频
     startAudioCapture(localStream);
   };
 
   ws.onmessage = (e) => handleMsg(e.data);
 
   ws.onclose = (e) => {
-    log("WS closed: " + e.code + " " + e.reason, "#ef4444");
+    log("WS closed: code=" + e.code + (e.reason ? " reason=" + e.reason : ""), "#ef4444");
     $("statConn").textContent = "disconnected";
     $("statConn").className = "stat-val err";
     stats.disconnCount++;
-    if (processor) { processor.disconnect(); processor = null; }
+
+    // 停止当前音频捕获
+    if (processorNode) { try { processorNode.disconnect(); } catch(err){} processorNode = null; }
+    if (sourceNode)    { try { sourceNode.disconnect(); }    catch(err){} sourceNode = null; }
+
+    // 如果测试仍在运行，3秒后重连
     if (running) {
       stats.reconnCount++;
       stats.sessionCount++;
-      log("重连中... (attempt " + stats.reconnCount + ")", "#f59e0b");
-      setStatus("重连中...", "warn");
-      setTimeout(() => { if (running) connectWS().catch(e => log("Reconnect failed: " + e.message, "#ef4444")); }, 3000);
+      setStatus("重连中... (第" + stats.reconnCount + "次)", "warn");
+      log("⏳ 3秒后重连...", "#f59e0b");
+      setTimeout(() => {
+        if (running) connectWS();
+      }, 3000);
     }
   };
 
-  ws.onerror = () => {
-    log("WS error", "#ef4444");
+  ws.onerror = (e) => {
+    log("WS error（详见控制台）", "#ef4444");
+    console.error("WebSocket error:", e);
   };
 }
 
+// ═══════════════════════════════════════════════════════════
+// 开始测试
+// ═══════════════════════════════════════════════════════════
 async function startTest() {
   $("startBtn").disabled = true;
   $("testCard").style.display = "";
   $("statsCard").style.display = "";
   $("logBox").style.display = "block";
+  $("transcript").textContent = "";
 
-  log("=== 实验2开始（WebSocket via Cloudflare，无需VPN）===", "#22c55e");
+  // 重置统计
+  stats = { startTime: Date.now(), disconnCount: 0, reconnCount: 0, sentCount: 0, sessionCount: 1 };
+  audioQueue = [];
+  isPlaying = false;
+  nextPlayTime = 0;
+
+  log("=== GloTalk 翻译引擎测试开始（WebSocket via Cloudflare Worker）===", "#22c55e");
 
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // 1. 获取麦克风
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: 24000,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      }
+    });
     log("✅ 麦克风已获取", "#22c55e");
+
+    // 2. 初始化AudioContext（统一在这里创建，不重复创建）
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+    if (audioCtx.state === "suspended") {
+      await audioCtx.resume();
+    }
+    log("✅ AudioContext 已初始化（" + audioCtx.sampleRate + "Hz）", "#22c55e");
+
+    // 3. 启动VAD
     startVAD(localStream);
 
-    // 初始化AudioContext
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-
+    // 4. 启动统计计时器
     running = true;
-    stats.startTime = Date.now();
     statsInterval = setInterval(updateStats, 1000);
 
-    await connectWS();
-  } catch(err) {
-    log("❌ 失败: " + err.message, "#ef4444");
+    // 5. 连接WebSocket（不再需要先调Supabase获取token）
+    connectWS();
+
+  } catch (err) {
+    log("❌ 启动失败: " + err.message, "#ef4444");
     setStatus("失败: " + err.message, "err");
     $("startBtn").disabled = false;
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+// 停止测试
+// ═══════════════════════════════════════════════════════════
 function stopTest() {
   running = false;
+
   clearInterval(statsInterval);
   clearInterval(vadInterval);
-  if (processor) { processor.disconnect(); processor = null; }
-  if (sourceNode) { sourceNode.disconnect(); sourceNode = null; }
-  if (ws) { ws.close(); ws = null; }
-  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
-  if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+
+  if (processorNode) { try { processorNode.disconnect(); } catch(e){} processorNode = null; }
+  if (sourceNode)    { try { sourceNode.disconnect(); }    catch(e){} sourceNode = null; }
+  if (ws)            { try { ws.close(1000, "user stopped"); } catch(e){} ws = null; }
+  if (localStream)   { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  if (audioCtx)      { audioCtx.close().catch(() => {}); audioCtx = null; }
+
+  analyserNode = null;
+  audioQueue = [];
+  isPlaying = false;
 
   const elapsed = Math.floor((Date.now() - stats.startTime) / 1000);
   const m = Math.floor(elapsed / 60);
   const s = elapsed % 60;
+
   log("=== 测试结束 ===", "#22c55e");
   log("运行时间: " + m + "分" + s + "秒", "#22c55e");
-  log("断开次数: " + stats.disconnCount, stats.disconnCount > 5 ? "#ef4444" : "#22c55e");
-  log("翻译句数: " + stats.sentCount, "#22c55e");
+  log("断开次数: " + stats.disconnCount, stats.disconnCount > 3 ? "#ef4444" : "#22c55e");
+  log("翻译句数: " + stats.sentCount, stats.sentCount > 0 ? "#22c55e" : "#f59e0b");
 
   setStatus("测试已停止", "info");
+  $("statConn").textContent = "disconnected";
+  $("statConn").className = "stat-val err";
   $("startBtn").disabled = false;
 }
 </script>
