@@ -347,11 +347,20 @@ async function createP2P() {
   let remoteStream = new MediaStream();
 
   p2pPc.ontrack = async (e) => {
+    addLog("P2P track: " + e.track.kind, "#60a5fa");
     remoteStream.addTrack(e.track);
-    if (remoteVideo) remoteVideo.srcObject = remoteStream;
-    if (e.track.kind==="audio") {
+
+    // 视频轨道：显示在屏幕上
+    if (e.track.kind === "video") {
+      if (remoteVideo) remoteVideo.srcObject = remoteStream;
+    }
+
+    // 音频轨道：只送给翻译引擎，不直接播放给用户
+    // 这样用户只听翻译后的声音，不听原声
+    if (e.track.kind === "audio") {
       setStatus(t("p2pOk"), "ok");
       setIndicator("translating", t("transStart"));
+      addLog("Sending peer audio to translation engine...", "#60a5fa");
       const audioOnly = new MediaStream([e.track]);
       await startTranslation(audioOnly);
     }
@@ -438,18 +447,42 @@ async function startTranslation(peerStream) {
 
     peerStream.getTracks().forEach(t => transPc.addTrack(t, peerStream));
 
-    // DataChannel接收字幕
+    // DataChannel接收字幕（Safari iOS兼容）
     const tdc = transPc.createDataChannel("oai-events");
+
     function handleMsg(data) {
       try {
         const ev = JSON.parse(data);
-        if (ev.type==="session.output_transcript.delta"||ev.type==="response.audio_transcript.delta") appendText(ev.delta||"");
-        if (ev.type==="session.output_transcript.done" ||ev.type==="response.audio_transcript.done")  newLine();
-        if (ev.type==="error") setStatus(t("transError")+(ev.error?.message||""), "err");
-      } catch {}
+        // 收到任何消息都记录
+        if (ev.type && ev.type !== "session.created") {
+          addLog("DC: " + ev.type, "#60a5fa");
+        }
+        if (ev.type==="session.output_transcript.delta"||ev.type==="response.audio_transcript.delta") {
+          appendText(ev.delta||"");
+        }
+        if (ev.type==="session.output_transcript.done"||ev.type==="response.audio_transcript.done") {
+          newLine();
+        }
+        if (ev.type==="error") {
+          addLog("Trans error: "+(ev.error?.message||""), "#ef4444");
+          setStatus(t("transError")+(ev.error?.message||""), "err");
+        }
+      } catch(e) {
+        addLog("DC parse error: "+e.message, "#ef4444");
+      }
     }
-    tdc.onmessage = (e) => handleMsg(e.data);
-    transPc.ondatachannel = (e) => { e.channel.onmessage = (m) => handleMsg(m.data); };
+
+    tdc.onopen  = () => addLog("DataChannel opened!", "#22c55e");
+    tdc.onclose = () => addLog("DataChannel closed", "#ef4444");
+    tdc.onerror = (e) => addLog("DataChannel error: "+e, "#ef4444");
+    tdc.onmessage = (e) => { handleMsg(e.data); };
+
+    // Safari iOS备用
+    transPc.ondatachannel = (e) => {
+      addLog("ondatachannel triggered (Safari fallback)", "#f59e0b");
+      e.channel.onopen    = () => addLog("Fallback DC opened!", "#22c55e");
+      e.channel.onmessage = (m) => handleMsg(m.data);
+    };
 
     console.log("[Trans] Fetching session key and creating offer...");
     const [secretRes, offer] = await Promise.all([
