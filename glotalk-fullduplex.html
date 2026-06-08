@@ -351,20 +351,40 @@ async function startTranslation(peerAudioTrack) {
       const timeout = setTimeout(()=>reject(new Error("Trans ICE timeout")), 15000);
       transPc.oniceconnectionstatechange = () => {
         const s = transPc.iceConnectionState;
-        addLog("Trans ICE: "+s, "#60a5fa");
+        addLog("Trans ICE: "+s, s==="connected"||s==="completed"?"#22c55e":s==="failed"?"#ef4444":"#60a5fa");
         if (s==="connected"||s==="completed") { clearTimeout(timeout); resolve(); }
         if (s==="failed") { clearTimeout(timeout); reject(new Error("Trans ICE failed")); }
+        // disconnected时尝试重启
+        if (s==="disconnected") {
+          addLog("Trans ICE disconnected, waiting...", "#f59e0b");
+          setTimeout(()=>{
+            if (transPc?.iceConnectionState==="disconnected") {
+              addLog("Trans ICE restarting...", "#f59e0b");
+              transPc.restartIce();
+            }
+          }, 2000);
+        }
       };
-      if (transPc.iceConnectionState==="connected"||transPc.iceConnectionState==="completed") {
+      if (transPc?.iceConnectionState==="connected"||transPc?.iceConnectionState==="completed") {
         clearTimeout(timeout); resolve();
       }
     });
 
   } catch(err) {
+    addLog("Trans FAILED: "+err.message+", retrying in 3s...", "#ef4444");
     transPc=null;
-    addLog("Trans FAILED: "+err.message, "#ef4444");
-    setStatus(t("transFail"), "err");
-    setIndicator("", t("transFail"));
+    // 3秒后自动重试翻译连接
+    setTimeout(async ()=>{
+      if (p2pPc && p2pPc.connectionState==="connected") {
+        addLog("Retrying translation engine...", "#f59e0b");
+        // 从P2P连接里重新获取对方音频轨道
+        const receivers = p2pPc.getReceivers();
+        const audioReceiver = receivers.find(r=>r.track?.kind==="audio");
+        if (audioReceiver?.track) {
+          await startTranslation(audioReceiver.track);
+        }
+      }
+    }, 3000);
   }
 }
 
