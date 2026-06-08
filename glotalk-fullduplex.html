@@ -458,9 +458,15 @@ async function startTranslation(peerStream) {
           addLog("DC: " + ev.type, "#60a5fa");
         }
         if (ev.type==="session.output_transcript.delta"||ev.type==="response.audio_transcript.delta") {
-          appendText(ev.delta||"");
+          // 记录delta内容帮助调试
+          const delta = ev.delta || ev.text || "";
+          addLog("delta: [" + delta + "]", "#22c55e");
+          if (delta) appendText(delta);
         }
         if (ev.type==="session.output_transcript.done"||ev.type==="response.audio_transcript.done") {
+          const final = ev.transcript || ev.text || "";
+          addLog("done: [" + final + "]", "#22c55e");
+          if (final && !transcript.textContent.includes(final)) appendText(final);
           newLine();
         }
         if (ev.type==="error") {
