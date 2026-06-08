@@ -5,57 +5,57 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GloTalk</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <style>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
-    body { min-height: 100vh; min-height: 100dvh; background: #0a0a0a; color: #f0f0f0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; display: flex; align-items: center; justify-content: center; padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom)); }
-    .app { width: min(100%, 420px); display: flex; flex-direction: column; gap: 14px; }
-    .logo { font-size: 30px; font-weight: 800; letter-spacing: -1px; color: #fff; }
+    body { min-height: 100dvh; background: #0a0a0a; color: #f0f0f0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; align-items: center; justify-content: center; padding: max(20px,env(safe-area-inset-top)) 20px max(20px,env(safe-area-inset-bottom)); }
+    .app { width: min(100%,420px); display: flex; flex-direction: column; gap: 14px; }
+    .logo { font-size: 28px; font-weight: 800; color: #fff; }
     .logo span { color: #22c55e; }
     .logo small { font-size: 12px; font-weight: 400; color: #555; display: block; margin-top: 2px; }
-    .card { background: #111; border: 1px solid #222; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-    .field { display: flex; flex-direction: column; gap: 6px; }
+    .card { background: #111; border: 1px solid #222; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+    .field { display: flex; flex-direction: column; gap: 5px; }
     .field label { font-size: 11px; color: #555; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
     .field select { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; color: #f0f0f0; font: inherit; font-size: 15px; padding: 11px 14px; outline: none; }
-    .field select option { background: #1a1a1a; }
-    .btn { width: 100%; height: 56px; border: none; border-radius: 14px; font: inherit; font-size: 17px; font-weight: 800; cursor: pointer; transition: all 0.15s; -webkit-user-select: none; user-select: none; }
-    .btn-green  { background: #22c55e; color: #000; }
-    .btn-red    { background: #ef4444; color: #fff; height: 46px; font-size: 15px; }
-    .btn-dark   { background: #1a1a1a; color: #60a5fa; border: 1px solid #2a2a2a; height: 44px; font-size: 14px; }
-    .btn:active { transform: scale(0.97); }
+    .btn { width: 100%; border: none; border-radius: 12px; font: inherit; font-weight: 800; cursor: pointer; -webkit-user-select: none; user-select: none; }
+    .btn-green { background: #22c55e; color: #000; height: 54px; font-size: 17px; }
+    .btn-red   { background: #ef4444; color: #fff; height: 44px; font-size: 15px; }
+    .btn-dark  { background: #1a1a1a; color: #60a5fa; border: 1px solid #2a2a2a; height: 40px; font-size: 13px; }
     .btn:disabled { background: #1a1a1a; color: #444; cursor: wait; }
-    .transcript-box { min-height: 100px; max-height: 140px; overflow-y: auto; background: #0d1a0f; border: 1px solid #1a3320; border-radius: 14px; padding: 14px; font-size: 18px; font-weight: 600; line-height: 1.4; color: #22c55e; word-break: break-word; white-space: pre-wrap; }
+    .tbox { min-height: 80px; max-height: 120px; overflow-y: auto; background: #0d1a0f; border: 1px solid #1a3320; border-radius: 12px; padding: 12px; font-size: 17px; font-weight: 600; color: #22c55e; line-height: 1.4; word-break: break-word; white-space: pre-wrap; }
+    .tbox.blue { background: #0d0f1a; border-color: #1a2033; color: #60a5fa; min-height: 50px; max-height: 70px; font-size: 14px; }
+    .tlabel { font-size: 11px; color: #444; margin-bottom: 2px; }
     .vad-bar { height: 3px; background: #1a1a1a; border-radius: 2px; overflow: hidden; }
     .vad-fill { height: 100%; background: #22c55e; border-radius: 2px; transition: width 0.1s; width: 0%; }
-    .indicator { display: flex; align-items: center; gap: 8px; background: #111; border: 1px solid #222; border-radius: 10px; padding: 10px 14px; }
+    .ind { display: flex; align-items: center; gap: 8px; background: #111; border: 1px solid #222; border-radius: 10px; padding: 10px 14px; }
     .dot { width: 10px; height: 10px; border-radius: 50%; background: #333; flex-shrink: 0; }
-    .dot.speaking    { background: #22c55e; animation: pulse 1s infinite; }
-    .dot.translating { background: #60a5fa; animation: pulse 0.5s infinite; }
-    @keyframes pulse { 0%,100%{transform:scale(1)}50%{transform:scale(1.3)} }
+    .dot.s { background: #22c55e; animation: pulse 1s infinite; }
+    .dot.t { background: #60a5fa; animation: pulse 0.5s infinite; }
+    @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.3)} }
     .ind-text { font-size: 13px; color: #666; font-weight: 600; }
     #statusBar { font-size: 13px; text-align: center; padding: 4px; min-height: 18px; color: #555; }
     #statusBar.ok   { color: #22c55e; }
     #statusBar.err  { color: #ef4444; }
     #statusBar.info { color: #60a5fa; }
-    .video-row { display: flex; gap: 8px; }
-    .video-col { flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: center; }
-    .video-label { font-size: 11px; color: #555; }
-    .video-col video { width: 100%; border-radius: 10px; background: #111; aspect-ratio: 4/3; object-fit: cover; }
+    .vrow { display: flex; gap: 8px; display: none; }
+    .vcol { flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: center; }
+    .vcol video { width: 100%; border-radius: 10px; background: #111; aspect-ratio: 4/3; object-fit: cover; }
+    .vcol span { font-size: 11px; color: #555; }
     .call-section { display: none; flex-direction: column; gap: 12px; }
-    .call-section.visible { display: flex; }
-    .hint { font-size: 11px; color: #333; text-align: center; line-height: 1.5; }
-    #screenLog { background:#0a0a0a; border:1px solid #1a1a1a; border-radius:8px; padding:8px; font-size:11px; max-height:140px; overflow-y:auto; display:none; font-family: monospace; }
+    .call-section.on { display: flex; }
+    .hint { font-size: 11px; color: #2a2a2a; text-align: center; }
+    #logBox { background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 8px; padding: 8px; font-size: 11px; max-height: 140px; overflow-y: auto; display: none; font-family: monospace; }
   </style>
 </head>
 <body>
 <div class="app">
   <div class="logo">Glo<span>Talk</span><small id="logoSub"></small></div>
 
+  <!-- 加入界面 -->
   <div class="card" id="joinCard">
     <div class="field">
-      <label id="myLangLabel"></label>
+      <label id="langLabel"></label>
       <select id="myLang" onchange="onLangChange()">
         <option value="zh">🇨🇳 中文 Chinese</option>
         <option value="en">🇺🇸 English</option>
@@ -64,38 +64,32 @@
     <button class="btn btn-green" id="joinBtn" onclick="joinRoom()"></button>
   </div>
 
+  <!-- 通话界面 -->
   <div class="call-section" id="callSection">
-    <div class="video-row" id="videoRow" style="display:none">
-      <div class="video-col">
-        <span class="video-label" id="myVidLabel"></span>
-        <video id="localVideo" autoplay playsinline muted></video>
-      </div>
-      <div class="video-col">
-        <span class="video-label" id="theirVidLabel"></span>
-        <video id="remoteVideo" autoplay playsinline></video>
-      </div>
+    <!-- 视频（默认隐藏）-->
+    <div class="vrow" id="vrow">
+      <div class="vcol"><span id="myVL"></span><video id="localVid" autoplay playsinline muted></video></div>
+      <div class="vcol"><span id="theirVL"></span><video id="remoteVid" autoplay playsinline></video></div>
     </div>
-    <button class="btn btn-dark" id="videoBtn" onclick="toggleVideo()"></button>
+    <button class="btn btn-dark" id="vidBtn" onclick="toggleVideo()"></button>
+
+    <!-- 字幕 -->
     <div class="card">
-      <!-- 收到的译文（对方说的） -->
-      <div style="font-size:11px;color:#555;margin-bottom:4px;" id="theirLabel"></div>
-      <div id="transcript" class="transcript-box"></div>
-      <!-- 自己说的原文（input transcript） -->
-      <div style="font-size:11px;color:#555;margin:8px 0 4px;" id="myLabel"></div>
-      <div id="myTranscript" class="transcript-box" style="min-height:60px;max-height:80px;color:#60a5fa;background:#0d0f1a;border-color:#1a2033;font-size:15px;"></div>
+      <div class="tlabel" id="tLabel1"></div>
+      <div class="tbox" id="transcript"></div>
+      <div class="tlabel" id="tLabel2" style="margin-top:6px"></div>
+      <div class="tbox blue" id="myTranscript"></div>
       <div class="vad-bar"><div class="vad-fill" id="vadFill"></div></div>
     </div>
-    <div class="indicator">
-      <div class="dot" id="dot"></div>
-      <div class="ind-text" id="indText"></div>
-    </div>
+
+    <div class="ind"><div class="dot" id="dot"></div><div class="ind-text" id="indText"></div></div>
     <div id="statusBar"></div>
-    <button class="btn btn-red" onclick="leaveRoom()" id="hangupBtn"></button>
+    <button class="btn btn-red" id="hangupBtn" onclick="leaveRoom()"></button>
   </div>
 
   <div class="hint" id="hintText"></div>
-  <div id="screenLog"></div>
-  <button onclick="toggleLog()" style="width:100%;height:32px;border:none;border-radius:6px;background:#111;color:#333;font-size:11px;cursor:pointer;margin-top:4px;">🔍 Debug Log</button>
+  <div id="logBox"></div>
+  <button onclick="toggleLog()" style="width:100%;height:30px;border:none;border-radius:6px;background:#111;color:#333;font-size:11px;cursor:pointer;margin-top:2px;">🔍 Debug Log</button>
 </div>
 
 <audio id="remoteAudio" autoplay playsinline style="display:none"></audio>
@@ -104,34 +98,34 @@
 // ===== 多语言UI =====
 const UI = {
   zh: {
-    theirLabel:"译文（对方→我）↓", myLabel:"对方原话识别 ↓",
-    sub:"全双工实时翻译通话 · Beta", langLabel:"我的语言",
-    joinBtn:"开始翻译通话", hangupBtn:"挂断离开",
-    myVid:"我的画面", theirVid:"对方画面",
-    videoOn:"📹 开启视频", videoOff:"📹 关闭视频",
+    sub:"全双工实时翻译通话·Beta", lang:"我的语言",
+    join:"开始翻译通话", hangup:"挂断离开",
+    myV:"我的画面", theirV:"对方画面",
+    vidOn:"📹 开启视频", vidOff:"📹 关闭视频",
+    tLabel1:"译文（对方→我）↓", tLabel2:"对方原话识别↓",
     waiting:"等待对方加入...", connecting:"建立连接中...",
-    p2pOk:"通话接通，翻译启动中...", transReady:"🟢 翻译就绪！请说话",
+    p2pOk:"通话接通，翻译启动中...", ready:"🟢 翻译就绪！请说话",
     speaking:"🎤 正在说话...", standby:"🟢 请说话...",
     transStart:"翻译引擎启动中...", transFail:"翻译连接失败",
-    peerJoined:"对方已加入！", peerLeft:"对方已离开",
-    peerHangup:"对方已挂断", hint:"需要 HTTPS · 全双工 · 自然说话",
-    transErr:"翻译错误: ", err:"错误: ",
-    tapToPlay:"请点击页面任意位置以播放声音",
+    peerJoined:"对方已加入！", peerLeft:"对方已离开", peerHangup:"对方已挂断",
+    hint:"需要HTTPS · 全双工 · 自然说话",
+    tapPlay:"请点击页面任意位置以播放声音",
+    transErr:"翻译错误: ", err:"错误: ", roomFull:"房间已满，请稍后重试",
   },
   en: {
-    theirLabel:"Translation (Their→Mine) ↓", myLabel:"Their Original Speech ↓",
-    sub:"Full-Duplex Real-Time Translation · Beta", langLabel:"My Language",
-    joinBtn:"Start Translation Call", hangupBtn:"Hang Up",
-    myVid:"My Camera", theirVid:"Their Camera",
-    videoOn:"📹 Turn On Video", videoOff:"📹 Turn Off Video",
+    sub:"Full-Duplex Real-Time Translation·Beta", lang:"My Language",
+    join:"Start Translation Call", hangup:"Hang Up",
+    myV:"My Camera", theirV:"Their Camera",
+    vidOn:"📹 Turn On Video", vidOff:"📹 Turn Off Video",
+    tLabel1:"Translation (Their→Mine) ↓", tLabel2:"Their Original Speech ↓",
     waiting:"Waiting for other person...", connecting:"Connecting...",
-    p2pOk:"Connected, starting translation...", transReady:"🟢 Ready! Speak naturally",
+    p2pOk:"Connected, starting translation...", ready:"🟢 Ready! Speak naturally",
     speaking:"🎤 Speaking...", standby:"🟢 Please speak...",
     transStart:"Starting translation engine...", transFail:"Translation failed",
-    peerJoined:"Other person joined!", peerLeft:"Other person left",
-    peerHangup:"Other person hung up", hint:"Requires HTTPS · Full-duplex · Speak naturally",
-    transErr:"Translation error: ", err:"Error: ",
-    tapToPlay:"Tap anywhere to enable audio",
+    peerJoined:"Other person joined!", peerLeft:"Other person left", peerHangup:"Other person hung up",
+    hint:"Requires HTTPS · Full-duplex · Speak naturally",
+    tapPlay:"Tap anywhere to enable audio",
+    transErr:"Translation error: ", err:"Error: ", roomFull:"Room is full, please try later",
   }
 };
 
@@ -140,65 +134,68 @@ const t = k => UI[myLang][k] || k;
 
 function applyUI() {
   document.documentElement.lang = myLang;
-  document.getElementById("logoSub").textContent     = t("sub");
-  document.getElementById("myLangLabel").textContent = t("langLabel");
-  document.getElementById("joinBtn").textContent     = t("joinBtn");
-  document.getElementById("hangupBtn").textContent   = t("hangupBtn");
-  document.getElementById("myVidLabel").textContent  = t("myVid");
-  document.getElementById("theirVidLabel").textContent = t("theirVid");
-  document.getElementById("videoBtn").textContent    = t("videoOn");
-  document.getElementById("indText").textContent     = t("waiting");
-  document.getElementById("theirLabel").textContent  = t("theirLabel");
-  document.getElementById("myLabel").textContent     = t("myLabel");
-  document.getElementById("hintText").textContent    = t("hint");
+  $("logoSub").textContent  = t("sub");
+  $("langLabel").textContent= t("lang");
+  $("joinBtn").textContent  = t("join");
+  $("hangupBtn").textContent= t("hangup");
+  $("myVL").textContent     = t("myV");
+  $("theirVL").textContent  = t("theirV");
+  $("vidBtn").textContent   = t("vidOn");
+  $("indText").textContent  = t("waiting");
+  $("hintText").textContent = t("hint");
+  $("tLabel1").textContent  = t("tLabel1");
+  $("tLabel2").textContent  = t("tLabel2");
 }
+
+function onLangChange() { myLang = $("myLang").value; applyUI(); }
+function $(id) { return document.getElementById(id); }
 applyUI();
 
-function onLangChange() { myLang = document.getElementById("myLang").value; applyUI(); }
-
-// ===== 日志 =====
-const screenLog = document.getElementById("screenLog");
-function addLog(msg, color="#555") {
-  const d = document.createElement("div");
-  d.style.color = color;
-  d.textContent = new Date().toLocaleTimeString() + " " + msg;
-  screenLog.appendChild(d);
-  screenLog.scrollTop = screenLog.scrollHeight;
-}
-function toggleLog() {
-  screenLog.style.display = screenLog.style.display === "none" ? "block" : "none";
-}
-function setStatus(msg, type="") {
-  document.getElementById("statusBar").textContent = msg;
-  document.getElementById("statusBar").className = type;
-  const c = type==="ok"?"#22c55e":type==="err"?"#ef4444":type==="info"?"#60a5fa":"#555";
-  addLog(msg, c);
-}
-function setIndicator(state, text) {
-  document.getElementById("dot").className = "dot"+(state?" "+state:"");
-  document.getElementById("indText").textContent = text;
-}
-
 // ===== 配置 =====
-const SUPABASE_URL   = "https://ryqxhagdbycccosuavtp.supabase.co";
-const SUPABASE_ANON  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
-const TURN_URL       = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-turn-credentials";
-const SESSION_URL    = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-realtime-session";
-const OPENAI_TRANS   = "https://api.openai.com/v1/realtime/translations";
+const SUPABASE_URL  = "https://ryqxhagdbycccosuavtp.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
+const TURN_URL      = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-turn-credentials";
+const SESSION_URL   = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-realtime-session";
+const OPENAI_TRANS  = "https://api.openai.com/v1/realtime/translations";
 const ROOM = "glt-fd-888888";
-const myId = "dev" + Math.floor(Math.random() * 9000 + 1000);
+const myId = "dev" + Math.floor(Math.random()*9000+1000);
 const myTs = Date.now();
 
 // ===== 状态 =====
 let rtcConfig = { iceServers:[{urls:"stun:stun.l.google.com:19302"}], iceTransportPolicy:"all" };
-let sb=null, ch=null, pc=null, transPc=null;
-let localStream=null, videoStream=null;
+let sb=null, ch=null;
+let pc=null;           // P2P连接
+let transPc=null;      // 翻译引擎连接
+let localStream=null, videoStream=null, peerMediaStream=null;
 let videoEnabled=false, rtcReady=false;
 let makingOffer=false, ignoreOffer=false, isPolite=false;
 let transRetryCount=0;
 let pendingIce=[];
 let audioCtx=null, analyser=null, vadTimer=null, isSpeaking=false, vadInterval=null;
-const VAD_THRESHOLD=0.015, VAD_HOLD_MS=800;
+
+// ===== 日志 =====
+function addLog(msg, color="#555") {
+  const d = document.createElement("div");
+  d.style.color = color;
+  d.textContent = new Date().toLocaleTimeString()+" "+msg;
+  $("logBox").appendChild(d);
+  $("logBox").scrollTop = $("logBox").scrollHeight;
+  console.log(msg);
+}
+function toggleLog() {
+  const b = $("logBox");
+  b.style.display = b.style.display==="none" ? "block" : "none";
+}
+function setStatus(msg, type="") {
+  $("statusBar").textContent = msg;
+  $("statusBar").className = type;
+  const c = type==="ok"?"#22c55e":type==="err"?"#ef4444":type==="info"?"#60a5fa":"#555";
+  addLog(msg, c);
+}
+function setInd(state, text) {
+  $("dot").className = "dot"+(state?" "+state:"");
+  $("indText").textContent = text;
+}
 
 // ===== TURN =====
 async function initTurn() {
@@ -218,7 +215,10 @@ async function initTurn() {
         {urls:"turn:turn.cloudflare.com:3478?transport=tcp", username:u,credential:c},
         {urls:"turn:turn.cloudflare.com:3478?transport=udp", username:u,credential:c},
       ] : [];
-      rtcConfig = { iceServers:[{urls:"stun:stun.l.google.com:19302"},...extra,...servers], iceTransportPolicy:"all" };
+      rtcConfig = {
+        iceServers:[{urls:"stun:stun.l.google.com:19302"},...extra,...servers],
+        iceTransportPolicy:"all"
+      };
       addLog("TURN ready: "+rtcConfig.iceServers.length+" servers", "#22c55e");
     }
   } catch(e) { addLog("TURN failed: "+e.message, "#ef4444"); }
@@ -238,146 +238,143 @@ function startVAD(stream) {
       analyser.getByteFrequencyData(buf);
       let sum=0; for(let i=0;i<buf.length;i++) sum+=buf[i]*buf[i];
       const rms = Math.sqrt(sum/buf.length)/255;
-      document.getElementById("vadFill").style.width = Math.min(rms*800,100)+"%";
-      if (rms>VAD_THRESHOLD) {
+      $("vadFill").style.width = Math.min(rms*800,100)+"%";
+      if (rms>0.015) {
         clearTimeout(vadTimer);
-        if (!isSpeaking) { isSpeaking=true; setIndicator("speaking",t("speaking")); }
+        if (!isSpeaking) { isSpeaking=true; setInd("s",t("speaking")); }
         vadTimer = setTimeout(()=>{
           isSpeaking=false;
-          setIndicator(rtcReady?"":"translating", rtcReady?t("standby"):t("transStart"));
-          document.getElementById("vadFill").style.width="0%";
-        }, VAD_HOLD_MS);
+          setInd(rtcReady?"":"t", rtcReady?t("standby"):t("transStart"));
+          $("vadFill").style.width="0%";
+        }, 800);
       }
     }, 20);
-  } catch(e) { addLog("VAD error: "+e.message, "#ef4444"); }
+  } catch(e) { addLog("VAD err: "+e.message,"#ef4444"); }
 }
 function stopVAD() {
   clearInterval(vadInterval); clearTimeout(vadTimer); vadInterval=null; isSpeaking=false;
-  document.getElementById("vadFill").style.width="0%";
+  $("vadFill").style.width="0%";
   if (audioCtx) { audioCtx.close().catch(()=>{}); audioCtx=null; } analyser=null;
 }
 
-// ===== 翻译引擎 =====
-// ===== 翻译引擎：WebRTC连接OpenAI =====
-// 关键：强制使用relay模式（TURN），绕过Safari ICE consent bug
-// 参考：OpenAI官方明确说浏览器用WebRTC，WebSocket在浏览器不支持自定义headers
-
-let transPc = null;
-let peerMediaStream = null;
-
+// ===== 翻译引擎重试 =====
 function scheduleTransRetry() {
-  if (transRetryCount >= 3) {
-    addLog("Trans failed after "+transRetryCount+" retries", "#ef4444");
-    transRetryCount = 0;
-    setStatus(t("transFail"), "err");
-    setIndicator("", t("transFail"));
-    return;
+  if (transRetryCount>=3) {
+    addLog("Trans failed after 3 retries", "#ef4444");
+    transRetryCount=0; setStatus(t("transFail"),"err"); setInd("",t("transFail")); return;
   }
   transRetryCount++;
-  const delay = transRetryCount * 3000;
+  const delay = transRetryCount*3000;
   addLog("Trans retry "+transRetryCount+"/3 in "+(delay/1000)+"s...", "#f59e0b");
-  setTimeout(async () => {
+  setTimeout(async()=>{
     if (peerMediaStream && !transPc) {
-      addLog("Retrying translation (attempt "+transRetryCount+")...", "#f59e0b");
-      const audioTrack = peerMediaStream.getAudioTracks()[0];
-      if (audioTrack) await startTranslation(audioTrack);
+      const track = peerMediaStream.getAudioTracks()[0];
+      if (track) await startTranslation(track);
       else scheduleTransRetry();
     }
   }, delay);
 }
 
+// ===== 翻译消息处理 =====
 function handleTransMsg(data) {
   try {
     const ev = JSON.parse(data);
-    if (ev.type && !["session.created","output_audio_buffer.started",
+    const skip = ["session.created","output_audio_buffer.started",
       "input_audio_buffer.speech_started","input_audio_buffer.speech_stopped",
-      "input_audio_buffer.committed"].includes(ev.type)) {
-      addLog("DC: "+ev.type, "#60a5fa");
-    }
+      "input_audio_buffer.committed"];
+    if (ev.type && !skip.includes(ev.type)) addLog("DC: "+ev.type, "#60a5fa");
+
+    // 译文（对方→我）
     if (ev.type==="session.output_transcript.delta"||ev.type==="response.audio_transcript.delta") {
-      const delta = ev.delta||ev.text||"";
-      if (delta) {
-        addLog("delta: ["+delta+"]", "#22c55e");
-        const tb = document.getElementById("transcript");
-        tb.textContent += delta;
-        tb.scrollTop = tb.scrollHeight;
+      const d = ev.delta||ev.text||"";
+      if (d) {
+        addLog("delta: ["+d+"]","#22c55e");
+        const tb=$("transcript"); tb.textContent+=d; tb.scrollTop=tb.scrollHeight;
       }
     }
     if (ev.type==="session.output_transcript.done"||ev.type==="response.audio_transcript.done") {
-      const tb = document.getElementById("transcript");
-      const lines = tb.textContent.split("\n");
-      tb.textContent = (lines.length>6?lines.slice(-6):lines).join("\n")+"\n";
-      tb.scrollTop = tb.scrollHeight;
+      const tb=$("transcript");
+      const lines=tb.textContent.split("\n");
+      tb.textContent=(lines.length>6?lines.slice(-6):lines).join("\n")+"\n";
+      tb.scrollTop=tb.scrollHeight;
     }
+    // 对方原话识别
     if (ev.type==="session.input_transcript.delta") {
-      const delta = ev.delta||ev.text||"";
-      if (delta) {
-        const tb = document.getElementById("myTranscript");
-        tb.textContent += delta;
-        tb.scrollTop = tb.scrollHeight;
-      }
+      const d=ev.delta||ev.text||"";
+      if (d) { const tb=$("myTranscript"); tb.textContent+=d; tb.scrollTop=tb.scrollHeight; }
     }
     if (ev.type==="session.input_transcript.done") {
-      const tb = document.getElementById("myTranscript");
-      addLog("对方说: ["+(tb.textContent.trim().split("\n").filter(Boolean).pop()||"")+"]", "#60a5fa");
-      const lines = tb.textContent.split("\n");
-      tb.textContent = (lines.length>4?lines.slice(-4):lines).join("\n")+"\n";
-      tb.scrollTop = tb.scrollHeight;
+      const tb=$("myTranscript");
+      addLog("对方说: ["+(tb.textContent.trim().split("\n").filter(Boolean).pop()||"")+"]","#60a5fa");
+      const lines=tb.textContent.split("\n");
+      tb.textContent=(lines.length>4?lines.slice(-4):lines).join("\n")+"\n";
+      tb.scrollTop=tb.scrollHeight;
     }
-    if (ev.type==="error") addLog("Trans error: "+(ev.error?.message||""), "#ef4444");
-  } catch(e) { addLog("DC parse err: "+e.message, "#ef4444"); }
+    if (ev.type==="error") addLog("Trans err: "+(ev.error?.message||""),"#ef4444");
+  } catch(e) { addLog("DC parse err: "+e.message,"#ef4444"); }
 }
 
+// ===== 翻译引擎（WebRTC relay模式，绕过Safari ICE consent bug）=====
 async function startTranslation(peerAudioTrack) {
   if (transPc) return;
   peerMediaStream = new MediaStream([peerAudioTrack]);
-  addLog("Starting translation (WebRTC relay), lang="+myLang, "#60a5fa");
+  addLog("Starting translation (relay), lang="+myLang, "#60a5fa");
 
-  // 强制relay模式：完全走TURN，绕过Safari ICE consent bug
-  const turnServers = rtcConfig.iceServers.filter(s => s.username && s.credential);
+  // 关键：强制relay模式，只走TURN，彻底绕过Safari ICE consent bug
+  const turnOnly = rtcConfig.iceServers.filter(s=>s.username&&s.credential);
   const transConfig = {
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" },
-      ...turnServers
-    ],
+    iceServers: turnOnly.length>0 ? turnOnly : rtcConfig.iceServers,
     iceTransportPolicy: "relay"
   };
-  addLog("Trans config: "+transConfig.iceServers.length+" servers (forced relay)", "#60a5fa");
+  addLog("Trans: "+transConfig.iceServers.length+" TURN servers, relay-only", "#60a5fa");
 
   try {
     transPc = new RTCPeerConnection(transConfig);
 
     transPc.ontrack = (e) => {
-      transRetryCount = 0;
-      addLog("Trans: received translated audio!", "#22c55e");
-      const audio = document.getElementById("remoteAudio");
-      if ("suppressLocalAudioPlayback" in audio) audio.suppressLocalAudioPlayback = true;
-      audio.srcObject = e.streams[0];
-      if (audioCtx?.state === "suspended") audioCtx.resume();
+      transRetryCount=0;
+      addLog("Trans: received audio!", "#22c55e");
+      const audio=$("remoteAudio");
+      if ("suppressLocalAudioPlayback" in audio) audio.suppressLocalAudioPlayback=true;
+      audio.srcObject=e.streams[0];
+      if (audioCtx?.state==="suspended") audioCtx.resume();
       audio.play().then(()=>{
-        addLog("Trans: audio playing!", "#22c55e");
-        rtcReady = true;
-        setIndicator("", t("standby"));
-        setStatus(t("transReady"), "ok");
+        addLog("Trans: playing!","#22c55e");
+        rtcReady=true; setInd("",t("standby")); setStatus(t("ready"),"ok");
       }).catch(err=>{
-        addLog("Autoplay blocked - tap screen!", "#ef4444");
-        setStatus(t("tapToPlay"), "info");
-        document.addEventListener("click", ()=>{ audio.play(); setStatus(t("transReady"),"ok"); }, {once:true});
+        addLog("Autoplay blocked","#ef4444");
+        setStatus(t("tapPlay"),"info");
+        document.addEventListener("click",()=>{ audio.play(); setStatus(t("ready"),"ok"); },{once:true});
       });
     };
 
     transPc.addTrack(peerAudioTrack, peerMediaStream);
 
+    // DataChannel
     const tdc = transPc.createDataChannel("oai-events");
-    tdc.onopen    = () => addLog("DataChannel opened!", "#22c55e");
-    tdc.onclose   = () => addLog("DataChannel closed", "#ef4444");
-    tdc.onmessage = e => handleTransMsg(e.data);
-    transPc.ondatachannel = e => {
-      addLog("ondatachannel (Safari)", "#f59e0b");
-      e.channel.onopen    = () => addLog("Safari DC opened!", "#22c55e");
-      e.channel.onmessage = m => handleTransMsg(m.data);
+    tdc.onopen    = ()=>addLog("DC opened!","#22c55e");
+    tdc.onclose   = ()=>addLog("DC closed","#ef4444");
+    tdc.onmessage = e=>handleTransMsg(e.data);
+    transPc.ondatachannel = e=>{
+      addLog("ondatachannel (Safari)","#f59e0b");
+      e.channel.onopen    = ()=>addLog("Safari DC opened!","#22c55e");
+      e.channel.onmessage = m=>handleTransMsg(m.data);
     };
 
+    transPc.oniceconnectionstatechange = ()=>{
+      const s=transPc?.iceConnectionState;
+      addLog("Trans ICE: "+s, s==="connected"||s==="completed"?"#22c55e":s==="failed"?"#ef4444":"#60a5fa");
+      if (s==="disconnected") {
+        setTimeout(()=>{
+          if (transPc?.iceConnectionState==="disconnected") {
+            addLog("Trans restartIce()","#f59e0b");
+            try { transPc.restartIce(); } catch {}
+          }
+        }, 2000);
+      }
+    };
+
+    // 并行获取密钥+offer
     const [secretRes, offer] = await Promise.all([
       fetch(SESSION_URL, {
         method:"POST",
@@ -404,15 +401,15 @@ async function startTranslation(peerAudioTrack) {
 
     await new Promise((resolve,reject)=>{
       const timeout = setTimeout(()=>reject(new Error("Trans ICE timeout")), 15000);
-      transPc.oniceconnectionstatechange = () => {
-        const s = transPc?.iceConnectionState;
+      transPc.oniceconnectionstatechange = ()=>{
+        const s=transPc?.iceConnectionState;
         addLog("Trans ICE: "+s, s==="connected"||s==="completed"?"#22c55e":s==="failed"?"#ef4444":"#60a5fa");
         if (s==="connected"||s==="completed") { clearTimeout(timeout); resolve(); }
         if (s==="failed") { clearTimeout(timeout); reject(new Error("Trans ICE failed")); }
         if (s==="disconnected") {
           setTimeout(()=>{
             if (transPc?.iceConnectionState==="disconnected") {
-              addLog("Trans ICE restarting...", "#f59e0b");
+              addLog("Trans restartIce()","#f59e0b");
               try { transPc.restartIce(); } catch {}
             }
           }, 2000);
@@ -424,43 +421,90 @@ async function startTranslation(peerAudioTrack) {
     });
 
   } catch(err) {
-    addLog("Trans FAILED: "+err.message, "#ef4444");
+    addLog("Trans FAILED: "+err.message,"#ef4444");
     if (transPc) { try { transPc.close(); } catch {} }
-    transPc = null;
-    setTimeout(() => scheduleTransRetry(), 100);
+    transPc=null;
+    setTimeout(()=>scheduleTransRetry(), 100);
   }
 }
 
-// ===== 信令处理（Perfect Negotiation标准模式）=====
-async function handleSignal(payload) {
-  if (payload.type === "sdp") {
-    const desc = payload.sdp;
-    const offerCollision = desc.type==="offer" && (makingOffer || pc.signalingState!=="stable");
-    ignoreOffer = !isPolite && offerCollision;
-    if (ignoreOffer) { addLog("Ignoring colliding offer (impolite)", "#f59e0b"); return; }
+// ===== PERFECT NEGOTIATION P2P =====
+function setupPC() {
+  pc = new RTCPeerConnection(rtcConfig);
 
-    addLog("setRemoteDescription: "+desc.type, "#60a5fa");
-    await pc.setRemoteDescription(desc);
-
-    if (desc.type === "offer") {
-      addLog("Creating answer...", "#60a5fa");
+  pc.onnegotiationneeded = async()=>{
+    try {
+      makingOffer=true;
+      addLog("onnegotiationneeded → offer","#60a5fa");
       await pc.setLocalDescription();
-      await bcast({ type:"sdp", sdp: pc.localDescription });
+      await bcast({type:"sdp", sdp:pc.localDescription});
+    } catch(e) { addLog("negotiation err: "+e.message,"#ef4444"); }
+    finally { makingOffer=false; }
+  };
+
+  pc.onicecandidate = async({candidate})=>{
+    if (candidate) await bcast({type:"ice", candidate:candidate.toJSON()});
+  };
+
+  pc.oniceconnectionstatechange = ()=>{
+    const s=pc.iceConnectionState;
+    addLog("P2P ICE: "+s, s==="connected"||s==="completed"?"#22c55e":s==="failed"?"#ef4444":"#60a5fa");
+    if (s==="failed") pc.restartIce();
+    if (s==="disconnected") setTimeout(()=>{ if(pc?.iceConnectionState==="disconnected") pc.restartIce(); },2000);
+  };
+
+  pc.onconnectionstatechange = ()=>{
+    addLog("P2P conn: "+pc.connectionState,"#60a5fa");
+    if (pc.connectionState==="connected") setStatus(t("p2pOk"),"ok");
+  };
+
+  // 收到对方音视频
+  let remoteStream = new MediaStream();
+  pc.ontrack = async({track, streams})=>{
+    addLog("P2P track: "+track.kind,"#22c55e");
+    remoteStream.addTrack(track);
+    if (track.kind==="video") $("remoteVid").srcObject=remoteStream;
+    if (track.kind==="audio" && !transPc) {
+      setInd("t",t("transStart"));
+      await startTranslation(track);
+    }
+  };
+
+  // 添加本机音频
+  if (localStream) {
+    localStream.getTracks().forEach(track=>{
+      pc.addTrack(track, localStream);
+      addLog("Added: "+track.kind,"#22c55e");
+    });
+  }
+}
+
+// ===== 信令（Perfect Negotiation）=====
+async function handleSignal(payload) {
+  if (!pc) return;
+
+  if (payload.type==="sdp") {
+    const desc = payload.sdp;
+    const collision = desc.type==="offer" && (makingOffer || pc.signalingState!=="stable");
+    ignoreOffer = !isPolite && collision;
+    if (ignoreOffer) { addLog("Ignoring colliding offer (impolite)","#f59e0b"); return; }
+    addLog("setRemoteDesc: "+desc.type,"#60a5fa");
+    await pc.setRemoteDescription(desc);
+    if (desc.type==="offer") {
+      await pc.setLocalDescription();
+      await bcast({type:"sdp", sdp:pc.localDescription});
     }
   }
 
-  if (payload.type === "ice") {
+  if (payload.type==="ice") {
     try {
       if (!pc.remoteDescription) { pendingIce.push(payload.candidate); return; }
       await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
-    } catch(e) {
-      if (!ignoreOffer) addLog("ICE add error: "+e.message, "#ef4444");
-    }
+    } catch(e) { if (!ignoreOffer) addLog("ICE add err: "+e.message,"#ef4444"); }
   }
 
-  if (payload.type === "leave") {
-    setIndicator("", t("peerLeft"));
-    setStatus(t("peerHangup"), "err");
+  if (payload.type==="leave") {
+    setInd("",t("peerLeft")); setStatus(t("peerHangup"),"err");
   }
 }
 
@@ -470,137 +514,112 @@ async function bcast(payload) {
 
 // ===== 视频开关 =====
 async function toggleVideo() {
-  const btn = document.getElementById("videoBtn");
-  const row = document.getElementById("videoRow");
+  const btn=$("vidBtn"), row=$("vrow");
   if (!videoEnabled) {
     try {
       videoStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode:"user", width:{ideal:640}, height:{ideal:480} }
+        video:{facingMode:"user",width:{ideal:640},height:{ideal:480}}
       });
-      document.getElementById("localVideo").srcObject = videoStream;
-      if (pc) videoStream.getVideoTracks().forEach(t => pc.addTrack(t, videoStream));
-      row.style.display = "flex";
-      videoEnabled = true;
-      btn.textContent = t("videoOff");
-      btn.style.color = "#ef4444";
-    } catch(e) { setStatus(t("err")+e.message, "err"); }
+      $("localVid").srcObject=videoStream;
+      if (pc) videoStream.getVideoTracks().forEach(t=>pc.addTrack(t,videoStream));
+      row.style.display="flex"; videoEnabled=true;
+      btn.textContent=t("vidOff"); btn.style.color="#ef4444";
+    } catch(e) { setStatus(t("err")+e.message,"err"); }
   } else {
     if (videoStream) { videoStream.getTracks().forEach(t=>t.stop()); videoStream=null; }
-    document.getElementById("localVideo").srcObject = null;
-    row.style.display = "none";
-    videoEnabled = false;
-    btn.textContent = t("videoOn");
-    btn.style.color = "#60a5fa";
+    $("localVid").srcObject=null; row.style.display="none"; videoEnabled=false;
+    btn.textContent=t("vidOn"); btn.style.color="#60a5fa";
   }
 }
 
-// ===== 主流程 =====
+// ===== 加入房间 =====
 async function joinRoom() {
-  myLang = document.getElementById("myLang").value;
-  document.getElementById("joinBtn").disabled = true;
-  document.getElementById("joinCard").style.display = "none";
-  document.getElementById("callSection").classList.add("visible");
-  applyUI();
-  setStatus(t("connecting"), "info");
+  myLang=$("myLang").value;
+  $("joinBtn").disabled=true;
+  $("joinCard").style.display="none";
+  $("callSection").classList.add("on");
+  applyUI(); setStatus(t("connecting"),"info");
 
   try {
-    // 申请麦克风
-    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    addLog("Mic ready", "#22c55e");
+    localStream = await navigator.mediaDevices.getUserMedia({audio:true});
+    addLog("Mic ready","#22c55e");
     startVAD(localStream);
-
-    // TURN配置
     await initTurn();
 
-    // Supabase Presence信令
     sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-    ch = sb.channel(ROOM, { config:{ broadcast:{self:false}, presence:{key:myId} } });
+    ch = sb.channel(ROOM, {config:{broadcast:{self:false},presence:{key:myId}}});
 
-    ch.on("presence", {event:"sync"}, ()=>{
-      const state   = ch.presenceState();
-      const members = Object.keys(state).sort();
-      addLog("Room members: "+members.join(","), "#60a5fa");
-
-      if (members.length > 2) { setStatus(t("err")+"Room full", "err"); return; }
-
-      if (members.length === 2 && !pc) {
-        // ID字母序小的是impolite（主动发offer），大的是polite（让步）
-        isPolite = myId !== members[0];
-        addLog("Role: "+(isPolite?"polite":"impolite")+" id="+myId, "#f59e0b");
+    ch.on("presence",{event:"sync"},()=>{
+      const state=ch.presenceState();
+      const members=Object.keys(state).sort();
+      addLog("Room: "+members.join(","),"#60a5fa");
+      if (members.length>2) { setStatus(t("roomFull"),"err"); return; }
+      if (members.length===2 && !pc) {
+        isPolite = myId!==members[0];
+        addLog("Role: "+(isPolite?"polite":"impolite"),"#f59e0b");
         setupPC();
-        // 清空pending ICE
-        pendingIce.forEach(async c => {
+        pendingIce.forEach(async c=>{
           try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
         });
-        pendingIce = [];
+        pendingIce=[];
       }
     })
-    .on("presence", {event:"join"}, ({key})=>{
-      addLog("Joined: "+key, "#22c55e");
-      setStatus(t("peerJoined"), "info");
+    .on("presence",{event:"join"},({key})=>{
+      addLog("Joined: "+key,"#22c55e"); setStatus(t("peerJoined"),"info");
     })
-    .on("presence", {event:"leave"}, ({key})=>{
-      addLog("Left: "+key, "#ef4444");
-      setStatus(t("peerLeft"), "err");
-      setIndicator("", t("peerLeft"));
+    .on("presence",{event:"leave"},({key})=>{
+      addLog("Left: "+key,"#ef4444"); setStatus(t("peerLeft"),"err"); setInd("",t("peerLeft"));
     })
-    .on("broadcast", {event:"signal"}, async ({payload})=>{
-      if (!pc && payload.type !== "leave") {
-        pendingIce.push(payload); // 缓存直到pc准备好
-        return;
-      }
+    .on("broadcast",{event:"signal"},async({payload})=>{
+      if (!pc && payload.type!=="leave") { pendingIce.push(payload); return; }
       await handleSignal(payload);
     })
     .subscribe(async status=>{
       addLog("Channel: "+status, status==="SUBSCRIBED"?"#22c55e":"#60a5fa");
       if (status==="SUBSCRIBED") {
-        setStatus(t("waiting"), "info");
-        setIndicator("", t("waiting"));
-        await ch.track({id:myId, ts:myTs});
+        setStatus(t("waiting"),"info"); setInd("",t("waiting"));
+        await ch.track({id:myId,ts:myTs});
       }
     });
 
   } catch(err) {
-    setStatus(t("err")+err.message, "err");
-    document.getElementById("joinBtn").disabled = false;
-    document.getElementById("joinCard").style.display = "";
-    document.getElementById("callSection").classList.remove("visible");
+    setStatus(t("err")+err.message,"err");
+    $("joinBtn").disabled=false;
+    $("joinCard").style.display="";
+    $("callSection").classList.remove("on");
   }
 }
 
 function leaveRoom() {
   bcast({type:"leave"}).catch(()=>{});
   cleanup();
-  document.getElementById("callSection").classList.remove("visible");
-  document.getElementById("joinCard").style.display = "";
-  document.getElementById("joinBtn").disabled = false;
-  document.getElementById("transcript").textContent = "";
+  $("callSection").classList.remove("on");
+  $("joinCard").style.display="";
+  $("joinBtn").disabled=false;
+  $("transcript").textContent="";
+  $("myTranscript").textContent="";
   applyUI();
 }
 
 function cleanup() {
-  rtcReady=false; makingOffer=false; ignoreOffer=false; pendingIce=[]; transRetryCount=0;
+  rtcReady=false; makingOffer=false; ignoreOffer=false;
+  transRetryCount=0; pendingIce=[];
   stopVAD();
   if (ch)          { try { sb?.removeChannel(ch); } catch {} ch=null; sb=null; }
-  if (transWs)     { try { transWs.close(); } catch {} transWs=null; }
   if (transPc)     { try { transPc.close(); } catch {} transPc=null; }
   if (pc)          { try { pc.close(); }      catch {} pc=null; }
-  stopAudioCapture();
-  if (transAudioCtx) { try { transAudioCtx.close(); } catch {} transAudioCtx=null; }
-  audioQueue=[]; isPlaying=false; nextStartTime=0; peerMediaStream=null;
   if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
   if (videoStream) { videoStream.getTracks().forEach(t=>t.stop()); videoStream=null; }
-  document.getElementById("remoteAudio").srcObject = null;
-  document.getElementById("myTranscript").textContent = "";
-  document.getElementById("localVideo").srcObject  = null;
-  document.getElementById("remoteVideo").srcObject = null;
-  document.getElementById("videoRow").style.display = "none";
-  videoEnabled = false;
+  peerMediaStream=null; videoEnabled=false;
+  $("remoteAudio").srcObject=null;
+  $("localVid").srcObject=null;
+  $("remoteVid").srcObject=null;
+  $("vrow").style.display="none";
+  setInd("","");
 }
 
-// 预热
-window.addEventListener("load", ()=>{
-  fetch(SESSION_URL, {method:"OPTIONS", headers:{"Authorization":`Bearer ${SUPABASE_ANON}`}}).catch(()=>{});
+window.addEventListener("load",()=>{
+  fetch(SESSION_URL,{method:"OPTIONS",headers:{"Authorization":`Bearer ${SUPABASE_ANON}`}}).catch(()=>{});
 });
 </script>
 </body>
