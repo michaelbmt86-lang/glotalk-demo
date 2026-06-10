@@ -202,6 +202,7 @@ let iAmReady=false,peerReady=false,translationStarted=false;
 let speechRec=null,pingStart=0;
 let callStartTime=null,timerIv=null,bgTimer=null;
 let mySessionId=null,theirSessionId=null;
+let wakeLock=null;
 let t=UI.zh;
 const $=id=>document.getElementById(id);
 
@@ -665,6 +666,7 @@ async function startCall(){
   $("boxThem").textContent="";$("boxMe").textContent="";
   setStatus(t.connecting,"yellow");
   log("【GloTalk v4 · 双方就绪才计费】ID:"+myId+" 房间:"+ROOM);
+  await requestWakeLock(); // 通话开始，防止熄屏
 
   await initTurn();
 
@@ -717,6 +719,7 @@ async function hangup(){
   }
   callActive=false;
   clearTimeout(relayTimer);clearTimeout(bgTimer);
+  releaseWakeLock(); // 挂断时释放屏幕常亮
   await stopTranslation("我主动挂断");
   try{p2pPc?.close();}catch{}
   p2pPc=null;
@@ -799,9 +802,26 @@ async function toggleVideo(){
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 初始化
-// ═══════════════════════════════════════════════════════════
+// ═══ 屏幕常亮（防止熄屏进入后台）═══
+async function requestWakeLock(){
+  try{
+    if("wakeLock" in navigator){
+      wakeLock=await navigator.wakeLock.request("screen");
+      log("✅ 屏幕常亮已开启");
+      // 页面重新可见时重新请求（系统可能释放了锁）
+      document.addEventListener("visibilitychange",async()=>{
+        if(wakeLock!==null&&document.visibilityState==="visible"&&callActive){
+          try{wakeLock=await navigator.wakeLock.request("screen");log("✅ 屏幕常亮已恢复");}catch{}
+        }
+      },{once:false});
+    }
+  }catch(e){log("⚠️ 屏幕常亮: "+e.message);}
+}
+function releaseWakeLock(){
+  if(wakeLock){wakeLock.release().catch(()=>{});wakeLock=null;log("屏幕常亮已释放");}
+}
+
+// ═══ 初始化 ═══
 window.addEventListener("load",()=>{initRoom();onLangChange();});
 </script>
 </body>
