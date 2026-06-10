@@ -1,160 +1,86 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
   <title>GloTalk</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
-    body {
-      min-height: 100dvh; background: #0a0a0a; color: #f0f0f0;
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
-      display: flex; align-items: center; justify-content: center;
-      padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
-    }
-    .app { width: min(100%, 420px); display: flex; flex-direction: column; gap: 12px; }
-    .logo { font-size: 30px; font-weight: 800; letter-spacing: -1px; color: #fff; }
-    .logo span { color: #22c55e; }
-    .tagline { font-size: 12px; color: #333; margin-top: 2px; }
-
-    /* 状态栏 */
-    .status-bar {
-      display: flex; align-items: center; gap: 8px;
-      background: #111; border: 1px solid #222; border-radius: 12px; padding: 10px 14px;
-    }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #333; flex-shrink: 0; transition: all 0.3s; }
-    .dot.green  { background: #22c55e; box-shadow: 0 0 6px #22c55e88; }
-    .dot.yellow { background: #f59e0b; box-shadow: 0 0 4px #f59e0b66; }
-    .dot.red    { background: #ef4444; box-shadow: 0 0 4px #ef444466; }
-    .status-text { font-size: 13px; color: #888; flex: 1; }
-    .ping { font-size: 11px; color: #22c55e; }
-
-    /* 房间卡片 */
-    .room-card {
-      background: #111; border: 1px solid #222; border-radius: 14px; padding: 12px 14px;
-      display: flex; flex-direction: column; gap: 8px;
-    }
-    .room-row { display: flex; align-items: center; gap: 8px; }
-    .room-label { font-size: 11px; color: #555; font-weight: 600; text-transform: uppercase; width: 44px; flex-shrink: 0; }
-    .room-id {
-      flex: 1; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px;
-      color: #22c55e; font: inherit; font-size: 15px; font-weight: 700;
-      padding: 8px 10px; letter-spacing: 2px;
-    }
-    .copy-btn {
-      height: 36px; padding: 0 12px; border: 1px solid #2a2a2a; border-radius: 8px;
-      background: #1a1a1a; color: #888; font: inherit; font-size: 12px; cursor: pointer;
-      white-space: nowrap; flex-shrink: 0;
-    }
-    .copy-btn:active { background: #222; }
-    .share-link {
-      font-size: 11px; color: #555; word-break: break-all;
-      background: #0f0f0f; border-radius: 6px; padding: 6px 8px;
-      -webkit-user-select: text; user-select: text;
-    }
-
-    /* 语言选择 */
-    .lang-card {
-      background: #111; border: 1px solid #222; border-radius: 14px; padding: 12px 14px;
-      display: flex; flex-direction: column; gap: 8px;
-    }
-    .lang-row { display: flex; align-items: center; gap: 10px; }
-    .lang-label { font-size: 11px; color: #555; font-weight: 600; text-transform: uppercase; width: 56px; flex-shrink: 0; }
-    select {
-      flex: 1; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px;
-      color: #f0f0f0; font: inherit; font-size: 14px; padding: 8px 10px; outline: none; cursor: pointer;
-    }
-    select option { background: #1a1a1a; }
-    select:disabled { opacity: 0.4; }
-
-    /* 字幕区（默认隐藏） */
-    .subtitle-section { display: none; flex-direction: column; gap: 8px; }
-    .subtitle-section.visible { display: flex; }
-    .box-wrap { display: flex; flex-direction: column; gap: 4px; }
-    .box-label { font-size: 11px; color: #555; font-weight: 600; text-transform: uppercase; padding-left: 2px; }
-    .tbox {
-      min-height: 80px; max-height: 120px; overflow-y: auto;
-      border-radius: 12px; padding: 12px; font-size: 16px; font-weight: 600;
-      line-height: 1.5; word-break: break-word; white-space: pre-wrap;
-      -webkit-user-select: text; user-select: text;
-    }
-    .tbox-them { background: #0d1a0f; border: 1px solid #1a3320; color: #22c55e; }
-    .tbox-them:empty::before { content: attr(data-ph); color: #1a3320; font-size: 13px; font-weight: 400; }
-    .tbox-me   { background: #0f0f1a; border: 1px solid #1a1a3a; color: #60a5fa; }
-    .tbox-me:empty::before   { content: attr(data-ph); color: #1a1a3a; font-size: 13px; font-weight: 400; }
-
-    /* 按钮 */
-    .btn {
-      width: 100%; height: 60px; border: none; border-radius: 14px;
-      font: inherit; font-size: 17px; font-weight: 800; cursor: pointer;
-      transition: all 0.15s; touch-action: none;
-    }
-    .btn:active:not(:disabled) { transform: scale(0.97); }
-    .btn-green { background: #22c55e; color: #000; }
-    .btn-red   { background: #ef4444; color: #fff; box-shadow: 0 0 0 4px #ef444422; }
-    .btn-blue  { background: #3b82f6; color: #fff; }
-
-    /* 工具栏 */
-    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
-    .tool-btn {
-      flex: 1; min-width: 70px; height: 44px;
-      border: 1px solid #222; border-radius: 10px;
-      background: #111; color: #888; font: inherit; font-size: 12px; cursor: pointer;
-      transition: all 0.15s;
-    }
-    .tool-btn.active { border-color: #22c55e44; color: #22c55e; background: #0d1a0f; }
-    .tool-btn.warn   { border-color: #ef444444; color: #ef4444; background: #1a0f0f; }
-    .tool-btn:active { transform: scale(0.96); }
-
-    /* 视频 */
-    .video-row { display: flex; gap: 8px; }
-    .video-wrap { flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: center; }
-    .video-wrap span { font-size: 11px; color: #555; }
-    video { width: 100%; aspect-ratio: 4/3; border-radius: 10px; background: #111; object-fit: cover; display: none; }
-
-    /* 网络质量指示器 */
-    .quality-bar {
-      display: flex; align-items: center; gap: 6px;
-      background: #111; border: 1px solid #222; border-radius: 8px; padding: 6px 10px;
-      font-size: 11px; color: #555;
-    }
-    .quality-dot { width: 6px; height: 6px; border-radius: 50%; background: #333; }
-    .quality-dot.g { background: #22c55e; }
-    .quality-dot.y { background: #f59e0b; }
-    .quality-dot.r { background: #ef4444; }
-
-    /* 日志：用textarea支持iOS复制 */
-    .log-wrap { display: none; flex-direction: column; gap: 4px; }
-    .log-wrap.visible { display: flex; }
-    textarea.log-box {
-      background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 8px;
-      padding: 8px; font-size: 11px; height: 200px; resize: none;
-      font-family: monospace; color: #666; outline: none;
-      -webkit-user-select: text; user-select: text;
-    }
-    .toggle-log { width: 100%; height: 28px; border: none; border-radius: 6px; background: #111; color: #333; font-size: 11px; cursor: pointer; }
-    audio { display: none; }
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+    body{min-height:100dvh;background:#0a0a0a;color:#f0f0f0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif;display:flex;align-items:center;justify-content:center;padding:max(20px,env(safe-area-inset-top)) 20px max(20px,env(safe-area-inset-bottom))}
+    .app{width:min(100%,420px);display:flex;flex-direction:column;gap:12px}
+    .logo{font-size:30px;font-weight:800;letter-spacing:-1px;color:#fff}
+    .logo span{color:#22c55e}
+    .tagline{font-size:12px;color:#333;margin-top:2px}
+    .status-bar{display:flex;align-items:center;gap:8px;background:#111;border:1px solid #222;border-radius:12px;padding:10px 14px}
+    .dot{width:8px;height:8px;border-radius:50%;background:#333;flex-shrink:0;transition:all .3s}
+    .dot.green{background:#22c55e;box-shadow:0 0 6px #22c55e88}
+    .dot.yellow{background:#f59e0b}
+    .dot.red{background:#ef4444}
+    .status-text{font-size:13px;color:#888;flex:1}
+    .ping{font-size:11px;color:#22c55e}
+    .room-card{background:#111;border:1px solid #222;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+    .room-row{display:flex;align-items:center;gap:8px}
+    .room-label{font-size:11px;color:#555;font-weight:600;text-transform:uppercase;width:44px;flex-shrink:0}
+    .room-id{flex:1;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;color:#22c55e;font:inherit;font-size:15px;font-weight:700;padding:8px 10px;letter-spacing:2px}
+    .copy-btn{height:36px;padding:0 12px;border:1px solid #2a2a2a;border-radius:8px;background:#1a1a1a;color:#888;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0}
+    .copy-btn:active{background:#222}
+    .share-link{font-size:11px;color:#444;word-break:break-all;background:#0f0f0f;border-radius:6px;padding:6px 8px;-webkit-user-select:text;user-select:text}
+    .lang-card{background:#111;border:1px solid #222;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+    .lang-row{display:flex;align-items:center;gap:10px}
+    .lang-label{font-size:11px;color:#555;font-weight:600;text-transform:uppercase;width:56px;flex-shrink:0}
+    select{flex:1;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;color:#f0f0f0;font:inherit;font-size:14px;padding:8px 10px;outline:none;cursor:pointer}
+    select option{background:#1a1a1a}
+    select:disabled{opacity:.4}
+    .subtitle-section{display:none;flex-direction:column;gap:8px}
+    .subtitle-section.visible{display:flex}
+    .box-wrap{display:flex;flex-direction:column;gap:4px}
+    .box-label{font-size:11px;color:#555;font-weight:600;text-transform:uppercase;padding-left:2px}
+    .tbox{min-height:80px;max-height:120px;overflow-y:auto;border-radius:12px;padding:12px;font-size:16px;font-weight:600;line-height:1.5;word-break:break-word;white-space:pre-wrap;-webkit-user-select:text;user-select:text}
+    .tbox-them{background:#0d1a0f;border:1px solid #1a3320;color:#22c55e}
+    .tbox-them:empty::before{content:attr(data-ph);color:#1a3320;font-size:13px;font-weight:400}
+    .tbox-me{background:#0f0f1a;border:1px solid #1a1a3a;color:#60a5fa}
+    .tbox-me:empty::before{content:attr(data-ph);color:#1a1a3a;font-size:13px;font-weight:400}
+    .video-row{display:flex;gap:8px}
+    .video-wrap{flex:1;display:flex;flex-direction:column;gap:4px;align-items:center}
+    .video-wrap span{font-size:11px;color:#555}
+    video{width:100%;aspect-ratio:4/3;border-radius:10px;background:#111;object-fit:cover;display:none}
+    .quality-bar{display:flex;align-items:center;gap:6px;background:#111;border:1px solid #222;border-radius:8px;padding:6px 10px;font-size:11px;color:#555}
+    .qdot{width:6px;height:6px;border-radius:50%;background:#333}
+    .qdot.g{background:#22c55e}.qdot.y{background:#f59e0b}.qdot.r{background:#ef4444}
+    .timer-bar{display:flex;align-items:center;justify-content:space-between;background:#111;border:1px solid #222;border-radius:8px;padding:6px 12px;font-size:12px}
+    .timer-text{color:#555}
+    .timer-val{color:#22c55e;font-weight:700;font-variant-numeric:tabular-nums}
+    .timer-warn{color:#f59e0b}
+    .timer-cost{color:#555;font-size:11px}
+    .btn{width:100%;height:60px;border:none;border-radius:14px;font:inherit;font-size:17px;font-weight:800;cursor:pointer;transition:all .15s;touch-action:none}
+    .btn:active:not(:disabled){transform:scale(.97)}
+    .btn-green{background:#22c55e;color:#000}
+    .btn-red{background:#ef4444;color:#fff;box-shadow:0 0 0 4px #ef444422}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap}
+    .tool-btn{flex:1;min-width:70px;height:44px;border:1px solid #222;border-radius:10px;background:#111;color:#888;font:inherit;font-size:12px;cursor:pointer;transition:all .15s}
+    .tool-btn.active{border-color:#22c55e44;color:#22c55e;background:#0d1a0f}
+    .tool-btn:active{transform:scale(.96)}
+    .log-wrap{display:none;flex-direction:column;gap:4px}
+    .log-wrap.visible{display:flex}
+    textarea.log-box{background:#0a0a0a;border:1px solid #1a1a1a;border-radius:8px;padding:8px;font-size:11px;height:200px;resize:none;font-family:monospace;color:#666;outline:none;-webkit-user-select:text;user-select:text;width:100%}
+    .toggle-log{width:100%;height:28px;border:none;border-radius:6px;background:#111;color:#333;font-size:11px;cursor:pointer}
+    audio{display:none}
   </style>
 </head>
 <body>
 <div class="app">
-
   <div>
     <div class="logo">Glo<span>Talk</span></div>
     <div class="tagline" id="tagline">实时翻译通话 · 无需VPN · 支持70+语言</div>
   </div>
-
-  <!-- 状态栏 -->
   <div class="status-bar">
     <div class="dot" id="dot"></div>
     <div class="status-text" id="statusText">选择语言，创建通话</div>
     <div class="ping" id="pingText"></div>
   </div>
-
-  <!-- 房间卡片 -->
-  <div class="room-card" id="roomCard">
+  <div class="room-card">
     <div class="room-row">
       <span class="room-label" id="labelRoom">房间</span>
       <div class="room-id" id="roomDisplay">------</div>
@@ -162,8 +88,6 @@
     </div>
     <div class="share-link" id="shareLink"></div>
   </div>
-
-  <!-- 语言选择 -->
   <div class="lang-card">
     <div class="lang-row">
       <span class="lang-label" id="labelMe">我说</span>
@@ -192,8 +116,6 @@
       </select>
     </div>
   </div>
-
-  <!-- 字幕区（默认隐藏） -->
   <div class="subtitle-section" id="subtitleSection">
     <div class="box-wrap">
       <div class="box-label" id="labelBoxThem">🔊 对方说 → 我听到的翻译</div>
@@ -201,11 +123,9 @@
     </div>
     <div class="box-wrap">
       <div class="box-label" id="labelBoxMe">🎤 我说的话</div>
-      <div class="tbox tbox-me"  id="boxMe"   data-ph="我说话时，原文显示在这里..."></div>
+      <div class="tbox tbox-me" id="boxMe" data-ph="我说话时，原文显示在这里..."></div>
     </div>
   </div>
-
-  <!-- 视频区（默认隐藏） -->
   <div class="video-row" id="videoRow" style="display:none">
     <div class="video-wrap">
       <span id="labelLocalVideo">我的画面</span>
@@ -216,820 +136,673 @@
       <video id="remoteVideo" autoplay playsinline></video>
     </div>
   </div>
-
-  <!-- 网络质量 -->
   <div class="quality-bar" id="qualityBar" style="display:none">
-    <div class="quality-dot" id="qualityDot"></div>
+    <div class="qdot" id="qdot"></div>
     <span id="qualityText">检测网络中...</span>
   </div>
-
-  <!-- 主按钮 -->
-  <button class="btn btn-green" id="mainBtn" onclick="handleMain()">开始通话</button>
-
-  <!-- 工具栏 -->
-  <div class="toolbar" id="toolbar" style="display:none">
-    <button class="tool-btn active" id="muteBtn"    onclick="toggleMute()">🎤 麦克风</button>
-    <button class="tool-btn"        id="subtitleBtn" onclick="toggleSubtitle()">💬 字幕</button>
-    <button class="tool-btn"        id="videoBtn"   onclick="toggleVideo()">📷 摄像头</button>
-    <button class="tool-btn warn"   id="hangupBtn"  onclick="handleMain()">📵 挂断</button>
+  <div class="timer-bar" id="timerBar" style="display:none">
+    <span class="timer-text" id="timerLabel">通话时长</span>
+    <span class="timer-val" id="timerVal">0:00</span>
+    <span class="timer-cost" id="timerCost"></span>
   </div>
-
-  <!-- 日志（textarea，iOS可复制） -->
+  <button class="btn btn-green" id="mainBtn" onclick="handleMain()">开始通话</button>
+  <div class="toolbar" id="toolbar" style="display:none">
+    <button class="tool-btn active" id="muteBtn" onclick="toggleMute()">🎤 麦克风</button>
+    <button class="tool-btn" id="subtitleBtn" onclick="toggleSubtitle()">💬 字幕</button>
+    <button class="tool-btn" id="videoBtn" onclick="toggleVideo()">📷 摄像头</button>
+    <button class="tool-btn" id="reconnBtn" onclick="location.reload()">🔄 重连</button>
+  </div>
   <div class="log-wrap" id="logWrap">
-    <textarea class="log-box" id="logBox" readonly placeholder="调试日志..."></textarea>
+    <textarea class="log-box" id="logBox" readonly placeholder="调试日志（可复制）..."></textarea>
   </div>
   <button class="toggle-log" onclick="toggleLog()">🔍 调试日志</button>
-
 </div>
-
-<!-- 音频 -->
 <audio id="audioThem" autoplay playsinline></audio>
-
 <script>
 // ═══════════════════════════════════════════════════════════
-// 多语言界面文字
+// 多语言界面
 // ═══════════════════════════════════════════════════════════
-const UI = {
-  zh: {
-    tagline:"实时翻译通话 · 无需VPN · 支持70+语言",
-    labelMe:"我说", labelThem:"对方说", labelRoom:"房间",
-    labelBoxThem:"🔊 对方说 → 我听到的翻译", labelBoxMe:"🎤 我说的话",
-    phThem:"对方说话时，翻译显示在这里...", phMe:"我说话时，原文显示在这里...",
-    btnStart:"开始通话", btnHangup:"挂断",
-    btnMic:"🎤 麦克风", btnMicOff:"🔇 已静音",
-    btnSub:"💬 字幕", btnSubOn:"💬 字幕开",
-    btnCam:"📷 摄像头", btnCamOn:"📷 摄像头开",
-    copyBtn:"📋 复制链接", copyDone:"✅ 已复制",
-    localVid:"我的画面", remoteVid:"对方画面",
-    ready:"选择语言，创建通话",
-    waiting:"等待对方进入...", connecting:"正在连接...",
-    p2pOk:"P2P已连接，翻译启动中...",
-    active:"🟢 通话中（翻译就绪）",
-    ended:"通话已结束", full:"房间已满（最多2人）", left:"对方已挂断",
-    qualityGood:"网络良好", qualityWarn:"网络延迟较高", qualityBad:"网络不稳定，建议换网络",
-    srLang:"zh-CN",
-  },
-  en: {
-    tagline:"Real-time translation · No VPN · 70+ languages",
-    labelMe:"I speak", labelThem:"Caller speaks", labelRoom:"Room",
-    labelBoxThem:"🔊 Caller words → Translation", labelBoxMe:"🎤 My words",
-    phThem:"Translation appears here when caller speaks...", phMe:"Your words appear here...",
-    btnStart:"Start call", btnHangup:"Hang up",
-    btnMic:"🎤 Mic on", btnMicOff:"🔇 Muted",
-    btnSub:"💬 Subtitles", btnSubOn:"💬 Subtitles on",
-    btnCam:"📷 Camera", btnCamOn:"📷 Camera on",
-    copyBtn:"📋 Copy link", copyDone:"✅ Copied",
-    localVid:"My camera", remoteVid:"Caller camera",
-    ready:"Choose language and start call",
-    waiting:"Waiting for caller...", connecting:"Connecting...",
-    p2pOk:"P2P connected, starting translation...",
-    active:"🟢 In call (translation ready)",
-    ended:"Call ended", full:"Room full (max 2)", left:"Caller hung up",
-    qualityGood:"Network good", qualityWarn:"High latency", qualityBad:"Unstable network, try switching",
-    srLang:"en-US",
-  },
-  ja: {
-    tagline:"リアルタイム翻訳通話 · VPN不要 · 70+言語",
-    labelMe:"自分の言語", labelThem:"相手の言語", labelRoom:"ルーム",
-    labelBoxThem:"🔊 相手の言葉 → 翻訳", labelBoxMe:"🎤 自分の言葉",
-    phThem:"相手が話すと翻訳がここに...", phMe:"話すと原文がここに...",
-    btnStart:"通話開始", btnHangup:"切る",
-    btnMic:"🎤 マイク", btnMicOff:"🔇 ミュート",
-    btnSub:"💬 字幕", btnSubOn:"💬 字幕オン",
-    btnCam:"📷 カメラ", btnCamOn:"📷 カメラオン",
-    copyBtn:"📋 リンクコピー", copyDone:"✅ コピー済み",
-    localVid:"自分の映像", remoteVid:"相手の映像",
-    ready:"言語を選んで開始",
-    waiting:"相手を待っています...", connecting:"接続中...",
-    p2pOk:"P2P接続完了、翻訳起動中...",
-    active:"🟢 通話中（翻訳準備完了）",
-    ended:"通話終了", full:"満員です", left:"相手が切りました",
-    qualityGood:"ネットワーク良好", qualityWarn:"遅延あり", qualityBad:"不安定、ネットワーク切替を",
-    srLang:"ja-JP",
-  },
-  ko: {
-    tagline:"실시간 번역 통화 · VPN 불필요 · 70+개 언어",
-    labelMe:"내 언어", labelThem:"상대방 언어", labelRoom:"방",
-    labelBoxThem:"🔊 상대방 말 → 번역", labelBoxMe:"🎤 내 말",
-    phThem:"상대방 말의 번역이 여기에...", phMe:"내 말 원문이 여기에...",
-    btnStart:"통화 시작", btnHangup:"끊기",
-    btnMic:"🎤 마이크", btnMicOff:"🔇 음소거",
-    btnSub:"💬 자막", btnSubOn:"💬 자막 켜짐",
-    btnCam:"📷 카메라", btnCamOn:"📷 카메라 켜짐",
-    copyBtn:"📋 링크 복사", copyDone:"✅ 복사됨",
-    localVid:"내 화면", remoteVid:"상대방 화면",
-    ready:"언어 선택 후 통화 시작",
-    waiting:"상대방 기다리는 중...", connecting:"연결 중...",
-    p2pOk:"P2P 연결됨, 번역 시작 중...",
-    active:"🟢 통화 중 (번역 준비됨)",
-    ended:"통화 종료", full:"방이 꽉 찼습니다", left:"상대방이 끊었습니다",
-    qualityGood:"네트워크 양호", qualityWarn:"지연 높음", qualityBad:"불안정, 네트워크 변경 권장",
-    srLang:"ko-KR",
-  },
-  es: {
-    tagline:"Llamada con traducción en tiempo real · Sin VPN · 70+ idiomas",
-    labelMe:"Hablo", labelThem:"La otra parte habla", labelRoom:"Sala",
-    labelBoxThem:"🔊 Palabras del otro → Traducción", labelBoxMe:"🎤 Mis palabras",
-    phThem:"La traducción aparece aquí...", phMe:"Tus palabras aparecen aquí...",
-    btnStart:"Iniciar llamada", btnHangup:"Colgar",
-    btnMic:"🎤 Micrófono", btnMicOff:"🔇 Silenciado",
-    btnSub:"💬 Subtítulos", btnSubOn:"💬 Subtítulos on",
-    btnCam:"📷 Cámara", btnCamOn:"📷 Cámara on",
-    copyBtn:"📋 Copiar enlace", copyDone:"✅ Copiado",
-    localVid:"Mi cámara", remoteVid:"Cámara del otro",
-    ready:"Elige idioma e inicia",
-    waiting:"Esperando al otro...", connecting:"Conectando...",
-    p2pOk:"P2P conectado, iniciando traducción...",
-    active:"🟢 En llamada (traducción lista)",
-    ended:"Llamada terminada", full:"Sala llena", left:"El otro colgó",
-    qualityGood:"Red buena", qualityWarn:"Latencia alta", qualityBad:"Red inestable",
-    srLang:"es-ES",
-  },
-  fr: {
-    tagline:"Appel avec traduction en temps réel · Sans VPN · 70+ langues",
-    labelMe:"Je parle", labelThem:"L'autre parle", labelRoom:"Salle",
-    labelBoxThem:"🔊 Mots de l'autre → Traduction", labelBoxMe:"🎤 Mes mots",
-    phThem:"La traduction s'affiche ici...", phMe:"Vos mots s'affichent ici...",
-    btnStart:"Démarrer l'appel", btnHangup:"Raccrocher",
-    btnMic:"🎤 Micro", btnMicOff:"🔇 Muet",
-    btnSub:"💬 Sous-titres", btnSubOn:"💬 Sous-titres on",
-    btnCam:"📷 Caméra", btnCamOn:"📷 Caméra on",
-    copyBtn:"📋 Copier le lien", copyDone:"✅ Copié",
-    localVid:"Ma caméra", remoteVid:"Caméra de l'autre",
-    ready:"Choisissez la langue",
-    waiting:"En attente...", connecting:"Connexion...",
-    p2pOk:"P2P connecté, traduction en cours...",
-    active:"🟢 En appel (traduction prête)",
-    ended:"Appel terminé", full:"Salle pleine", left:"L'autre a raccroché",
-    qualityGood:"Réseau bon", qualityWarn:"Latence élevée", qualityBad:"Réseau instable",
-    srLang:"fr-FR",
-  },
-  de: {
-    tagline:"Echtzeit-Übersetzungsanruf · Kein VPN · 70+ Sprachen",
-    labelMe:"Ich spreche", labelThem:"Andere spricht", labelRoom:"Raum",
-    labelBoxThem:"🔊 Wörter des anderen → Übersetzung", labelBoxMe:"🎤 Meine Wörter",
-    phThem:"Übersetzung erscheint hier...", phMe:"Meine Wörter erscheinen hier...",
-    btnStart:"Anruf starten", btnHangup:"Auflegen",
-    btnMic:"🎤 Mikrofon", btnMicOff:"🔇 Stumm",
-    btnSub:"💬 Untertitel", btnSubOn:"💬 Untertitel an",
-    btnCam:"📷 Kamera", btnCamOn:"📷 Kamera an",
-    copyBtn:"📋 Link kopieren", copyDone:"✅ Kopiert",
-    localVid:"Meine Kamera", remoteVid:"Kamera des anderen",
-    ready:"Sprache wählen und starten",
-    waiting:"Warte auf andere Person...", connecting:"Verbinde...",
-    p2pOk:"P2P verbunden, Übersetzung startet...",
-    active:"🟢 Im Gespräch (Übersetzung bereit)",
-    ended:"Anruf beendet", full:"Raum voll", left:"Andere hat aufgelegt",
-    qualityGood:"Netzwerk gut", qualityWarn:"Hohe Latenz", qualityBad:"Instabiles Netzwerk",
-    srLang:"de-DE",
-  },
-  ar: {
-    tagline:"مكالمة ترجمة فورية · بدون VPN · 70+ لغة",
-    labelMe:"أتحدث", labelThem:"المتصل يتحدث", labelRoom:"الغرفة",
-    labelBoxThem:"🔊 كلمات المتصل → الترجمة", labelBoxMe:"🎤 كلماتي",
-    phThem:"تظهر الترجمة هنا...", phMe:"تظهر كلماتك هنا...",
-    btnStart:"بدء المكالمة", btnHangup:"إنهاء",
-    btnMic:"🎤 الميكروفون", btnMicOff:"🔇 كتم",
-    btnSub:"💬 ترجمة نصية", btnSubOn:"💬 ترجمة نصية on",
-    btnCam:"📷 الكاميرا", btnCamOn:"📷 الكاميرا شغالة",
-    copyBtn:"📋 نسخ الرابط", copyDone:"✅ تم النسخ",
-    localVid:"كاميرتي", remoteVid:"كاميرا المتصل",
-    ready:"اختر اللغة وابدأ",
-    waiting:"في انتظار المتصل...", connecting:"جارٍ الاتصال...",
-    p2pOk:"P2P متصل، بدء الترجمة...",
-    active:"🟢 في مكالمة (الترجمة جاهزة)",
-    ended:"انتهت المكالمة", full:"الغرفة ممتلئة", left:"أغلق المتصل الخط",
-    qualityGood:"الشبكة جيدة", qualityWarn:"تأخير عالٍ", qualityBad:"شبكة غير مستقرة",
-    srLang:"ar-SA",
-  },
+const UI={
+zh:{tagline:"实时翻译通话 · 无需VPN · 支持70+语言",labelMe:"我说",labelThem:"对方说",labelRoom:"房间",labelBoxThem:"🔊 对方说 → 我听到的翻译",labelBoxMe:"🎤 我说的话",phThem:"对方说话时，翻译显示在这里...",phMe:"我说话时，原文显示在这里...",btnStart:"开始通话",btnHangup:"挂断",btnMic:"🎤 麦克风",btnMicOff:"🔇 已静音",btnSub:"💬 字幕",btnSubOn:"💬 字幕开",btnCam:"📷 摄像头",btnCamOn:"📷 摄像头开",btnReconn:"🔄 重连",copyBtn:"📋 复制链接",copyDone:"✅ 已复制",localVid:"我的画面",remoteVid:"对方画面",ready:"选择语言，创建通话",waiting:"等待对方进入...",connecting:"正在连接...",p2pOk:"P2P连接成功，等待双方就绪...",bothReady:"🟢 双方已就绪，翻译启动中...",active:"🟢 通话中（翻译就绪）",ended:"通话已结束",peerHangup:"对方已挂断",full:"房间已满（最多2人）",bgTimeout:"后台超时，通话已结束",timerLabel:"通话时长",warnTime:"即将达到30分钟上限",qualityGood:"网络良好",qualityWarn:"网络延迟较高",qualityBad:"网络不稳定",srLang:"zh-CN"},
+en:{tagline:"Real-time translation · No VPN · 70+ languages",labelMe:"I speak",labelThem:"Caller speaks",labelRoom:"Room",labelBoxThem:"🔊 Caller words → Translation",labelBoxMe:"🎤 My words",phThem:"Translation appears here when caller speaks...",phMe:"Your words appear here when you speak...",btnStart:"Start call",btnHangup:"Hang up",btnMic:"🎤 Mic on",btnMicOff:"🔇 Muted",btnSub:"💬 Subtitles",btnSubOn:"💬 Subtitles on",btnCam:"📷 Camera",btnCamOn:"📷 Camera on",btnReconn:"🔄 Reconnect",copyBtn:"📋 Copy link",copyDone:"✅ Copied",localVid:"My camera",remoteVid:"Caller camera",ready:"Choose language and start call",waiting:"Waiting for caller...",connecting:"Connecting...",p2pOk:"P2P connected, waiting for both...",bothReady:"🟢 Both ready, starting translation...",active:"🟢 In call (translation ready)",ended:"Call ended",peerHangup:"Caller hung up",full:"Room full (max 2)",bgTimeout:"Background timeout, call ended",timerLabel:"Call duration",warnTime:"Approaching 30 min limit",qualityGood:"Network good",qualityWarn:"High latency",qualityBad:"Unstable network",srLang:"en-US"},
+ja:{tagline:"リアルタイム翻訳通話 · VPN不要",labelMe:"自分の言語",labelThem:"相手の言語",labelRoom:"ルーム",labelBoxThem:"🔊 相手の言葉 → 翻訳",labelBoxMe:"🎤 自分の言葉",phThem:"翻訳がここに...",phMe:"原文がここに...",btnStart:"通話開始",btnHangup:"切る",btnMic:"🎤 マイク",btnMicOff:"🔇 ミュート",btnSub:"💬 字幕",btnSubOn:"💬 字幕オン",btnCam:"📷 カメラ",btnCamOn:"📷 カメラオン",btnReconn:"🔄 再接続",copyBtn:"📋 リンクコピー",copyDone:"✅ コピー済み",localVid:"自分の映像",remoteVid:"相手の映像",ready:"言語を選んで開始",waiting:"相手を待っています...",connecting:"接続中...",p2pOk:"P2P接続完了...",bothReady:"🟢 双方準備完了、翻訳起動中...",active:"🟢 通話中（翻訳準備完了）",ended:"通話終了",peerHangup:"相手が切りました",full:"満員",bgTimeout:"バックグラウンドタイムアウト",timerLabel:"通話時間",warnTime:"30分上限に近づいています",qualityGood:"ネットワーク良好",qualityWarn:"遅延あり",qualityBad:"不安定",srLang:"ja-JP"},
+ko:{tagline:"실시간 번역 통화 · VPN 불필요",labelMe:"내 언어",labelThem:"상대방 언어",labelRoom:"방",labelBoxThem:"🔊 상대방 말 → 번역",labelBoxMe:"🎤 내 말",phThem:"번역이 여기에...",phMe:"원문이 여기에...",btnStart:"통화 시작",btnHangup:"끊기",btnMic:"🎤 마이크",btnMicOff:"🔇 음소거",btnSub:"💬 자막",btnSubOn:"💬 자막 켜짐",btnCam:"📷 카메라",btnCamOn:"📷 카메라 켜짐",btnReconn:"🔄 재연결",copyBtn:"📋 링크 복사",copyDone:"✅ 복사됨",localVid:"내 화면",remoteVid:"상대방 화면",ready:"언어 선택 후 시작",waiting:"상대방 기다리는 중...",connecting:"연결 중...",p2pOk:"P2P 연결됨...",bothReady:"🟢 双방 준비됨, 번역 시작...",active:"🟢 통화 중（번역 준비됨）",ended:"통화 종료",peerHangup:"상대방이 끊었습니다",full:"방이 꽉 찼습니다",bgTimeout:"백그라운드 타임아웃",timerLabel:"통화 시간",warnTime:"30분 한도에 근접",qualityGood:"네트워크 양호",qualityWarn:"지연 높음",qualityBad:"불안정",srLang:"ko-KR"},
+es:{tagline:"Llamada con traducción · Sin VPN",labelMe:"Hablo",labelThem:"La otra parte habla",labelRoom:"Sala",labelBoxThem:"🔊 Palabras del otro → Traducción",labelBoxMe:"🎤 Mis palabras",phThem:"La traducción aparece aquí...",phMe:"Tus palabras aparecen aquí...",btnStart:"Iniciar llamada",btnHangup:"Colgar",btnMic:"🎤 Micrófono",btnMicOff:"🔇 Silenciado",btnSub:"💬 Subtítulos",btnSubOn:"💬 Subtítulos on",btnCam:"📷 Cámara",btnCamOn:"📷 Cámara on",btnReconn:"🔄 Reconectar",copyBtn:"📋 Copiar enlace",copyDone:"✅ Copiado",localVid:"Mi cámara",remoteVid:"Cámara del otro",ready:"Elige idioma e inicia",waiting:"Esperando...",connecting:"Conectando...",p2pOk:"P2P conectado...",bothReady:"🟢 Ambos listos, iniciando traducción...",active:"🟢 En llamada (traducción lista)",ended:"Llamada terminada",peerHangup:"El otro colgó",full:"Sala llena",bgTimeout:"Tiempo de espera en segundo plano",timerLabel:"Duración",warnTime:"Cerca del límite de 30 min",qualityGood:"Red buena",qualityWarn:"Latencia alta",qualityBad:"Red inestable",srLang:"es-ES"},
+fr:{tagline:"Appel avec traduction · Sans VPN",labelMe:"Je parle",labelThem:"L'autre parle",labelRoom:"Salle",labelBoxThem:"🔊 Mots de l'autre → Traduction",labelBoxMe:"🎤 Mes mots",phThem:"La traduction s'affiche ici...",phMe:"Vos mots s'affichent ici...",btnStart:"Démarrer l'appel",btnHangup:"Raccrocher",btnMic:"🎤 Micro",btnMicOff:"🔇 Muet",btnSub:"💬 Sous-titres",btnSubOn:"💬 Sous-titres on",btnCam:"📷 Caméra",btnCamOn:"📷 Caméra on",btnReconn:"🔄 Reconnecter",copyBtn:"📋 Copier le lien",copyDone:"✅ Copié",localVid:"Ma caméra",remoteVid:"Caméra de l'autre",ready:"Choisissez la langue",waiting:"En attente...",connecting:"Connexion...",p2pOk:"P2P connecté...",bothReady:"🟢 Les deux prêts, traduction en cours...",active:"🟢 En appel (traduction prête)",ended:"Appel terminé",peerHangup:"L'autre a raccroché",full:"Salle pleine",bgTimeout:"Délai d'attente en arrière-plan",timerLabel:"Durée",warnTime:"Proche de la limite 30 min",qualityGood:"Réseau bon",qualityWarn:"Latence élevée",qualityBad:"Réseau instable",srLang:"fr-FR"},
+de:{tagline:"Echtzeit-Übersetzungsanruf · Kein VPN",labelMe:"Ich spreche",labelThem:"Andere spricht",labelRoom:"Raum",labelBoxThem:"🔊 Wörter des anderen → Übersetzung",labelBoxMe:"🎤 Meine Wörter",phThem:"Übersetzung erscheint hier...",phMe:"Meine Wörter erscheinen hier...",btnStart:"Anruf starten",btnHangup:"Auflegen",btnMic:"🎤 Mikrofon",btnMicOff:"🔇 Stumm",btnSub:"💬 Untertitel",btnSubOn:"💬 Untertitel an",btnCam:"📷 Kamera",btnCamOn:"📷 Kamera an",btnReconn:"🔄 Neu verbinden",copyBtn:"📋 Link kopieren",copyDone:"✅ Kopiert",localVid:"Meine Kamera",remoteVid:"Kamera des anderen",ready:"Sprache wählen und starten",waiting:"Warte...",connecting:"Verbinde...",p2pOk:"P2P verbunden...",bothReady:"🟢 Beide bereit, Übersetzung startet...",active:"🟢 Im Gespräch (Übersetzung bereit)",ended:"Anruf beendet",peerHangup:"Andere hat aufgelegt",full:"Raum voll",bgTimeout:"Hintergrund-Timeout",timerLabel:"Dauer",warnTime:"Nahe der 30-Min-Grenze",qualityGood:"Netzwerk gut",qualityWarn:"Hohe Latenz",qualityBad:"Instabil",srLang:"de-DE"},
+ar:{tagline:"مكالمة ترجمة فورية · بدون VPN",labelMe:"أتحدث",labelThem:"المتصل يتحدث",labelRoom:"الغرفة",labelBoxThem:"🔊 كلمات المتصل → الترجمة",labelBoxMe:"🎤 كلماتي",phThem:"تظهر الترجمة هنا...",phMe:"تظهر كلماتك هنا...",btnStart:"بدء المكالمة",btnHangup:"إنهاء",btnMic:"🎤 الميكروفون",btnMicOff:"🔇 كتم",btnSub:"💬 ترجمة نصية",btnSubOn:"💬 ترجمة نصية on",btnCam:"📷 الكاميرا",btnCamOn:"📷 الكاميرا شغالة",btnReconn:"🔄 إعادة الاتصال",copyBtn:"📋 نسخ الرابط",copyDone:"✅ تم النسخ",localVid:"كاميرتي",remoteVid:"كاميرا المتصل",ready:"اختر اللغة وابدأ",waiting:"في انتظار المتصل...",connecting:"جارٍ الاتصال...",p2pOk:"P2P متصل...",bothReady:"🟢 الطرفان جاهزان، بدء الترجمة...",active:"🟢 في مكالمة (الترجمة جاهزة)",ended:"انتهت المكالمة",peerHangup:"أغلق المتصل الخط",full:"الغرفة ممتلئة",bgTimeout:"انتهت مهلة الخلفية",timerLabel:"مدة المكالمة",warnTime:"اقتراب حد 30 دقيقة",qualityGood:"الشبكة جيدة",qualityWarn:"تأخير عالٍ",qualityBad:"شبكة غير مستقرة",srLang:"ar-SA"}
 };
 
 // ═══════════════════════════════════════════════════════════
 // 配置
 // ═══════════════════════════════════════════════════════════
-const SUPABASE_URL      = "https://ryqxhagdbycccosuavtp.supabase.co";
-const SUPABASE_ANON     = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
-const SUPABASE_TURN_URL = "https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-turn-credentials";
-const SESSION_URL = "https://glotalk.tech/session";
-const SDP_URL     = "https://glotalk.tech/sdp";
+const GLOTALK="https://glotalk.tech";
+const TOKEN="glotalk2026";
+const SB_URL="https://ryqxhagdbycccosuavtp.supabase.co";
+const SB_ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5cXhoYWdkYnljY2Nvc3VhdnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDM5MTgsImV4cCI6MjA5NTI3OTkxOH0.lj3PdKLsTU_cNEHjLNqyHSszJtGSU6gPORE5Y_9WNjQ";
+const SB_TURN="https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-turn-credentials";
+const BG_TIMEOUT=2*60*1000; // 后台2分钟自动挂断
 
-// 房间号：URL参数优先，否则随机生成6位
-const urlRoom = new URLSearchParams(location.search).get("room");
-const ROOM_ID = urlRoom || Math.random().toString(36).slice(2,8).toUpperCase();
-const ROOM    = "glt-" + ROOM_ID;
-const myId    = "u" + Math.random().toString(36).slice(2,8);
-const myTs    = Date.now();
-
-// 房间有效期30分钟（仅新建的房间，非链接加入）
-const ROOM_CREATED_AT = urlRoom ? null : Date.now();
-const ROOM_EXPIRE_MS  = 30 * 60 * 1000;
+const urlRoom=new URLSearchParams(location.search).get("room");
+const ROOM_ID=urlRoom||Math.random().toString(36).slice(2,8).toUpperCase();
+const ROOM="glt4-"+ROOM_ID;
+const myId="u"+Math.random().toString(36).slice(2,8);
+const myTs=Date.now();
 
 // ═══════════════════════════════════════════════════════════
 // 状态
 // ═══════════════════════════════════════════════════════════
-let rtcConfig = { iceServers:[{urls:"stun:stun.l.google.com:19302"}], iceTransportPolicy:"all" };
-let p2pPc = null, dc = null, sb = null, ch = null;
-let localStream = null, pendingIce = [], usedRelay = false, relayTimer = null;
-
-// 双session：各自独立
-// myTransPc:    我的麦克风 → 翻译成对方语言 → 翻译音频发给对方（通过P2P DataChannel）
-// theirTransPc: 对方声音   → 翻译成我的语言 → audioThem播放
-let myTransPc    = null;
-let theirTransPc = null;
-
-let muted = false, videoOn = false, subtitleOn = false, callActive = false;
-let speechRecognition = null;
-let pingStart = 0, lastPing = 0;
-let t = UI.zh;
-
-const $ = id => document.getElementById(id);
+let rtcCfg={iceServers:[{urls:"stun:stun.l.google.com:19302"}],iceTransportPolicy:"all"};
+let p2pPc=null,dc=null,sb=null,ch=null;
+let localStream=null,pendingIce=[],usedRelay=false,relayTimer=null;
+let theirTransPc=null,myTransPc=null;
+let theirAudioStream=null; // 保存对方音频，等双方就绪再启动翻译
+let muted=false,videoOn=false,subtitleOn=false,callActive=false;
+let iAmReady=false,peerReady=false,translationStarted=false;
+let speechRec=null,pingStart=0;
+let callStartTime=null,timerIv=null,bgTimer=null;
+let mySessionId=null,theirSessionId=null;
+let t=UI.zh;
+const $=id=>document.getElementById(id);
 
 // ═══════════════════════════════════════════════════════════
-// 初始化房间显示
+// 房间
 // ═══════════════════════════════════════════════════════════
-function initRoom() {
-  $("roomDisplay").textContent = ROOM_ID;
-  const link = location.origin + location.pathname + "?room=" + ROOM_ID;
-  $("shareLink").textContent = link;
-  // 如果是从链接进入，更新URL显示（不刷新页面）
-  if (!urlRoom) {
-    history.replaceState(null, "", "?room=" + ROOM_ID);
-  }
+function initRoom(){
+  $("roomDisplay").textContent=ROOM_ID;
+  const link=location.origin+location.pathname+"?room="+ROOM_ID;
+  $("shareLink").textContent=link;
+  if(!urlRoom)history.replaceState(null,"","?room="+ROOM_ID);
+}
+function copyLink(){
+  const link=location.origin+location.pathname+"?room="+ROOM_ID;
+  const fb=v=>{const e=Object.assign(document.createElement("textarea"),{value:v,style:"position:fixed;opacity:0"});document.body.appendChild(e);e.select();document.execCommand("copy");document.body.removeChild(e);};
+  (navigator.clipboard?.writeText(link)||Promise.reject()).catch(()=>fb(link)).then?.(()=>{})&&fb(link)||true;
+  try{navigator.clipboard.writeText(link);}catch{fb(link);}
+  $("copyBtn").textContent=t.copyDone;
+  setTimeout(()=>$("copyBtn").textContent=t.copyBtn,2000);
 }
 
-function copyLink() {
-  const link = location.origin + location.pathname + "?room=" + ROOM_ID;
-  navigator.clipboard?.writeText(link).then(() => {
-    $("copyBtn").textContent = t.copyDone;
-    setTimeout(() => { $("copyBtn").textContent = t.copyBtn; }, 2000);
-  }).catch(() => {
-    // fallback
-    const el = document.createElement("textarea");
-    el.value = link; el.style.position = "fixed"; el.style.opacity = "0";
-    document.body.appendChild(el); el.select();
-    document.execCommand("copy");
-    document.body.removeChild(el);
-    $("copyBtn").textContent = t.copyDone;
-    setTimeout(() => { $("copyBtn").textContent = t.copyBtn; }, 2000);
+// ═══════════════════════════════════════════════════════════
+// 界面语言
+// ═══════════════════════════════════════════════════════════
+function onLangChange(){
+  const lang=$("myLang").value;t=UI[lang]||UI.zh;
+  ["tagline","labelMe","labelThem","labelRoom","labelBoxThem","labelBoxMe"].forEach(id=>{
+    const map={tagline:t.tagline,labelMe:t.labelMe,labelThem:t.labelThem,labelRoom:t.labelRoom,labelBoxThem:t.labelBoxThem,labelBoxMe:t.labelBoxMe};
+    $(id).textContent=map[id];
   });
+  $("boxThem").setAttribute("data-ph",t.phThem);
+  $("boxMe").setAttribute("data-ph",t.phMe);
+  $("mainBtn").textContent=callActive?t.btnHangup:t.btnStart;
+  $("muteBtn").textContent=muted?t.btnMicOff:t.btnMic;
+  $("subtitleBtn").textContent=subtitleOn?t.btnSubOn:t.btnSub;
+  $("videoBtn").textContent=videoOn?t.btnCamOn:t.btnCam;
+  $("reconnBtn").textContent=t.btnReconn;
+  $("copyBtn").textContent=t.copyBtn;
+  $("labelLocalVideo").textContent=t.localVid;
+  $("labelRemoteVideo").textContent=t.remoteVid;
+  $("timerLabel").textContent=t.timerLabel;
+  if(!callActive)setStatus(t.ready,"");
 }
 
 // ═══════════════════════════════════════════════════════════
-// 界面语言切换
+// UI工具
 // ═══════════════════════════════════════════════════════════
-function onLangChange() {
-  const lang = $("myLang").value;
-  t = UI[lang] || UI.zh;
-  $("tagline").textContent          = t.tagline;
-  $("labelMe").textContent          = t.labelMe;
-  $("labelThem").textContent        = t.labelThem;
-  $("labelRoom").textContent        = t.labelRoom;
-  $("labelBoxThem").textContent     = t.labelBoxThem;
-  $("labelBoxMe").textContent       = t.labelBoxMe;
-  $("boxThem").setAttribute("data-ph", t.phThem);
-  $("boxMe").setAttribute("data-ph",   t.phMe);
-  $("mainBtn").textContent          = callActive ? t.btnHangup : t.btnStart;
-  $("muteBtn").textContent          = muted     ? t.btnMicOff : t.btnMic;
-  $("subtitleBtn").textContent      = subtitleOn ? t.btnSubOn  : t.btnSub;
-  $("videoBtn").textContent         = videoOn   ? t.btnCamOn  : t.btnCam;
-  $("hangupBtn").textContent        = "📵 " + t.btnHangup;
-  $("copyBtn").textContent          = t.copyBtn;
-  $("labelLocalVideo").textContent  = t.localVid;
-  $("labelRemoteVideo").textContent = t.remoteVid;
-  if (!callActive) setStatus(t.ready, "");
+function setStatus(msg,color){$("statusText").textContent=msg;$("dot").className="dot"+(color?" "+color:"");log(msg);}
+function log(msg){const b=$("logBox");b.value+=new Date().toLocaleTimeString()+" "+msg+"\n";b.scrollTop=b.scrollHeight;}
+function toggleLog(){const w=$("logWrap");w.className=w.className.includes("visible")?"log-wrap":"log-wrap visible";}
+function appendBox(el,text){if(!text||!subtitleOn)return;el.textContent+=text;el.scrollTop=el.scrollHeight;}
+function newlineBox(el){if(!subtitleOn)return;if(el.textContent)el.textContent+="\n";el.scrollTop=el.scrollHeight;}
+function updateQuality(ms){
+  $("qualityBar").style.display="flex";
+  const d=$("qdot"),x=$("qualityText");
+  if(ms<150){d.className="qdot g";x.textContent=t.qualityGood+" ("+ms+"ms)";}
+  else if(ms<300){d.className="qdot y";x.textContent=t.qualityWarn+" ("+ms+"ms)";}
+  else{d.className="qdot r";x.textContent=t.qualityBad+" ("+ms+"ms)";}
 }
 
 // ═══════════════════════════════════════════════════════════
-// UI
+// 计时器（仅在翻译启动后才开始）
 // ═══════════════════════════════════════════════════════════
-function setStatus(msg, color) {
-  $("statusText").textContent = msg;
-  $("dot").className = "dot" + (color ? " "+color : "");
-  log(msg);
+function startTimer(){
+  callStartTime=Date.now();$("timerBar").style.display="flex";
+  timerIv=setInterval(()=>{
+    const s=Math.floor((Date.now()-callStartTime)/1000);
+    const m=Math.floor(s/60),ss=(s%60).toString().padStart(2,"0");
+    $("timerVal").textContent=m+":"+ss;
+    $("timerCost").textContent="≈ $"+(s/60*0.068).toFixed(3);
+    if(m>=25){$("timerVal").className="timer-val timer-warn";if(s%60===0)setStatus("⚠️ "+t.warnTime,"yellow");}
+    if(m>=30){log("⏰ 30分钟上限，自动挂断");hangup();}
+  },1000);
 }
-
-function log(msg) {
-  const box = $("logBox");
-  const line = new Date().toLocaleTimeString() + " " + msg + "\n";
-  box.value += line;
-  box.scrollTop = box.scrollHeight;
-}
-
-function toggleLog() {
-  const w = $("logWrap");
-  w.className = w.className.includes("visible") ? "log-wrap" : "log-wrap visible";
-}
-
-function appendBox(el, text) {
-  if (!text || !subtitleOn) return;
-  el.textContent += text;
-  el.scrollTop = el.scrollHeight;
-}
-function newlineBox(el) {
-  if (!subtitleOn) return;
-  if (el.textContent) el.textContent += "\n";
-  el.scrollTop = el.scrollHeight;
-}
-
-// 网络质量
-function updateQuality(ms) {
-  lastPing = ms;
-  $("qualityBar").style.display = "flex";
-  const dot = $("qualityDot");
-  const txt = $("qualityText");
-  if (ms < 150) {
-    dot.className = "quality-dot g";
-    txt.textContent = t.qualityGood + " (" + ms + "ms)";
-  } else if (ms < 300) {
-    dot.className = "quality-dot y";
-    txt.textContent = t.qualityWarn + " (" + ms + "ms)";
-  } else {
-    dot.className = "quality-dot r";
-    txt.textContent = t.qualityBad + " (" + ms + "ms)";
-  }
-}
+function stopTimer(){clearInterval(timerIv);$("timerBar").style.display="none";}
 
 // ═══════════════════════════════════════════════════════════
 // TURN
 // ═══════════════════════════════════════════════════════════
-async function initTurn() {
-  try {
-    const r = await fetch(SUPABASE_TURN_URL, {
-      method:"POST",
-      headers:{"Authorization":`Bearer ${SUPABASE_ANON}`,"apikey":SUPABASE_ANON,"Content-Type":"application/json"}
-    });
-    const d = await r.json();
-    let servers = d.iceServers;
-    if (servers && !Array.isArray(servers)) servers = [servers];
-    if (servers?.length) {
-      const u = servers[0].username || d.username;
-      const c = servers[0].credential || d.credential;
-      const extra = (u&&c) ? [
+async function initTurn(){
+  try{
+    const r=await fetch(SB_TURN,{method:"POST",headers:{"Authorization":"Bearer "+SB_ANON,"apikey":SB_ANON,"Content-Type":"application/json"}});
+    const d=await r.json();let sv=d.iceServers;
+    if(sv&&!Array.isArray(sv))sv=[sv];
+    if(sv?.length){
+      const u=sv[0].username||d.username,c=sv[0].credential||d.credential;
+      const ex=(u&&c)?[
         {urls:"turns:turn.cloudflare.com:5349?transport=tcp",username:u,credential:c},
-        {urls:"turn:turn.cloudflare.com:3478?transport=tcp", username:u,credential:c},
-        {urls:"turn:turn.cloudflare.com:3478?transport=udp", username:u,credential:c},
-      ] : [];
-      rtcConfig = {
-        iceServers:[{urls:"stun:stun.l.google.com:19302"},...extra,...servers],
-        iceTransportPolicy:"all"
-      };
-      log("✅ TURN " + rtcConfig.iceServers.length + "个服务器");
+        {urls:"turn:turn.cloudflare.com:3478?transport=tcp",username:u,credential:c},
+        {urls:"turn:turn.cloudflare.com:3478?transport=udp",username:u,credential:c}
+      ]:[];
+      rtcCfg={iceServers:[{urls:"stun:stun.l.google.com:19302"},...ex,...sv],iceTransportPolicy:"all"};
+      log("✅ TURN "+rtcCfg.iceServers.length+"个服务器");
     }
-  } catch(e) { log("⚠️ TURN: " + e.message); }
+  }catch(e){log("⚠️ TURN: "+e.message);}
 }
 
 // ═══════════════════════════════════════════════════════════
-// 本地ASR（Web Speech API）
-// 用途：识别我说的话 → 下框原文（不走OpenAI，完全免费）
+// 本地ASR（免费，不走OpenAI）
 // ═══════════════════════════════════════════════════════════
-function startASR() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { log("⚠️ 此浏览器不支持本地语音识别"); return; }
-  const sr = new SR();
-  sr.lang = t.srLang;
-  sr.continuous = true;
-  sr.interimResults = true;
-  sr.onresult = e => {
-    if (!subtitleOn) return;
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (e.results[i].isFinal) {
-        $("boxMe").textContent += e.results[i][0].transcript + "\n";
-        $("boxMe").scrollTop = $("boxMe").scrollHeight;
-      }
+function startASR(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR)return;
+  const sr=new SR();
+  sr.lang=t.srLang;sr.continuous=true;sr.interimResults=true;
+  sr.onresult=e=>{
+    if(!subtitleOn)return;
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      if(e.results[i].isFinal){$("boxMe").textContent+=e.results[i][0].transcript+"\n";$("boxMe").scrollTop=$("boxMe").scrollHeight;}
     }
   };
-  sr.onerror = e => { if (e.error !== "no-speech") log("ASR: " + e.error); };
-  sr.onend   = () => { if (callActive && !muted) { try { sr.start(); } catch {} } };
-  try { sr.start(); log("✅ 本地ASR启动（" + t.srLang + "）"); }
-  catch(e) { log("ASR启动失败: " + e.message); }
-  speechRecognition = sr;
+  sr.onerror=e=>{if(e.error!=="no-speech")log("ASR: "+e.error);};
+  sr.onend=()=>{if(callActive&&!muted&&translationStarted){try{sr.start();}catch{}}};
+  try{sr.start();log("✅ ASR启动（"+t.srLang+"）");}catch(e){log("ASR: "+e.message);}
+  speechRec=sr;
 }
+function stopASR(){if(speechRec){try{speechRec.stop();}catch{}speechRec=null;}}
 
-function stopASR() {
-  if (speechRecognition) { try { speechRecognition.stop(); } catch {} speechRecognition = null; }
+// ═══════════════════════════════════════════════════════════
+// 关闭session（正确止血）
+// 步骤：DataChannel发session.close → 等session.closed（最多2秒）→ 关闭PC → 通知服务器
+// ═══════════════════════════════════════════════════════════
+async function closeSession(tPc,sessionId){
+  if(!tPc)return;
+  // 找DataChannel
+  const channels=tPc.getDataChannels?.()??[];
+  // 尝试通过已知dc发送
+  try{
+    // 对于翻译session，dc在tPc内部
+    if(tPc._dc&&tPc._dc.readyState==="open"){
+      tPc._dc.send(JSON.stringify({type:"session.close"}));
+      await new Promise(res=>{
+        const h=e=>{try{const ev=JSON.parse(e.data);if(ev.type==="session.closed"){tPc._dc.removeEventListener("message",h);res();}}catch{}};
+        tPc._dc.addEventListener("message",h);
+        setTimeout(res,2000);
+      });
+    }
+  }catch{}
+  try{tPc.close();}catch{}
+  // 通知服务器
+  if(sessionId){
+    try{await fetch(GLOTALK+"/session/close",{method:"POST",headers:{"Content-Type":"application/json","X-GloTalk-Token":TOKEN},body:JSON.stringify({session_id:sessionId}),keepalive:true});}
+    catch{}
+  }
+  log("📵 Session关闭: "+(sessionId||"unknown"));
 }
 
 // ═══════════════════════════════════════════════════════════
-// 建立翻译session（通用）
-// inputStream: 要翻译的音频流
-// outputLang:  翻译目标语言
-// onDelta/onDone: 字幕回调
-// audioEl: 翻译后声音播放元素（null=不播放）
+// 建立翻译session
+// 参考：OpenAI官方文档 realtime-translation guide
+// 双人通话模式：每个方向一个session
 // ═══════════════════════════════════════════════════════════
-async function buildSession(inputStream, outputLang, onDelta, onDone, audioEl) {
-  const ctx    = new (window.AudioContext || window.webkitAudioContext)();
-  const silent = ctx.createMediaStreamDestination().stream;
+async function buildSession(inputStream,outputLang,onDelta,onDone,audioEl){
+  // 1. 从服务器获取client_secret（有防护）
+  const sr=await fetch(GLOTALK+"/session",{
+    method:"POST",
+    headers:{"Content-Type":"application/json","X-GloTalk-Token":TOKEN},
+    body:JSON.stringify({outputLanguage:outputLang})
+  });
+  const sd=await sr.json();
+  if(!sr.ok)throw new Error("Session "+sr.status+": "+(sd.error||""));
+  const{client_secret,session_id}=sd;
+  if(!client_secret)throw new Error("no client_secret");
+  log("✅ Session: "+session_id+" →"+outputLang);
 
-  const tPc = new RTCPeerConnection({
+  // 2. 建立WebRTC连接
+  const ctx=new(window.AudioContext||window.webkitAudioContext)();
+  const silent=ctx.createMediaStreamDestination().stream;
+  const tPc=new RTCPeerConnection({
     iceServers:[{urls:"stun:stun.l.google.com:19302"},{urls:"stun:stun1.l.google.com:19302"}],
-    iceCandidatePoolSize:10,
+    iceCandidatePoolSize:10
   });
 
-  if (audioEl) {
-    tPc.ontrack = e => {
-      audioEl.srcObject = e.streams[0];
-      audioEl.volume = 1.0;
+  // 翻译音频输出
+  if(audioEl){
+    tPc.ontrack=e=>{
+      audioEl.srcObject=e.streams[0];
+      audioEl.volume=1.0;
       audioEl.play().catch(()=>{});
-      log("✅ 翻译音频流已连接");
+      log("✅ 翻译音频已连接 →"+outputLang);
     };
   }
 
-  const tDc = tPc.createDataChannel("oai-events");
-  tDc.onmessage = e => {
-    try {
-      const ev = JSON.parse(e.data);
-      if (ev.type==="session.output_transcript.delta"||ev.type==="response.audio_transcript.delta") {
-        onDelta && onDelta(ev.delta||ev.text||"");
-      }
-      if (ev.type==="session.output_transcript.done"||ev.type==="response.audio_transcript.done") {
-        onDone && onDone();
-      }
-      if (ev.type==="error") log("翻译错误: " + (ev.error?.message||""));
-    } catch {}
+  // DataChannel：字幕
+  const tDc=tPc.createDataChannel("oai-events");
+  tPc._dc=tDc; // 保存引用，用于关闭
+  tDc.onmessage=e=>{
+    try{
+      const ev=JSON.parse(e.data);
+      if(ev.type==="session.output_transcript.delta"||ev.type==="response.audio_transcript.delta")
+        onDelta&&onDelta(ev.delta||ev.text||"");
+      if(ev.type==="session.output_transcript.done"||ev.type==="response.audio_transcript.done")
+        onDone&&onDone();
+      if(ev.type==="error")log("翻译错误: "+(ev.error?.message||""));
+    }catch{}
   };
 
-  silent.getTracks().forEach(tk => { tk.enabled=false; tPc.addTrack(tk,silent); });
+  // 3. 静音占位流
+  silent.getTracks().forEach(tk=>{tk.enabled=false;tPc.addTrack(tk,silent);});
 
-  const [secretRes, offer] = await Promise.all([
-    fetch(SESSION_URL, {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({outputLanguage:outputLang})
-    }),
-    tPc.createOffer().then(o => { tPc.setLocalDescription(o); return o; })
-  ]);
+  // 4. 创建offer
+  const offer=await tPc.createOffer();
+  await tPc.setLocalDescription(offer);
 
-  const secretText = await secretRes.text();
-  if (!secretRes.ok) throw new Error("Session " + secretRes.status + ": " + secretText);
-  const {client_secret} = JSON.parse(secretText);
-  if (!client_secret) throw new Error("no client_secret");
-
-  const sdpRes = await fetch(`${SDP_URL}?model=gpt-realtime-translate`, {
+  // 5. SDP握手（通过我们的服务器中继）
+  const sdpRes=await fetch(GLOTALK+"/sdp?model=gpt-realtime-translate",{
     method:"POST",
-    headers:{"Authorization":`Bearer ${client_secret}`,"Content-Type":"application/sdp"},
+    headers:{"Authorization":"Bearer "+client_secret,"Content-Type":"application/sdp","X-GloTalk-Token":TOKEN},
     body:offer.sdp
   });
-  const answerSdp = await sdpRes.text();
-  if (!sdpRes.ok) throw new Error("SDP " + sdpRes.status + ": " + answerSdp);
+  const answerSdp=await sdpRes.text();
+  if(!sdpRes.ok)throw new Error("SDP "+sdpRes.status+": "+answerSdp.slice(0,200));
 
   await tPc.setRemoteDescription({type:"answer",sdp:answerSdp});
 
-  await new Promise((resolve,reject) => {
-    const to = setTimeout(()=>reject(new Error("翻译引擎连接超时")),15000);
-    const check = () => {
-      const s = tPc?.iceConnectionState;
-      if (s==="connected"||s==="completed") { clearTimeout(to); resolve(); }
-      else if (s==="failed") { clearTimeout(to); reject(new Error("翻译ICE失败")); }
+  // 6. 等待ICE连接
+  await new Promise((resolve,reject)=>{
+    const to=setTimeout(()=>reject(new Error("翻译引擎连接超时")),15000);
+    const check=()=>{
+      const s=tPc?.iceConnectionState;
+      if(s==="connected"||s==="completed"){clearTimeout(to);resolve();}
+      else if(s==="failed"){clearTimeout(to);reject(new Error("ICE失败"));}
     };
-    tPc.oniceconnectionstatechange = check;
-    check();
+    tPc.oniceconnectionstatechange=check;check();
   });
 
-  if (inputStream) {
-    const track = inputStream.getAudioTracks()[0];
-    if (track) {
-      const sender = tPc.getSenders().find(s=>s.track?.kind==="audio");
-      if (sender) await sender.replaceTrack(track);
+  // 7. 替换真实音频轨道
+  if(inputStream){
+    const track=inputStream.getAudioTracks()[0];
+    if(track){
+      const sender=tPc.getSenders().find(s=>s.track?.kind==="audio");
+      if(sender)await sender.replaceTrack(track);
     }
   }
 
+  tPc._sessionId=session_id;
+  log("✅ 翻译引擎就绪 →"+outputLang);
   return tPc;
 }
 
 // ═══════════════════════════════════════════════════════════
-// P2P连接
-// 双session架构：
-//   - P2P只传原始音频（作为对方翻译引擎的输入来源）
-//   - 翻译后的声音各自通过自己的翻译session播放
-//   - 不再通过P2P传翻译结果
+// 核心费用控制逻辑
+//
+// 规则1：双方P2P连接成功后，各自发 ready 信号
+//        双方都收到 ready → 同时启动翻译session → 开始计费
+//
+// 规则2：任意一方挂断 → 发 peer_hangup 信号
+//        对方收到 → 立刻关闭所有翻译session → 停止计费
+//
+// 规则3：页面进入后台超过5分钟 → 自动挂断 → 通知对方停止计费
 // ═══════════════════════════════════════════════════════════
-async function createP2P() {
-  try {
-    localStream = await navigator.mediaDevices.getUserMedia({
-      audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true },
+async function startTranslation(){
+  if(translationStarted)return;
+  translationStarted=true;
+  setStatus(t.bothReady,"yellow");
+  log("🚀 双方就绪，同时启动翻译（开始计费）");
+
+  const myLang=$("myLang").value;
+  const theirLang=$("theirLang").value;
+
+  // 并行启动两个翻译session（官方推荐：每个方向一个session）
+  const [r0,r1]=await Promise.allSettled([
+    theirAudioStream
+      ?buildSession(theirAudioStream,myLang,delta=>appendBox($("boxThem"),delta),()=>newlineBox($("boxThem")),$("audioThem"))
+      :Promise.reject(new Error("no their stream")),
+    localStream
+      ?buildSession(localStream,theirLang,delta=>appendBox($("boxMe"),delta),()=>newlineBox($("boxMe")),null)
+      :Promise.reject(new Error("no local stream"))
+  ]);
+
+  if(r0.status==="fulfilled"){
+    theirTransPc=r0.value;
+    theirSessionId=theirTransPc._sessionId;
+    log("✅ 对方翻译session就绪");
+  }else{
+    log("❌ 对方翻译失败: "+r0.reason?.message);
+    // 降级：直接播放对方原始声音
+    if(theirAudioStream){
+      const ra=document.createElement("audio");
+      ra.autoplay=true;ra.srcObject=theirAudioStream;
+      document.body.appendChild(ra);
+    }
+  }
+
+  if(r1.status==="fulfilled"){
+    myTransPc=r1.value;
+    mySessionId=myTransPc._sessionId;
+    log("✅ 我的翻译session就绪");
+  }else{
+    log("⚠️ 我的翻译session失败，改用本地ASR");
+  }
+
+  startASR();
+  setStatus(t.active,"green");
+  startTimer(); // 翻译启动后才开始计时
+}
+
+async function stopTranslation(reason){
+  if(!translationStarted)return;
+  translationStarted=false;
+  stopTimer();stopASR();
+  log("📵 停止翻译: "+reason);
+  await Promise.allSettled([
+    closeSession(theirTransPc,theirSessionId),
+    closeSession(myTransPc,mySessionId)
+  ]);
+  theirTransPc=myTransPc=null;
+  theirSessionId=mySessionId=null;
+  log("✅ 翻译session已关闭，停止计费");
+}
+
+// ═══════════════════════════════════════════════════════════
+// P2P连接
+// ═══════════════════════════════════════════════════════════
+async function createP2P(){
+  try{
+    localStream=await navigator.mediaDevices.getUserMedia({
+      audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},
       video:false
     });
     log("✅ 麦克风已获取");
-  } catch(e) { log("⚠️ 麦克风: " + e.message); }
+  }catch(e){log("⚠️ 麦克风: "+e.message);}
 
-  p2pPc = new RTCPeerConnection(rtcConfig);
-  if (localStream) localStream.getTracks().forEach(tk=>p2pPc.addTrack(tk,localStream));
+  p2pPc=new RTCPeerConnection(rtcCfg);
+  if(localStream)localStream.getTracks().forEach(tk=>p2pPc.addTrack(tk,localStream));
 
-  let remoteStream = new MediaStream();
-
-  p2pPc.ontrack = async e => {
-    log("收到对方轨道: " + e.track.kind);
-
-    if (e.track.kind==="video") {
+  let remoteStream=new MediaStream();
+  p2pPc.ontrack=async e=>{
+    log("收到对方轨道: "+e.track.kind);
+    if(e.track.kind==="video"){
       remoteStream.addTrack(e.track);
-      $("remoteVideo").srcObject = remoteStream;
-      $("remoteVideo").style.display = "block";
+      $("remoteVideo").srcObject=remoteStream;
+      $("remoteVideo").style.display="block";
       return;
     }
-
-    if (e.track.kind==="audio") {
-      // ══════════════════════════════════════════
-      // 双session核心逻辑：
-      // 对方声音 → theirTransPc → 翻译成我的语言 → audioThem播放
-      // 不直接播放对方原始声音（静音处理）
-      // ══════════════════════════════════════════
-      const theirStream = new MediaStream([e.track]);
-      const myLang = $("myLang").value;
-      log("启动对方翻译session → " + myLang);
-      try {
-        theirTransPc = await buildSession(
-          theirStream, myLang,
-          delta => appendBox($("boxThem"), delta),
-          ()    => newlineBox($("boxThem")),
-          $("audioThem")  // 翻译后声音播放给我听
-        );
-        log("✅ 对方翻译session就绪");
-        setStatus(t.active, "green");
-      } catch(err) {
-        log("❌ 对方翻译session失败: " + err.message);
-        // 翻译失败时，播放原始声音作为降级方案
-        const rawAudio = new Audio();
-        rawAudio.srcObject = theirStream;
-        rawAudio.autoplay = true;
-        document.body.appendChild(rawAudio);
-        setStatus(t.active + " ⚠️翻译异常", "yellow");
-      }
+    if(e.track.kind==="audio"){
+      // 保存对方音频流，等双方都ready才启动翻译
+      theirAudioStream=new MediaStream([e.track]);
+      log("对方音频已接收，等待双方就绪...");
+      // 如果双方都已ready（可能对方先发了ready），立刻检查
+      checkBothReady();
     }
   };
 
-  p2pPc.onicecandidate = async e => {
-    if (e.candidate) await bcast({type:"ice",candidate:e.candidate.toJSON()});
-  };
-
-  p2pPc.oniceconnectionstatechange = () => {
-    const s = p2pPc.iceConnectionState;
-    log("P2P ICE: " + s);
-    if (s==="connected"||s==="completed") {
-      clearTimeout(relayTimer);
-      setStatus(t.p2pOk, "yellow");
-    }
-    if (s==="failed"&&!usedRelay) {
-      usedRelay = true;
-      log("切换relay模式...");
-      try { p2pPc.setConfiguration({...rtcConfig,iceTransportPolicy:"relay"}); } catch {}
+  p2pPc.onicecandidate=async e=>{if(e.candidate)await bcast({type:"ice",candidate:e.candidate.toJSON()});};
+  p2pPc.oniceconnectionstatechange=()=>{
+    const s=p2pPc.iceConnectionState;
+    log("P2P ICE: "+s);
+    if(s==="connected"||s==="completed"){clearTimeout(relayTimer);setStatus(t.p2pOk,"yellow");}
+    if(s==="failed"&&!usedRelay){
+      usedRelay=true;
+      try{p2pPc.setConfiguration({...rtcCfg,iceTransportPolicy:"relay"});}catch{}
       p2pPc.restartIce();
     }
-    if (s==="disconnected") {
-      setTimeout(()=>{ if(p2pPc?.iceConnectionState==="disconnected") p2pPc.restartIce(); },2000);
+    if(s==="disconnected"){
+      setTimeout(()=>{if(p2pPc?.iceConnectionState==="disconnected")p2pPc.restartIce();},2000);
     }
   };
-
-  relayTimer = setTimeout(()=>{
-    if (!usedRelay&&p2pPc?.iceConnectionState!=="connected"&&p2pPc?.iceConnectionState!=="completed") {
+  relayTimer=setTimeout(()=>{
+    if(!usedRelay&&p2pPc?.iceConnectionState!=="connected"&&p2pPc?.iceConnectionState!=="completed"){
       usedRelay=true;
-      log("15秒超时，切换relay...");
-      try { p2pPc.setConfiguration({...rtcConfig,iceTransportPolicy:"relay"}); } catch {}
+      try{p2pPc.setConfiguration({...rtcCfg,iceTransportPolicy:"relay"});}catch{}
       p2pPc.restartIce();
     }
   },15000);
 }
 
-// DataChannel
-function setupDC(d) {
-  dc = d;
-  dc.onopen = async () => {
+// DataChannel：双方就绪协议
+function setupDC(d){
+  dc=d;
+  dc.onopen=()=>{
     log("✅ DataChannel开启");
-
-    // ══════════════════════════════════════════
-    // 双session核心逻辑：
-    // 我的麦克风 → myTransPc → 翻译成对方语言
-    // 翻译后的声音通过DataChannel通知对方播放？
-    // 不！双session架构下：
-    //   我的session负责翻译我的声音给对方听
-    //   但对方听到的翻译来自对方自己的session
-    //   所以myTransPc只是给字幕用（我说了什么）
-    //   实际上对方的theirTransPc接收的是P2P传来的我的原始声音
-    // ══════════════════════════════════════════
-    const theirLang = $("theirLang").value;
-    log("启动我的翻译session → " + theirLang + "（用于字幕）");
-
-    if (localStream) {
-      try {
-        myTransPc = await buildSession(
-          localStream, theirLang,
-          delta => appendBox($("boxMe"), delta),
-          ()    => newlineBox($("boxMe")),
-          null  // 我的翻译不在本地播放（对方自己会翻译）
-        );
-        log("✅ 我的翻译session就绪");
-        startASR();
-      } catch(err) {
-        log("⚠️ 我的翻译session失败: " + err.message);
-        startASR(); // ASR仍然启动
-      }
-    }
-
-    // ping保活 + 网络质量监测
-    setInterval(()=>{
-      if (dc?.readyState==="open") {
-        pingStart = Date.now();
-        dc.send(JSON.stringify({type:"ping",t:pingStart}));
-      }
-    },3000);
-
-    // 房间有效期检查
-    if (ROOM_CREATED_AT) {
-      setInterval(()=>{
-        if (Date.now() - ROOM_CREATED_AT > ROOM_EXPIRE_MS) {
-          log("⚠️ 房间已超过30分钟，建议重新创建");
-        }
-      },60000);
-    }
+    iAmReady=true;
+    dc.send(JSON.stringify({type:"ready"}));
+    log("→ 发送 ready 信号");
+    checkBothReady();
+    setInterval(()=>{if(dc?.readyState==="open"){pingStart=Date.now();dc.send(JSON.stringify({type:"ping",t:pingStart}));}},3000);
   };
+  dc.onclose=()=>{log("DataChannel关闭");};
+  dc.onmessage=async e=>{
+    try{
+      const d=JSON.parse(e.data);
+      if(d.type==="ping"){dc.send(JSON.stringify({type:"pong",t:d.t}));return;}
+      if(d.type==="pong"){const ms=Date.now()-d.t;$("pingText").textContent=ms+"ms";updateQuality(ms);return;}
 
-  dc.onclose  = () => { log("DataChannel关闭"); setStatus(t.left,"red"); };
-  dc.onmessage = e => {
-    try {
-      const d = JSON.parse(e.data);
-      if (d.type==="ping") { dc.send(JSON.stringify({type:"pong",t:d.t})); return; }
-      if (d.type==="pong") {
-        const ms = Date.now()-d.t;
-        $("pingText").textContent = ms+"ms";
-        updateQuality(ms);
+      // 对方已就绪
+      if(d.type==="ready"){
+        log("← 收到对方 ready");
+        peerReady=true;
+        checkBothReady();
         return;
       }
-    } catch {}
+
+      // 对方挂断 → 立刻停止计费
+      if(d.type==="peer_hangup"){
+        log("← 收到对方挂断，停止计费");
+        await stopTranslation("对方挂断");
+        iAmReady=false;peerReady=false;
+        setStatus(t.peerHangup,"red");
+        return;
+      }
+    }catch{}
   };
 }
 
-// ICE管理
-async function addIce(c) {
-  if (!p2pPc) return;
-  if (!p2pPc.remoteDescription) { pendingIce.push(c); return; }
-  try { await p2pPc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
-}
-async function flushIce() {
-  while(pendingIce.length) {
-    try { await p2pPc.addIceCandidate(new RTCIceCandidate(pendingIce.shift())); } catch {}
+// 检查双方是否都就绪
+function checkBothReady(){
+  // 需要：双方DC就绪 + 对方音频已到达 + 本地麦克风已获取
+  if(iAmReady&&peerReady&&theirAudioStream&&localStream&&!translationStarted){
+    log("✅ 双方均已就绪，启动翻译");
+    startTranslation();
   }
 }
 
-// 信令
-async function bcast(payload) {
-  if (ch) await ch.send({type:"broadcast",event:"signal",payload});
+// ═══════════════════════════════════════════════════════════
+// ICE管理
+// ═══════════════════════════════════════════════════════════
+async function addIce(c){
+  if(!p2pPc)return;
+  if(!p2pPc.remoteDescription){pendingIce.push(c);return;}
+  try{await p2pPc.addIceCandidate(new RTCIceCandidate(c));}catch{}
 }
-async function onSignal(payload) {
-  if (payload.type==="offer") {
-    if (!p2pPc) await createP2P();
-    p2pPc.ondatachannel = e=>setupDC(e.channel);
+async function flushIce(){
+  while(pendingIce.length){
+    try{await p2pPc.addIceCandidate(new RTCIceCandidate(pendingIce.shift()));}catch{}
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Supabase信令
+// ═══════════════════════════════════════════════════════════
+async function bcast(payload){if(ch)await ch.send({type:"broadcast",event:"signal",payload});}
+async function onSignal(payload){
+  if(payload.type==="offer"){
+    if(!p2pPc)await createP2P();
+    p2pPc.ondatachannel=e=>setupDC(e.channel);
     await p2pPc.setRemoteDescription({type:"offer",sdp:payload.sdp});
     await flushIce();
-    const ans = await p2pPc.createAnswer();
+    const ans=await p2pPc.createAnswer();
     await p2pPc.setLocalDescription(ans);
     await bcast({type:"answer",sdp:p2pPc.localDescription.sdp});
     log("answer已发送");
   }
-  if (payload.type==="answer") {
+  if(payload.type==="answer"){
     await p2pPc.setRemoteDescription({type:"answer",sdp:payload.sdp});
     await flushIce();
     log("answer已接收");
   }
-  if (payload.type==="ice") await addIce(payload.candidate);
+  if(payload.type==="ice")await addIce(payload.candidate);
 }
 
 // ═══════════════════════════════════════════════════════════
 // 主流程
 // ═══════════════════════════════════════════════════════════
-async function startCall() {
-  // 检查房间有效期
-  if (ROOM_CREATED_AT && Date.now()-ROOM_CREATED_AT > ROOM_EXPIRE_MS) {
-    alert(t.labelRoom + " 已超时，请刷新页面创建新房间");
-    return;
-  }
-
-  callActive = true;
-  $("mainBtn").style.display = "none";
-  $("toolbar").style.display = "flex";
-  $("qualityBar").style.display = "flex";
-  $("myLang").disabled = true;
-  $("theirLang").disabled = true;
-  $("boxThem").textContent = "";
-  $("boxMe").textContent = "";
-
-  setStatus(t.connecting, "yellow");
-  log("【双session架构】ID:" + myId + " 房间:" + ROOM);
+async function startCall(){
+  callActive=true;translationStarted=false;iAmReady=false;peerReady=false;
+  theirAudioStream=null;
+  $("mainBtn").className="btn btn-red";$("mainBtn").textContent=t.btnHangup;
+  $("toolbar").style.display="flex";
+  $("myLang").disabled=true;$("theirLang").disabled=true;
+  $("boxThem").textContent="";$("boxMe").textContent="";
+  setStatus(t.connecting,"yellow");
+  log("【GloTalk v4 · 双方就绪才计费】ID:"+myId+" 房间:"+ROOM);
 
   await initTurn();
 
-  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-  ch = sb.channel(ROOM, {
-    config:{ broadcast:{self:false}, presence:{key:myId} }
-  });
+  sb=window.supabase.createClient(SB_URL,SB_ANON);
+  ch=sb.channel(ROOM,{config:{broadcast:{self:false},presence:{key:myId}}});
 
   ch.on("presence",{event:"sync"},async()=>{
-    const members = Object.keys(ch.presenceState()).sort();
-    log("成员: " + members.join(", "));
-
-    if (members.length>2) { setStatus(t.full,"red"); return; }
-    if (members.length>=2 && !p2pPc) {
-      const isCaller = members[0]===myId;
-      log(isCaller ? "角色：发起方（发offer）" : "角色：接收方（等待offer）");
-      if (isCaller) {
+    const members=Object.keys(ch.presenceState()).sort();
+    log("成员: "+members.join(", "));
+    if(members.length>2){setStatus(t.full,"red");return;}
+    if(members.length>=2&&!p2pPc){
+      const isCaller=members[0]===myId;
+      log(isCaller?"角色：发起方":"角色：接收方");
+      if(isCaller){
         await createP2P();
-        const d = p2pPc.createDataChannel("chat");
+        const d=p2pPc.createDataChannel("chat");
         setupDC(d);
-        const offer = await p2pPc.createOffer();
+        const offer=await p2pPc.createOffer();
         await p2pPc.setLocalDescription(offer);
         await bcast({type:"offer",sdp:p2pPc.localDescription.sdp});
         log("offer已发送");
-      } else {
+      }else{
         await createP2P();
-        p2pPc.ondatachannel = e=>setupDC(e.channel);
+        p2pPc.ondatachannel=e=>setupDC(e.channel);
       }
     }
   })
-  .on("presence",{event:"join"},({key})=>{
-    log("加入: " + key);
-    setStatus(t.connecting, "yellow");
-  })
+  .on("presence",{event:"join"},({key})=>{log("加入: "+key);setStatus(t.connecting,"yellow");})
   .on("presence",{event:"leave"},({key})=>{
-    log("离开: " + key);
-    setStatus(t.left, "red");
+    log("离开: "+key);
+    if(translationStarted)stopTranslation("对方离开");
+    setStatus(t.peerHangup,"red");
+    iAmReady=false;peerReady=false;
   })
-  .on("broadcast",{event:"signal"},async({payload})=>{ await onSignal(payload); })
+  .on("broadcast",{event:"signal"},async({payload})=>{await onSignal(payload);})
   .subscribe(async s=>{
-    log("信令: " + s);
-    if (s==="SUBSCRIBED") {
-      setStatus(t.waiting, "yellow");
-      await ch.track({id:myId,ts:myTs});
-    }
+    log("信令: "+s);
+    if(s==="SUBSCRIBED"){setStatus(t.waiting,"yellow");await ch.track({id:myId,ts:myTs});}
   });
 }
 
-function hangup() {
-  callActive = false;
-  clearTimeout(relayTimer);
-  stopASR();
-  [p2pPc, myTransPc, theirTransPc].forEach(pc=>{ try{pc?.close();}catch{} });
-  p2pPc = myTransPc = theirTransPc = null;
-  if (localStream) { localStream.getTracks().forEach(tk=>tk.stop()); localStream=null; }
-  if (ch) { ch.unsubscribe(); ch=null; }
-  $("mainBtn").style.display = "block";
-  $("mainBtn").textContent = t.btnStart;
-  $("toolbar").style.display = "none";
-  $("qualityBar").style.display = "none";
-  $("myLang").disabled = false;
-  $("theirLang").disabled = false;
-  setStatus(t.ended, "");
-  log("通话已结束，所有session已关闭");
+// ═══════════════════════════════════════════════════════════
+// 挂断
+// ═══════════════════════════════════════════════════════════
+async function hangup(){
+  // 通知对方立刻停止计费
+  if(dc?.readyState==="open"){
+    try{dc.send(JSON.stringify({type:"peer_hangup"}));log("→ 发送 peer_hangup");}catch{}
+    await new Promise(r=>setTimeout(r,300));
+  }
+  callActive=false;
+  clearTimeout(relayTimer);clearTimeout(bgTimer);
+  await stopTranslation("我主动挂断");
+  try{p2pPc?.close();}catch{}
+  p2pPc=null;
+  if(localStream){localStream.getTracks().forEach(tk=>tk.stop());localStream=null;}
+  theirAudioStream=null;iAmReady=false;peerReady=false;
+  if(ch){ch.unsubscribe();ch=null;}
+  $("mainBtn").className="btn btn-green";$("mainBtn").textContent=t.btnStart;
+  $("toolbar").style.display="none";$("qualityBar").style.display="none";
+  $("myLang").disabled=false;$("theirLang").disabled=false;
+  setStatus(t.ended,"");
+  log("通话已结束");
 }
+function handleMain(){if(callActive)hangup();else startCall();}
 
-function handleMain() {
-  if (callActive) hangup();
-  else startCall();
-}
+// ═══════════════════════════════════════════════════════════
+// 后台超时保护（5分钟自动挂断，防止后台计费）
+// ═══════════════════════════════════════════════════════════
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden&&callActive){
+    log("⚠️ 进入后台，2分钟后自动挂断");
+    bgTimer=setTimeout(()=>{
+      if(callActive&&document.hidden){
+        log("⏰ 后台超时，自动挂断");
+        setStatus(t.bgTimeout,"red");
+        hangup();
+      }
+    },BG_TIMEOUT);
+  }else{
+    if(bgTimer){clearTimeout(bgTimer);bgTimer=null;log("✅ 回到前台，取消后台超时");}
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// 页面关闭时紧急关闭session
+// ═══════════════════════════════════════════════════════════
+window.addEventListener("beforeunload",()=>{
+  if(dc?.readyState==="open")try{dc.send(JSON.stringify({type:"peer_hangup"}));}catch{}
+  if(mySessionId)fetch(GLOTALK+"/session/close",{method:"POST",headers:{"Content-Type":"application/json","X-GloTalk-Token":TOKEN},body:JSON.stringify({session_id:mySessionId}),keepalive:true}).catch(()=>{});
+  if(theirSessionId)fetch(GLOTALK+"/session/close",{method:"POST",headers:{"Content-Type":"application/json","X-GloTalk-Token":TOKEN},body:JSON.stringify({session_id:theirSessionId}),keepalive:true}).catch(()=>{});
+  try{theirTransPc?.close();}catch{}
+  try{myTransPc?.close();}catch{}
+  try{p2pPc?.close();}catch{}
+});
 
 // ═══════════════════════════════════════════════════════════
 // 工具栏
 // ═══════════════════════════════════════════════════════════
-function toggleMute() {
-  muted = !muted;
-  if (localStream) localStream.getAudioTracks().forEach(tk=>tk.enabled=!muted);
-  if (muted) stopASR(); else if (callActive) startASR();
-  $("muteBtn").textContent  = muted ? t.btnMicOff : t.btnMic;
-  $("muteBtn").className    = "tool-btn" + (muted ? "" : " active");
+function toggleMute(){
+  muted=!muted;
+  if(localStream)localStream.getAudioTracks().forEach(tk=>tk.enabled=!muted);
+  if(muted)stopASR();else if(callActive&&translationStarted)startASR();
+  $("muteBtn").textContent=muted?t.btnMicOff:t.btnMic;
+  $("muteBtn").className="tool-btn"+(muted?"":" active");
 }
-
-function toggleSubtitle() {
-  subtitleOn = !subtitleOn;
-  $("subtitleSection").className = "subtitle-section" + (subtitleOn?" visible":"");
-  $("subtitleBtn").textContent   = subtitleOn ? t.btnSubOn : t.btnSub;
-  $("subtitleBtn").className     = "tool-btn" + (subtitleOn?" active":"");
-  if (!subtitleOn) { $("boxThem").textContent=""; $("boxMe").textContent=""; }
+function toggleSubtitle(){
+  subtitleOn=!subtitleOn;
+  $("subtitleSection").className="subtitle-section"+(subtitleOn?" visible":"");
+  $("subtitleBtn").textContent=subtitleOn?t.btnSubOn:t.btnSub;
+  $("subtitleBtn").className="tool-btn"+(subtitleOn?" active":"");
+  if(!subtitleOn){$("boxThem").textContent="";$("boxMe").textContent="";}
 }
-
-async function toggleVideo() {
-  videoOn = !videoOn;
-  $("videoBtn").textContent = videoOn ? t.btnCamOn : t.btnCam;
-  $("videoBtn").className   = "tool-btn" + (videoOn?" active":"");
-  $("videoRow").style.display = videoOn ? "flex" : "none";
-  if (videoOn && localStream) {
-    try {
-      const vs = await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:640},height:{ideal:480}}});
-      const vt = vs.getVideoTracks()[0];
+async function toggleVideo(){
+  videoOn=!videoOn;
+  $("videoBtn").textContent=videoOn?t.btnCamOn:t.btnCam;
+  $("videoBtn").className="tool-btn"+(videoOn?" active":"");
+  $("videoRow").style.display=videoOn?"flex":"none";
+  if(videoOn&&localStream){
+    try{
+      const vs=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:640},height:{ideal:480}}});
+      const vt=vs.getVideoTracks()[0];
       localStream.addTrack(vt);
-      $("localVideo").style.display = "block";
-      $("localVideo").srcObject = localStream;
-      if (p2pPc) p2pPc.addTrack(vt,localStream);
+      $("localVideo").style.display="block";
+      $("localVideo").srcObject=localStream;
+      if(p2pPc)p2pPc.addTrack(vt,localStream);
       log("✅ 摄像头已开启");
-    } catch(e) { log("摄像头失败: "+e.message); videoOn=false; }
-  } else if (!videoOn && localStream) {
-    localStream.getVideoTracks().forEach(tk=>{ tk.stop(); localStream.removeTrack(tk); });
-    $("localVideo").style.display = "none";
+    }catch(e){log("摄像头失败: "+e.message);videoOn=false;}
+  }else if(!videoOn&&localStream){
+    localStream.getVideoTracks().forEach(tk=>{tk.stop();localStream.removeTrack(tk);});
+    $("localVideo").style.display="none";
   }
 }
 
 // ═══════════════════════════════════════════════════════════
 // 初始化
 // ═══════════════════════════════════════════════════════════
-window.addEventListener("load", () => {
-  initRoom();
-  onLangChange();
-});
+window.addEventListener("load",()=>{initRoom();onLangChange();});
 </script>
 </body>
 </html>
