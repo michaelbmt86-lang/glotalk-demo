@@ -356,37 +356,31 @@ async function createInvite() {
   if (d.code) {
     const base = 'https://glotalk.tech/glotalk-fullduplex.html';
     const langs = [
-      {code:'zh',label:'🇨🇳 中文'},{code:'en',label:'🇺🇸 英文'},
-      {code:'ja',label:'🇯🇵 日文'},{code:'ko',label:'🇰🇷 韩文'},
-      {code:'es',label:'🇪🇸 西班牙文'},{code:'fr',label:'🇫🇷 法文'},
-      {code:'de',label:'🇩🇪 德文'},{code:'ar',label:'🇸🇦 阿拉伯文'}
+      {code:'zh',label:'中文'},{code:'en',label:'英文'},
+      {code:'ja',label:'日文'},{code:'ko',label:'韩文'},
+      {code:'es',label:'西班牙文'},{code:'fr',label:'法文'},
+      {code:'de',label:'德文'},{code:'ar',label:'阿拉伯文'}
     ];
-    const links = langs.map(l =>
-      `${l.label}\n邀请码：${d.code}\n链接：${base}?lang=${l.code}`
-    ).join('\n\n');
-    // 显示弹窗让管理员选择复制
-    const langHtml = langs.map(l => {
-      const msg = `邀请码：${d.code}\n链接：${base}?lang=${l.code}`;
-      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #222">
-        <span style="font-size:13px">${l.label}</span>
-        <button onclick="copyInviteLink('${msg.replace(/'/g,"\\'")}',this)"
-          style="background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#888;font-size:12px;padding:4px 10px;cursor:pointer">
-          📋 复制
-        </button>
-      </div>`;
-    }).join('');
+    let langRows = '';
+    langs.forEach(function(l) {
+      const msg = '邀请码：' + d.code + '\n链接：' + base + '?lang=' + l.code;
+      langRows += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #222">' +
+        '<span style="font-size:13px">' + l.label + '</span>' +
+        '<button onclick="copyInviteLink(this,\'邀请码：' + d.code + '\\n链接：' + base + '?lang=' + l.code + '\')" ' +
+        'style="background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#888;font-size:12px;padding:4px 10px;cursor:pointer">' +
+        '📋 复制</button></div>';
+    });
     const m = document.getElementById('msg');
-    m.innerHTML = `<div style="color:#22c55e;font-weight:700;margin-bottom:10px">✅ 邀请码：${d.code}（有效期${duration}分钟）</div>
-      <div style="color:#888;font-size:12px;margin-bottom:8px">选择语言，复制发给对方：</div>
-      ${langHtml}`;
+    m.innerHTML = '<div style="color:#22c55e;font-weight:700;margin-bottom:10px">✅ 邀请码：' + d.code + '（有效期' + duration + '分钟）</div>' +
+      '<div style="color:#888;font-size:12px;margin-bottom:8px">选择语言，复制发给对方：</div>' + langRows;
     m.style.display = 'block';
     m.className = '';
-    setTimeout(() => location.reload(), 30000);
+    setTimeout(function() { location.reload(); }, 30000);
   } else {
     showMsg('❌ ' + (d.error || '生成失败'), true);
   }
 }
-function copyInviteLink(text, btn) {
+function copyInviteLink(btn, text) {
   const fb = v => {
     const e = Object.assign(document.createElement('textarea'),{value:v,style:'position:fixed;opacity:0'});
     document.body.appendChild(e); e.select(); document.execCommand('copy'); document.body.removeChild(e);
