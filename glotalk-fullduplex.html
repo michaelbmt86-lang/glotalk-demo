@@ -89,6 +89,17 @@
       <input class="room-input" id="roomInput" maxlength="6" oninput="this.value=this.value.toUpperCase()" />
     </div>
   </div>
+  <!-- 邀请码输入框（通话开始前验证）-->
+  <div class="room-card" id="inviteCard">
+    <div class="room-row">
+      <span class="room-label" style="width:56px">邀请码</span>
+      <input class="room-input" id="inviteInput" maxlength="9" placeholder="GT-XXXXXX"
+        oninput="this.value=this.value.toUpperCase()" style="letter-spacing:2px;font-weight:700;color:#f59e0b"/>
+      <button class="copy-btn" id="verifyBtn" onclick="verifyInvite()" style="background:#f59e0b22;border-color:#f59e0b44;color:#f59e0b">验证</button>
+    </div>
+    <div id="inviteStatus" style="font-size:12px;color:#555;padding:2px 0">请输入邀请码才能开始通话</div>
+  </div>
+
   <div class="lang-card">
     <div class="lang-row">
       <span class="lang-label" id="labelMe">我说</span>
@@ -146,7 +157,7 @@
     <span class="timer-val" id="timerVal">0:00</span>
     <span class="timer-cost" id="timerCost"></span>
   </div>
-  <button class="btn btn-green" id="mainBtn" onclick="handleMain()">开始通话</button>
+  <button class="btn btn-green" id="mainBtn" onclick="handleMain()" disabled style="opacity:0.4;cursor:not-allowed">开始通话</button>
   <div class="toolbar" id="toolbar" style="display:none">
     <button class="tool-btn active" id="muteBtn" onclick="toggleMute()">🎤 麦克风</button>
     <button class="tool-btn" id="subtitleBtn" onclick="toggleSubtitle()">💬 字幕</button>
@@ -186,6 +197,7 @@ const SB_TURN="https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-turn
 const BG_TIMEOUT=2*60*1000; // 后台2分钟自动挂断
 
 const urlRoom=new URLSearchParams(location.search).get("room");
+const urlLang=new URLSearchParams(location.search).get("lang");
 const ROOM_ID=urlRoom||Math.random().toString(36).slice(2,8).toUpperCase();
 const ROOM="glt4-"+ROOM_ID;
 const myId="u"+Math.random().toString(36).slice(2,8);
@@ -194,6 +206,9 @@ const myTs=Date.now();
 // ═══════════════════════════════════════════════════════════
 // 状态
 // ═══════════════════════════════════════════════════════════
+let inviteCode = "";      // 已验证的邀请码
+let inviteVerified = false; // 是否已验证邀请码
+
 let rtcCfg={iceServers:[{urls:"stun:stun.l.google.com:19302"}],iceTransportPolicy:"all"};
 let p2pPc=null,dc=null,sb=null,ch=null;
 let localStream=null,pendingIce=[],usedRelay=false,relayTimer=null;
@@ -219,6 +234,40 @@ function checkBrowser(){
     tip.style.cssText="position:fixed;top:0;left:0;right:0;background:#f59e0b;color:#000;padding:12px 16px;font-size:13px;font-weight:700;z-index:9999;text-align:center;line-height:1.6";
     tip.innerHTML=(isWeChat?"微信":"QQ")+"内置浏览器不支持通话<br>请点右上角 ··· → 在浏览器中打开";
     document.body.appendChild(tip);
+  }
+}
+
+// 验证邀请码
+async function verifyInvite(){
+  const input = document.getElementById("inviteInput");
+  const statusEl = document.getElementById("inviteStatus");
+  const code = (input?.value||"").trim().toUpperCase();
+  if(!code){statusEl.textContent="请输入邀请码";statusEl.style.color="#ef4444";return;}
+  statusEl.textContent="验证中...";statusEl.style.color="#f59e0b";
+  try{
+    const r = await fetch(GLOTALK+"/invite/verify",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({code})
+    });
+    const d = await r.json();
+    if(d.ok){
+      inviteCode = code;
+      inviteVerified = true;
+      statusEl.textContent="✅ 验证通过，欢迎 "+d.name+"！可以开始通话";
+      statusEl.style.color="#22c55e";
+      document.getElementById("inviteInput").disabled=true;
+      document.getElementById("verifyBtn").disabled=true;
+      document.getElementById("mainBtn").disabled=false;
+      log("✅ 邀请码验证通过: "+code+" ("+d.name+")");
+    }else{
+      statusEl.textContent="❌ "+(d.error||"验证失败");
+      statusEl.style.color="#ef4444";
+      inviteVerified=false;
+    }
+  }catch(e){
+    statusEl.textContent="❌ 网络错误，请重试";
+    statusEl.style.color="#ef4444";
   }
 }
 
@@ -679,6 +728,17 @@ async function onSignal(payload){
 // 主流程
 // ═══════════════════════════════════════════════════════════
 async function startCall(){
+  // 检查邀请码
+  if(!inviteVerified){
+    const statusEl=document.getElementById("inviteStatus");
+    if(statusEl){statusEl.textContent="❌ 请先验证邀请码";statusEl.style.color="#ef4444";}
+    return;
+  }
+  // 标记邀请码已使用（一次性）
+  if(inviteCode){
+    fetch(GLOTALK+"/invite/use",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({code:inviteCode})}).catch(()=>{});
+  }
   // 从输入框读取房间号
   const inputRoom=(document.getElementById("roomInput")?.value||"").trim().toUpperCase()||ROOM_ID;
   const CALL_ROOM="glt4-"+inputRoom;
@@ -848,6 +908,11 @@ function releaseWakeLock(){
 window.addEventListener("load",()=>{
   checkBrowser();
   initRoom();
+  // URL带lang参数时自动设置语言
+  if(urlLang&&UI[urlLang]){
+    const sel=document.getElementById("myLang");
+    if(sel)sel.value=urlLang;
+  }
   onLangChange();
   // 回车键进入房间
   const ri=document.getElementById("roomInput");
