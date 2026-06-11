@@ -259,7 +259,12 @@ async function verifyInvite(){
       document.getElementById("inviteInput").disabled=true;
       document.getElementById("verifyBtn").disabled=true;
       document.getElementById("mainBtn").disabled=false;
-      log("✅ 邀请码验证通过: "+code+" ("+d.name+")");
+      // 自动填入绑定的房间号
+      if(d.roomId){
+        const ri=document.getElementById("roomInput");
+        if(ri) ri.value=d.roomId;
+      }
+      log("✅ 邀请码验证通过: "+code+" 房间:"+d.roomId);
     }else{
       statusEl.textContent="❌ "+(d.error||"验证失败");
       statusEl.style.color="#ef4444";
