@@ -83,12 +83,7 @@
     <div class="status-text" id="statusText">选择语言，创建通话</div>
     <div class="ping" id="pingText"></div>
   </div>
-  <div class="room-card">
-    <div class="room-row">
-      <span class="room-label" id="labelRoom">房间号</span>
-      <input class="room-input" id="roomInput" maxlength="6" oninput="this.value=this.value.toUpperCase()" />
-    </div>
-  </div>
+  <!-- 房间号由邀请码自动决定，不需要单独输入 -->
   <!-- 邀请码输入框（通话开始前验证）-->
   <div class="room-card" id="inviteCard">
     <div class="room-row">
@@ -196,10 +191,14 @@ const SB_ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJl
 const SB_TURN="https://ryqxhagdbycccosuavtp.supabase.co/functions/v1/create-turn-credentials";
 const BG_TIMEOUT=2*60*1000; // 后台2分钟自动挂断
 
-const urlRoom=new URLSearchParams(location.search).get("room");
+const urlRoom=new URLSearchParams(location.search).get("room")||"";
 const urlLang=new URLSearchParams(location.search).get("lang");
-const ROOM_ID=urlRoom||Math.random().toString(36).slice(2,8).toUpperCase();
-const ROOM="glt4-"+ROOM_ID;
+const urlInviteParam=new URLSearchParams(location.search).get("invite")||"";
+// 邀请码前4位作前缀，不同邀请码下相同房间号不冲突（根目录+子目录）
+const invitePrefix=urlInviteParam?urlInviteParam.replace("GT-","").slice(0,4):Math.random().toString(36).slice(2,6).toUpperCase();
+const ROOM_ID=urlRoom;
+// 信令频道唯一标识 = 邀请码前缀 + 2位房间号
+const ROOM_CHANNEL="glt5-"+invitePrefix+"-"+(urlRoom||"00");
 const myId="u"+Math.random().toString(36).slice(2,8);
 const myTs=Date.now();
 
@@ -259,10 +258,10 @@ async function verifyInvite(){
       document.getElementById("inviteInput").disabled=true;
       document.getElementById("verifyBtn").disabled=true;
       document.getElementById("mainBtn").disabled=false;
-      // 自动填入绑定的房间号
+      // 验证通过，直接跳转到带邀请码的房间（自动进入）
       if(d.roomId){
-        const ri=document.getElementById("roomInput");
-        if(ri) ri.value=d.roomId;
+        const currentLang = document.getElementById("myLang")?.value || "zh";
+        location.href = location.pathname + "?room=" + d.roomId + "&lang=" + currentLang + "&invite=" + code;
       }
       log("✅ 邀请码验证通过: "+code+" 房间:"+d.roomId);
     }else{
@@ -291,9 +290,49 @@ function clearLog(){
 // 房间
 // ═══════════════════════════════════════════════════════════
 function initRoom(){
-  // 显示随机房间号到输入框，用户可以修改
-  const input=document.getElementById("roomInput");
-  if(input) input.value=ROOM_ID;
+  const card = document.getElementById("inviteCard");
+  const mainBtn = document.getElementById("mainBtn");
+  
+  if(urlInviteParam && urlRoom){
+    // 情况1：链接带邀请码+房间号（我或代理点跳转进入）
+    // 直接进入，不需要任何验证
+    inviteCode = urlInviteParam;
+    inviteVerified = true;
+    if(card) card.style.display = "none"; // 隐藏输入区
+    if(mainBtn){ mainBtn.disabled=false; mainBtn.style.opacity="1"; mainBtn.style.cursor="pointer"; }
+    log("✅ 管理员/代理直接进入 邀请码:"+urlInviteParam+" 房间:"+urlRoom);
+    
+  } else if(urlInviteParam && !urlRoom){
+    // 情况2：链接带邀请码但没有房间号（对方收到链接）
+    // 显示邀请码（只读）+ 输入2位房间号
+    inviteCode = urlInviteParam;
+    const display = document.getElementById("inviteDisplay");
+    if(display) display.textContent = urlInviteParam;
+    if(card) card.style.display = "block";
+    if(mainBtn){ mainBtn.disabled=true; }
+    const statusEl = document.getElementById("inviteStatus");
+    if(statusEl) statusEl.textContent = "请输入对方告知的2位房间号";
+    log("对方模式：邀请码已自动填入，等待输入房间号");
+    
+  } else {
+    // 情况3：直接打开页面（无参数），显示输入框
+    if(card) card.style.display = "block";
+    if(mainBtn){ mainBtn.disabled=true; }
+  }
+}
+
+// 对方输入2位房间号进入
+function joinRoomByNumber(){
+  const input = document.getElementById("roomInput");
+  const num = (input?.value||"").trim();
+  if(num.length < 1 || isNaN(num)){
+    const s=document.getElementById("inviteStatus");
+    if(s){s.textContent="请输入正确的房间号";s.style.color="#ef4444";}
+    return;
+  }
+  // 跳转到带房间号的页面，保留邀请码参数
+  const lang = document.getElementById("myLang")?.value || "zh";
+  location.href = location.pathname + "?invite=" + urlInviteParam + "&room=" + num + "&lang=" + lang;
 }
 function copyLink(){
   const link=location.origin+location.pathname+"?room="+ROOM_ID;
@@ -744,9 +783,8 @@ async function startCall(){
     fetch(GLOTALK+"/invite/use",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({code:inviteCode})}).catch(()=>{});
   }
-  // 从输入框读取房间号
-  const inputRoom=(document.getElementById("roomInput")?.value||"").trim().toUpperCase()||ROOM_ID;
-  const CALL_ROOM="glt4-"+inputRoom;
+  // 房间信令频道 = 邀请码前缀 + 2位房间号（确保唯一）
+  const CALL_ROOM = ROOM_CHANNEL;
   callActive=true;translationStarted=false;iAmReady=false;peerReady=false;
   theirAudioStream=null;
   $("mainBtn").className="btn btn-red";$("mainBtn").textContent=t.btnHangup;
@@ -754,7 +792,7 @@ async function startCall(){
   $("myLang").disabled=true;$("theirLang").disabled=true;
   $("boxThem").textContent="";$("boxMe").textContent="";
   setStatus(t.connecting,"yellow");
-  log("【GloTalk v4 · 双方就绪才计费】ID:"+myId+" 房间:"+CALL_ROOM);
+  log("【GloTalk v5 · 邀请码+房间号架构】ID:"+myId+" 频道:"+CALL_ROOM);
   await requestWakeLock(); // 通话开始，防止熄屏
 
   await initTurn();
