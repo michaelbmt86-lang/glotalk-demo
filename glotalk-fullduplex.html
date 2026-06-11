@@ -197,13 +197,13 @@ const myTs=Date.now();
 let rtcCfg={iceServers:[{urls:"stun:stun.l.google.com:19302"}],iceTransportPolicy:"all"};
 let p2pPc=null,dc=null,sb=null,ch=null;
 let localStream=null,pendingIce=[],usedRelay=false,relayTimer=null;
-let theirTransPc=null,myTransPc=null;
+let theirTransPc=null;
 let theirAudioStream=null; // 保存对方音频，等双方就绪再启动翻译
 let muted=false,videoOn=false,subtitleOn=false,callActive=false;
 let iAmReady=false,peerReady=false,translationStarted=false;
 let speechRec=null,pingStart=0;
 let callStartTime=null,timerIv=null,bgTimer=null;
-let mySessionId=null,theirSessionId=null;
+let theirSessionId=null;
 let wakeLock=null;
 let t=UI.zh;
 const $=id=>document.getElementById(id);
@@ -489,23 +489,26 @@ async function startTranslation(){
   const myLang=$("myLang").value;
   const theirLang=$("theirLang").value;
 
-  // 并行启动两个翻译session（官方推荐：每个方向一个session）
-  const [r0,r1]=await Promise.allSettled([
-    theirAudioStream
-      ?buildSession(theirAudioStream,myLang,delta=>appendBox($("boxThem"),delta),()=>newlineBox($("boxThem")),$("audioThem"))
-      :Promise.reject(new Error("no their stream")),
-    localStream
-      ?buildSession(localStream,theirLang,delta=>appendBox($("boxMe"),delta),()=>newlineBox($("boxMe")),null)
-      :Promise.reject(new Error("no local stream"))
-  ]);
+  // 每人只建1个session：对方声音→翻译→我听+上框字幕
+  // 下框字幕用本地ASR（免费），费用减半
+  if(!theirAudioStream){
+    log("❌ 没有对方音频流");
+    translationStarted=false;
+    return;
+  }
 
-  if(r0.status==="fulfilled"){
-    theirTransPc=r0.value;
+  try{
+    theirTransPc=await buildSession(
+      theirAudioStream, myLang,
+      delta=>appendBox($("boxThem"),delta),  // 上框：翻译后文字
+      ()=>newlineBox($("boxThem")),
+      $("audioThem")                          // 翻译后声音
+    );
     theirSessionId=theirTransPc._sessionId;
-    log("✅ 对方翻译session就绪");
-  }else{
-    log("❌ 对方翻译失败: "+r0.reason?.message);
-    // 降级：直接播放对方原始声音
+    log("✅ 翻译session就绪（1个session）");
+  }catch(err){
+    log("❌ 翻译session失败: "+err.message);
+    // 降级：播放对方原始声音
     if(theirAudioStream){
       const ra=document.createElement("audio");
       ra.autoplay=true;ra.srcObject=theirAudioStream;
@@ -513,15 +516,7 @@ async function startTranslation(){
     }
   }
 
-  if(r1.status==="fulfilled"){
-    myTransPc=r1.value;
-    mySessionId=myTransPc._sessionId;
-    log("✅ 我的翻译session就绪");
-  }else{
-    log("⚠️ 我的翻译session失败，改用本地ASR");
-  }
-
-  startASR();
+  startASR(); // 下框字幕用本地ASR（免费）
   setStatus(t.active,"green");
   startTimer(); // 翻译启动后才开始计时
 }
@@ -786,10 +781,8 @@ document.addEventListener("visibilitychange",()=>{
 // ═══════════════════════════════════════════════════════════
 window.addEventListener("beforeunload",()=>{
   if(dc?.readyState==="open")try{dc.send(JSON.stringify({type:"peer_hangup"}));}catch{}
-  if(mySessionId)fetch(GLOTALK+"/session/close",{method:"POST",headers:{"Content-Type":"application/json","X-GloTalk-Token":TOKEN},body:JSON.stringify({session_id:mySessionId}),keepalive:true}).catch(()=>{});
   if(theirSessionId)fetch(GLOTALK+"/session/close",{method:"POST",headers:{"Content-Type":"application/json","X-GloTalk-Token":TOKEN},body:JSON.stringify({session_id:theirSessionId}),keepalive:true}).catch(()=>{});
   try{theirTransPc?.close();}catch{}
-  try{myTransPc?.close();}catch{}
   try{p2pPc?.close();}catch{}
 });
 
