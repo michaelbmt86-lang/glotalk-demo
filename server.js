@@ -20,6 +20,7 @@ const MAX_SESSIONS_PER_IP  = 10;
 const SESSION_MAX_MINUTES  = 30;
 const BILLING_LOG = "/var/www/glotalk/billing.log";
 const INVITE_FILE = "/var/www/glotalk/invites.json";
+const AGENT_FILE  = "/var/www/glotalk/agents.json";
 
 // ═══ 状态 ═══
 let dailySessionCount = 0;
@@ -40,6 +41,38 @@ function saveInvites(invites) {
   try { fs.writeFileSync(INVITE_FILE, JSON.stringify(invites, null, 2)); } catch(e) {}
 }
 let invites = loadInvites();
+
+// ═══ 代理存储 ═══
+function loadAgents() {
+  try {
+    if (fs.existsSync(AGENT_FILE)) return JSON.parse(fs.readFileSync(AGENT_FILE, "utf8"));
+  } catch(e) {}
+  return {};
+}
+function saveAgents(agents) {
+  try { fs.writeFileSync(AGENT_FILE, JSON.stringify(agents, null, 2)); } catch(e) {}
+}
+let agents = loadAgents();
+
+// 生成代理ID
+function generateAgentId() {
+  return "AG-" + crypto.randomBytes(3).toString("hex").toUpperCase();
+}
+
+// 获取代理本月已使用费用（美元）
+function getAgentMonthlyUsed(agentId) {
+  try {
+    const thisMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+    const lines = fs.existsSync(BILLING_LOG)
+      ? fs.readFileSync(BILLING_LOG, "utf8").trim().split("\n").filter(Boolean) : [];
+    let total = 0;
+    lines.filter(l => l.includes("CLOSE") && l.includes(agentId)).forEach(l => {
+      const m = l.match(/\$(\d+\.\d+)/);
+      if (m) total += parseFloat(m[1]);
+    });
+    return total;
+  } catch(e) { return 0; }
+}
 
 // ═══ 工具函数 ═══
 function log(msg) { console.log(`[${new Date().toISOString()}] ${msg}`); }
@@ -154,6 +187,27 @@ function adminHTML() {
     </tr>`;
   }).join("");
 
+  // 读取代理列表
+  const agentList = Object.entries(agents).map(([id, ag]) => {
+    const used = getAgentMonthlyUsed(id);
+    const remaining = Math.max(0, ag.monthlyBudgetUSD - used);
+    const pct = ag.monthlyBudgetUSD > 0 ? Math.round(used/ag.monthlyBudgetUSD*100) : 0;
+    return `<tr class="${!ag.active?'dim':''}">
+      <td><b>${id}</b></td>
+      <td>${ag.name}</td>
+      <td>${ag.active?'🟢 活跃':'🔴 停用'}</td>
+      <td>¥${ag.monthlyBudgetRMB} ($${ag.monthlyBudgetUSD.toFixed(2)})</td>
+      <td style="color:${pct>80?'#ef4444':'#22c55e'}">$${used.toFixed(4)} (${pct}%)</td>
+      <td>$${remaining.toFixed(4)}</td>
+      <td>${ag.createdAt?new Date(ag.createdAt).toLocaleDateString():'-'}</td>
+      <td>
+        <button onclick="toggleAgent('${id}','${ag.active?'disable':'enable'}')" style="background:${ag.active?'#ef444422':'#22c55e22'};color:${ag.active?'#ef4444':'#22c55e'};border:1px solid;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:12px">
+          ${ag.active?'停用':'启用'}
+        </button>
+      </td>
+    </tr>`;
+  }).join("");
+
   // 读取billing统计
   let totalCost = "$0.0000", totalSessions = 0;
   try {
@@ -212,6 +266,21 @@ function adminHTML() {
 </div>
 
 <div class="card">
+  <h2>👥 代理管理</h2>
+  <div class="row">
+    <input id="agentName" placeholder="代理姓名"/>
+    <input id="agentBudget" placeholder="月度额度（人民币）" type="number" value="200"/>
+  </div>
+  <button onclick="createAgent()">创建代理账号</button>
+  <div id="agentMsg" style="display:none;padding:8px;margin-top:8px;border-radius:6px;font-size:13px"></div>
+  <br/>
+  <table>
+    <tr><th>代理ID</th><th>姓名</th><th>状态</th><th>月额度</th><th>本月已用</th><th>剩余</th><th>创建日期</th><th>操作</th></tr>
+    ${agentList || '<tr><td colspan="8" style="color:#333;text-align:center;padding:16px">暂无代理</td></tr>'}
+  </table>
+</div>
+
+<div class="card">
   <h2>🎫 生成邀请码</h2>
   <div class="row">
     <input id="inviteName" placeholder="被邀请人姓名（备注）"/>
@@ -242,6 +311,38 @@ function showMsg(text, err) {
   m.textContent = text; m.style.display = 'block';
   m.className = err ? 'err' : '';
   setTimeout(() => m.style.display = 'none', 5000);
+}
+async function createAgent() {
+  const name = document.getElementById('agentName').value.trim();
+  const budget = parseFloat(document.getElementById('agentBudget').value) || 200;
+  if (!name) { alert('请输入代理姓名'); return; }
+  const r = await fetch('/admin/agent/create?admin=' + ADMIN, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, monthlyBudgetRMB: budget})
+  });
+  const d = await r.json();
+  const msg = document.getElementById('agentMsg');
+  if (d.agentId) {
+    msg.style.background = '#0d1a0f'; msg.style.color = '#22c55e';
+    msg.textContent = '✅ 代理已创建：' + d.agentId + ' (' + name + ') 月额度¥' + budget;
+    msg.style.display = 'block';
+    setTimeout(() => location.reload(), 2000);
+  } else {
+    msg.style.background = '#1a0f0f'; msg.style.color = '#ef4444';
+    msg.textContent = '❌ ' + (d.error || '创建失败');
+    msg.style.display = 'block';
+  }
+}
+async function toggleAgent(agentId, action) {
+  const r = await fetch('/admin/agent/toggle?admin=' + ADMIN, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({agentId, action})
+  });
+  const d = await r.json();
+  if (d.ok) location.reload();
+  else alert('操作失败: ' + d.error);
 }
 async function createInvite() {
   const name = document.getElementById('inviteName').value.trim() || '测试用户';
@@ -336,6 +437,108 @@ const server = http.createServer(async (req, res) => {
         jsonResp(res, { ok: true });
       } catch(e) { jsonResp(res, {error: e.message}, 500); }
     }); return;
+  }
+
+  // ── 创建代理 ──────────────────────────────────────────
+  if (req.method === "POST" && url.pathname === "/admin/agent/create") {
+    if (!verifyAdmin(req)) { jsonResp(res, {error:"Unauthorized"}, 403); return; }
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { name, monthlyBudgetRMB = 200 } = JSON.parse(body || "{}");
+        if (!name) { jsonResp(res, {error:"请输入代理姓名"}, 400); return; }
+        const agentId = generateAgentId();
+        const monthlyBudgetUSD = parseFloat((monthlyBudgetRMB / 7).toFixed(2));
+        agents[agentId] = {
+          name, monthlyBudgetRMB, monthlyBudgetUSD,
+          active: true, createdAt: Date.now(), inviteCount: 0
+        };
+        saveAgents(agents);
+        log(`👤 代理创建: ${agentId} ${name} 月额度¥${monthlyBudgetRMB}($${monthlyBudgetUSD})`);
+        jsonResp(res, { agentId, name, monthlyBudgetRMB, monthlyBudgetUSD });
+      } catch(e) { jsonResp(res, {error: e.message}, 500); }
+    }); return;
+  }
+
+  // ── 停用/启用代理 ─────────────────────────────────────
+  if (req.method === "POST" && url.pathname === "/admin/agent/toggle") {
+    if (!verifyAdmin(req)) { jsonResp(res, {error:"Unauthorized"}, 403); return; }
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { agentId, action } = JSON.parse(body || "{}");
+        if (!agents[agentId]) { jsonResp(res, {error:"代理不存在"}, 404); return; }
+        agents[agentId].active = (action === "enable");
+        saveAgents(agents);
+        log(`👤 代理${action}: ${agentId}`);
+        jsonResp(res, { ok: true });
+      } catch(e) { jsonResp(res, {error: e.message}, 500); }
+    }); return;
+  }
+
+  // ── 代理生成邀请码（消耗代理额度） ────────────────────
+  if (req.method === "POST" && url.pathname === "/agent/invite/create") {
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { agentId, guestName = "客户", duration = 60 } = JSON.parse(body || "{}");
+        const ag = agents[agentId];
+        if (!ag) { jsonResp(res, {error:"代理ID无效"}, 403); return; }
+        if (!ag.active) { jsonResp(res, {error:"代理账号已停用"}, 403); return; }
+        // 检查本月额度
+        const used = getAgentMonthlyUsed(agentId);
+        const remaining = ag.monthlyBudgetUSD - used;
+        const estimatedCost = duration * 0.068 / 60 * 10; // 估算10分钟成本
+        if (remaining < 0.068) {
+          jsonResp(res, {error:`本月额度已用完（已用$${used.toFixed(2)}/$${ag.monthlyBudgetUSD}）`}, 429);
+          return;
+        }
+        const code = generateInviteCode();
+        const roomId = code.replace("GT-", "").slice(0, 6);
+        const expiresAt = Date.now() + duration * 60 * 1000;
+        invites[code] = {
+          name: guestName, duration, expiresAt,
+          used: false, createdAt: Date.now(), usedAt: null,
+          roomId, agentId, agentName: ag.name
+        };
+        ag.inviteCount = (ag.inviteCount || 0) + 1;
+        saveInvites(invites);
+        saveAgents(agents);
+        log(`🎫 代理${agentId}(${ag.name})生成邀请码: ${code} 给${guestName} 剩余额度$${remaining.toFixed(2)}`);
+        jsonResp(res, {
+          ok: true, code, roomId, expiresAt, duration,
+          remaining: remaining.toFixed(2),
+          budgetUSD: ag.monthlyBudgetUSD
+        });
+      } catch(e) { jsonResp(res, {error: e.message}, 500); }
+    }); return;
+  }
+
+  // ── 代理查看自己的状态 ─────────────────────────────────
+  if (req.method === "GET" && url.pathname === "/agent/status") {
+    const agentId = url.searchParams.get("id");
+    const ag = agents[agentId];
+    if (!ag) { jsonResp(res, {error:"代理ID无效"}, 403); return; }
+    const used = getAgentMonthlyUsed(agentId);
+    const remaining = Math.max(0, ag.monthlyBudgetUSD - used);
+    const myInvites = Object.entries(invites)
+      .filter(([, inv]) => inv.agentId === agentId)
+      .map(([code, inv]) => ({
+        code, name: inv.name,
+        status: inv.used ? "已使用" : Date.now() > inv.expiresAt ? "已过期" : "可用",
+        usedAt: inv.usedAt ? new Date(inv.usedAt).toLocaleString() : "-",
+        duration: inv.duration
+      }));
+    jsonResp(res, {
+      agentId, name: ag.name, active: ag.active,
+      monthlyBudgetRMB: ag.monthlyBudgetRMB,
+      monthlyBudgetUSD: ag.monthlyBudgetUSD,
+      usedUSD: used.toFixed(4),
+      remainingUSD: remaining.toFixed(4),
+      remainingMinutes: Math.floor(remaining / 0.068 * 60),
+      invites: myInvites
+    });
+    return;
   }
 
   // ── 验证邀请码（通话开始时调用） ──────────────────────
