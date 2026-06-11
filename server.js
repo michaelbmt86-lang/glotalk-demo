@@ -134,7 +134,15 @@ function writeBillingLog(entry) {
 
 // ═══ 生成邀请码 ═══
 function generateInviteCode() {
-  return "GT-" + crypto.randomBytes(3).toString("hex").toUpperCase();
+  // 用时间戳后4位+随机2位确保唯一性
+  const ts = Date.now().toString(36).toUpperCase().slice(-4);
+  const rnd = crypto.randomBytes(1).toString("hex").toUpperCase();
+  return "GT-" + ts + rnd;
+}
+
+function generateRoomNumber() {
+  // 生成2位数房间号（10-99，避免个位数）
+  return String(Math.floor(Math.random() * 90) + 10);
 }
 
 // ═══ OpenAI session ═══
@@ -462,7 +470,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const { name = "测试用户", duration = 60 } = JSON.parse(body || "{}");
         const code = generateInviteCode();
-        const roomId = code.replace("GT-", "").slice(0, 6); // 房间号取邀请码后6位
+        const roomId = generateRoomNumber(); // 2位数房间号
         const expiresAt = Date.now() + duration * 60 * 1000;
         invites[code] = { name, duration, expiresAt, used: false, createdAt: Date.now(), usedAt: null, roomId };
         saveInvites(invites);
@@ -542,7 +550,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         const code = generateInviteCode();
-        const roomId = code.replace("GT-", "").slice(0, 6);
+        const roomId = generateRoomNumber(); // 2位数房间号
         const expiresAt = Date.now() + duration * 60 * 1000;
         invites[code] = {
           name: guestName, duration, expiresAt,
