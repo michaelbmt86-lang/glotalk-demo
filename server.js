@@ -313,11 +313,12 @@ const server = http.createServer(async (req, res) => {
       try {
         const { name = "测试用户", duration = 60 } = JSON.parse(body || "{}");
         const code = generateInviteCode();
+        const roomId = code.replace("GT-", "").slice(0, 6); // 房间号取邀请码后6位
         const expiresAt = Date.now() + duration * 60 * 1000;
-        invites[code] = { name, duration, expiresAt, used: false, createdAt: Date.now(), usedAt: null };
+        invites[code] = { name, duration, expiresAt, used: false, createdAt: Date.now(), usedAt: null, roomId };
         saveInvites(invites);
         log(`🎫 邀请码生成: ${code} 给${name} 有效${duration}分钟`);
-        jsonResp(res, { code, expiresAt, duration });
+        jsonResp(res, { code, expiresAt, duration, roomId });
       } catch(e) { jsonResp(res, {error: e.message}, 500); }
     }); return;
   }
@@ -348,8 +349,8 @@ const server = http.createServer(async (req, res) => {
         if (!inv) { jsonResp(res, {error:"邀请码无效"}, 403); return; }
         if (inv.used) { jsonResp(res, {error:"邀请码已使用"}, 403); return; }
         if (Date.now() > inv.expiresAt) { jsonResp(res, {error:"邀请码已过期"}, 403); return; }
-        log(`✅ 邀请码验证通过: ${code} (${inv.name})`);
-        jsonResp(res, { ok: true, name: inv.name, duration: inv.duration });
+        log(`✅ 邀请码验证通过: ${code} (${inv.name}) 房间:${inv.roomId}`);
+        jsonResp(res, { ok: true, name: inv.name, duration: inv.duration, roomId: inv.roomId });
       } catch(e) { jsonResp(res, {error: e.message}, 500); }
     }); return;
   }
