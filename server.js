@@ -230,8 +230,8 @@ function adminHTML() {
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#0a0a0a;color:#f0f0f0;font-family:-apple-system,sans-serif;padding:20px}
   h1{color:#22c55e;font-size:24px;margin-bottom:20px}
-  h2{color:#888;font-size:14px;margin:20px 0 10px}
-  .card{background:#111;border:1px solid #222;border-radius:12px;padding:16px;margin-bottom:16px}
+  h2{color:#888;font-size:13px;margin:8px 0 8px}
+  .card{background:#111;border:1px solid #222;border-radius:10px;padding:10px 14px;margin-bottom:10px}
   .stats{display:flex;gap:16px;flex-wrap:wrap}
   .stat{background:#1a1a1a;border-radius:8px;padding:12px 16px;flex:1;min-width:120px}
   .stat-val{font-size:22px;font-weight:800;color:#22c55e}
@@ -305,7 +305,7 @@ function adminHTML() {
 </div>
 
 <script>
-const ADMIN = '${ADMIN_PASS}';
+const ADMIN = new URLSearchParams(location.search).get('admin') || '';
 function showMsg(text, err) {
   const m = document.getElementById('msg');
   m.textContent = text; m.style.display = 'block';
