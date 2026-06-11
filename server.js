@@ -292,7 +292,7 @@ function adminHTML() {
       <option value="1440">24小时</option>
     </select>
   </div>
-  <button onclick="createInvite()">生成邀请码</button>
+  <button id="createInviteBtn" onclick="createInvite()">生成邀请码</button>
   <div id="msg"></div>
 </div>
 
@@ -306,98 +306,117 @@ function adminHTML() {
 
 <script>
 const ADMIN = new URLSearchParams(location.search).get('admin') || '';
-function showMsg(text, err) {
+const BASE_URL = 'https://glotalk.tech/glotalk-fullduplex.html';
+const LANGS = [
+  {c:'zh',l:'中文'},{c:'en',l:'英文'},{c:'ja',l:'日文'},{c:'ko',l:'韩文'},
+  {c:'es',l:'西文'},{c:'fr',l:'法文'},{c:'de',l:'德文'},{c:'ar',l:'阿文'}
+];
+
+function showMsg(text, isErr) {
   const m = document.getElementById('msg');
-  m.textContent = text; m.style.display = 'block';
-  m.className = err ? 'err' : '';
-  setTimeout(() => m.style.display = 'none', 5000);
+  m.textContent = text;
+  m.style.display = 'block';
+  m.className = isErr ? 'err' : '';
+  setTimeout(function(){ m.style.display='none'; }, 5000);
 }
+
+function copyLang(lang) {
+  const code = window._lastCode || '';
+  const txt = '邀请码：' + code + ' | 链接：' + BASE_URL + '?lang=' + lang;
+  navigator.clipboard.writeText(txt).then(function(){
+    const btn = document.getElementById('lang_' + lang);
+    if(btn){ btn.style.background='#22c55e'; btn.style.color='#000'; btn.textContent='✅'; }
+  });
+}
+
+async function createInvite() {
+  const btn = document.getElementById('createInviteBtn');
+  if(btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = '生成中...';
+  const name = document.getElementById('inviteName').value.trim() || '测试用户';
+  const duration = parseInt(document.getElementById('inviteDuration').value);
+  try {
+    const r = await fetch('/admin/invite?admin=' + ADMIN, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({name:name, duration:duration})
+    });
+    const d = await r.json();
+    if(d.code) {
+      window._lastCode = d.code;
+      let btns = '';
+      LANGS.forEach(function(lg){
+        btns += '<button id="lang_' + lg.c + '" onclick="copyLang(' + "'" + lg.c + "'" + ')" ' +
+          'style="background:#1a1a1a;border:1px solid #333;border-radius:8px;color:#888;' +
+          'font-size:11px;padding:6px 8px;cursor:pointer;flex:1;min-width:55px;text-align:center">' +
+          lg.l + '</button>';
+      });
+      const m = document.getElementById('msg');
+      m.innerHTML = '<div style="color:#22c55e;font-weight:700;margin-bottom:6px">✅ ' + d.code + 
+        ' <span style="color:#666;font-weight:400;font-size:12px">有效期' + duration + '分钟</span></div>' +
+        '<div style="color:#888;font-size:12px;margin-bottom:6px">点语言按钮复制链接+邀请码发给对方：</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px">' + btns + '</div>';
+      m.style.display = 'block';
+      m.className = '';
+      btn.textContent = '再生成一个';
+      btn.disabled = false;
+      setTimeout(function(){ location.reload(); }, 120000);
+    } else {
+      showMsg('❌ ' + (d.error || '生成失败'), true);
+      btn.textContent = '生成邀请码';
+      btn.disabled = false;
+    }
+  } catch(e) {
+    showMsg('❌ 网络错误', true);
+    btn.textContent = '生成邀请码';
+    btn.disabled = false;
+  }
+}
+
 async function createAgent() {
   const name = document.getElementById('agentName').value.trim();
   const budget = parseFloat(document.getElementById('agentBudget').value) || 200;
-  if (!name) { alert('请输入代理姓名'); return; }
+  if(!name){ alert('请输入代理姓名'); return; }
   const r = await fetch('/admin/agent/create?admin=' + ADMIN, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({name, monthlyBudgetRMB: budget})
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({name:name, monthlyBudgetRMB:budget})
   });
   const d = await r.json();
   const msg = document.getElementById('agentMsg');
-  if (d.agentId) {
-    msg.style.background = '#0d1a0f'; msg.style.color = '#22c55e';
+  if(d.agentId){
+    msg.style.background='#0d1a0f'; msg.style.color='#22c55e';
     msg.textContent = '✅ 代理已创建：' + d.agentId + ' (' + name + ') 月额度¥' + budget;
     msg.style.display = 'block';
-    setTimeout(() => location.reload(), 2000);
+    setTimeout(function(){ location.reload(); }, 2000);
   } else {
-    msg.style.background = '#1a0f0f'; msg.style.color = '#ef4444';
+    msg.style.background='#1a0f0f'; msg.style.color='#ef4444';
     msg.textContent = '❌ ' + (d.error || '创建失败');
     msg.style.display = 'block';
   }
 }
+
 async function toggleAgent(agentId, action) {
   const r = await fetch('/admin/agent/toggle?admin=' + ADMIN, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({agentId, action})
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({agentId:agentId, action:action})
   });
   const d = await r.json();
-  if (d.ok) location.reload();
+  if(d.ok) location.reload();
   else alert('操作失败: ' + d.error);
 }
-async function createInvite() {
-  const name = document.getElementById('inviteName').value.trim() || '测试用户';
-  const duration = document.getElementById('inviteDuration').value;
-  const r = await fetch('/admin/invite?admin=' + ADMIN, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({name, duration: parseInt(duration)})
-  });
-  const d = await r.json();
-  if (d.code) {
-    const base = 'https://glotalk.tech/glotalk-fullduplex.html';
-    const langs = [
-      {code:'zh',label:'中文'},{code:'en',label:'英文'},
-      {code:'ja',label:'日文'},{code:'ko',label:'韩文'},
-      {code:'es',label:'西班牙文'},{code:'fr',label:'法文'},
-      {code:'de',label:'德文'},{code:'ar',label:'阿拉伯文'}
-    ];
-    let langRows = '';
-    langs.forEach(function(l) {
-      const msg = '邀请码：' + d.code + '\n链接：' + base + '?lang=' + l.code;
-      langRows += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #222">' +
-        '<span style="font-size:13px">' + l.label + '</span>' +
-        '<button onclick="copyInviteLink(this,\'邀请码：' + d.code + '\\n链接：' + base + '?lang=' + l.code + '\')" ' +
-        'style="background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#888;font-size:12px;padding:4px 10px;cursor:pointer">' +
-        '📋 复制</button></div>';
-    });
-    const m = document.getElementById('msg');
-    m.innerHTML = '<div style="color:#22c55e;font-weight:700;margin-bottom:10px">✅ 邀请码：' + d.code + '（有效期' + duration + '分钟）</div>' +
-      '<div style="color:#888;font-size:12px;margin-bottom:8px">选择语言，复制发给对方：</div>' + langRows;
-    m.style.display = 'block';
-    m.className = '';
-    setTimeout(function() { location.reload(); }, 30000);
-  } else {
-    showMsg('❌ ' + (d.error || '生成失败'), true);
-  }
-}
-function copyInviteLink(btn, text) {
-  const fb = v => {
-    const e = Object.assign(document.createElement('textarea'),{value:v,style:'position:fixed;opacity:0'});
-    document.body.appendChild(e); e.select(); document.execCommand('copy'); document.body.removeChild(e);
-  };
-  try { navigator.clipboard.writeText(text).catch(() => fb(text)); } catch { fb(text); }
-  btn.textContent = '✅ 已复制';
-  setTimeout(() => btn.textContent = '📋 复制', 2000);
-}
+
 async function revoke(code) {
-  if (!confirm('确定吊销 ' + code + '？')) return;
+  if(!confirm('确定吊销 ' + code + '？')) return;
   const r = await fetch('/admin/invite/revoke?admin=' + ADMIN, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({code})
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({code:code})
   });
   const d = await r.json();
-  if (d.ok) { showMsg('✅ 已吊销 ' + code); setTimeout(() => location.reload(), 1000); }
+  if(d.ok){ showMsg('✅ 已吊销 ' + code); setTimeout(function(){ location.reload(); }, 1000); }
   else showMsg('❌ ' + d.error, true);
 }
 </script>
