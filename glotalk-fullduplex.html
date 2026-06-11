@@ -798,7 +798,8 @@ function toggleMute(){
 }
 function toggleSubtitle(){
   subtitleOn=!subtitleOn;
-  $("subtitleSection").className="subtitle-section"+(subtitleOn?" visible":"");
+  const el=$("subtitleSection");
+  el.style.display=subtitleOn?"flex":"none";
   $("subtitleBtn").textContent=subtitleOn?t.btnSubOn:t.btnSub;
   $("subtitleBtn").className="tool-btn"+(subtitleOn?" active":"");
   if(!subtitleOn){$("boxThem").textContent="";$("boxMe").textContent="";}
