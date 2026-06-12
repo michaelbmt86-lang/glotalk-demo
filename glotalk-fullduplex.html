@@ -92,6 +92,12 @@
         oninput="this.value=this.value.toUpperCase()" style="letter-spacing:2px;font-weight:700;color:#f59e0b"/>
       <button class="copy-btn" id="verifyBtn" onclick="verifyInvite()" style="background:#f59e0b22;border-color:#f59e0b44;color:#f59e0b">验证</button>
     </div>
+    <div class="room-row" id="roomInputRow" style="display:none">
+      <span class="room-label" id="roomLabel" style="width:56px">房间号</span>
+      <input class="room-input" id="roomInput" maxlength="2" placeholder="输入2位房间号"
+        oninput="this.value=this.value.replace(/[^0-9]/g,'')" style="letter-spacing:2px;font-weight:700"/>
+      <button class="copy-btn" id="joinRoomBtn" onclick="joinRoomByNumber()" style="background:#22c55e22;border-color:#22c55e44;color:#22c55e">进入</button>
+    </div>
     <div id="inviteStatus" style="font-size:12px;color:#555;padding:2px 0">请输入邀请码才能开始通话</div>
   </div>
 
@@ -305,9 +311,16 @@ function initRoom(){
   } else if(urlInviteParam && !urlRoom){
     // 情况2：链接带邀请码但没有房间号（对方收到链接）
     inviteCode = urlInviteParam;
-    const display = document.getElementById("inviteDisplay");
-    if(display) display.textContent = urlInviteParam;
+    inviteVerified = true; // 链接里有邀请码，无需再验证
     if(card) card.style.display = "block";
+    // 隐藏邀请码输入行和验证按钮，显示房间号输入行
+    const invRow = document.querySelector("#inviteCard .room-row");
+    if(invRow) invRow.style.display = "none";
+    const roomRow = document.getElementById("roomInputRow");
+    if(roomRow) roomRow.style.display = "flex";
+    // 填入邀请码（只读展示）
+    const invInput = document.getElementById("inviteInput");
+    if(invInput){ invInput.value = urlInviteParam; invInput.disabled = true; }
     if(mainBtn){ mainBtn.disabled=true; }
     const statusEl = document.getElementById("inviteStatus");
     if(statusEl) statusEl.textContent = "请输入对方告知的2位房间号";
@@ -330,7 +343,8 @@ function joinRoomByNumber(){
     return;
   }
   const lang = document.getElementById("myLang")?.value || "zh";
-  location.href = location.pathname + "?invite=" + urlInviteParam + "&room=" + num + "&lang=" + lang;
+  const tLang = document.getElementById("theirLang")?.value || "zh";
+  location.href = location.pathname + "?invite=" + urlInviteParam + "&room=" + num + "&lang=" + lang + "&theirLang=" + tLang;
 }
 function copyLink(){
   const link=location.origin+location.pathname+"?room="+ROOM_ID;
