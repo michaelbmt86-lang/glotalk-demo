@@ -394,10 +394,28 @@ async function createAgent() {
   const d = await r.json();
   const msg = document.getElementById('agentMsg');
   if(d.agentId){
+    const agentLink = 'https://glotalk.tech/agent.html?id=' + d.agentId;
     msg.style.background='#0d1a0f'; msg.style.color='#22c55e';
-    msg.textContent = '✅ 代理已创建：' + d.agentId + ' (' + name + ') 月额度¥' + budget;
+    msg.innerHTML = 
+      '<div style="font-weight:700;margin-bottom:8px">✅ 代理已创建：' + d.agentId + ' (' + name + ') 月额度¥' + budget + '</div>' +
+      '<div style="color:#888;font-size:12px;margin-bottom:6px">发给代理的链接（点复制）：</div>' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        '<div style="flex:1;background:#111;border:1px solid #222;border-radius:6px;padding:6px 8px;font-size:12px;color:#22c55e;word-break:break-all">' + agentLink + '</div>' +
+        '<button id="copyAgentLink" style="background:#22c55e;color:#000;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">📋 复制</button>' +
+      '</div>';
     msg.style.display = 'block';
-    setTimeout(function(){ location.reload(); }, 2000);
+    document.getElementById('copyAgentLink').onclick = function(){
+      navigator.clipboard.writeText(agentLink).then(function(){
+        document.getElementById('copyAgentLink').textContent='✅ 已复制';
+      }).catch(function(){
+        var el=document.createElement('textarea');
+        el.value=agentLink;el.style.position='fixed';el.style.opacity='0';
+        document.body.appendChild(el);el.select();document.execCommand('copy');
+        document.body.removeChild(el);
+        document.getElementById('copyAgentLink').textContent='✅ 已复制';
+      });
+    };
+    setTimeout(function(){ location.reload(); }, 30000);
   } else {
     msg.style.background='#1a0f0f'; msg.style.color='#ef4444';
     msg.textContent = '❌ ' + (d.error || '创建失败');
