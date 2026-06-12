@@ -193,6 +193,7 @@ const BG_TIMEOUT=2*60*1000; // 后台2分钟自动挂断
 
 const urlRoom=new URLSearchParams(location.search).get("room")||"";
 const urlLang=new URLSearchParams(location.search).get("lang");
+const urlTheirLang=new URLSearchParams(location.search).get("theirLang");
 const urlInviteParam=new URLSearchParams(location.search).get("invite")||"";
 // 邀请码前4位作前缀，不同邀请码下相同房间号不冲突（根目录+子目录）
 const invitePrefix=urlInviteParam?urlInviteParam.replace("GT-","").slice(0,4):Math.random().toString(36).slice(2,6).toUpperCase();
@@ -295,16 +296,14 @@ function initRoom(){
   
   if(urlInviteParam && urlRoom){
     // 情况1：链接带邀请码+房间号（我或代理点跳转进入）
-    // 直接进入，不需要任何验证
     inviteCode = urlInviteParam;
     inviteVerified = true;
-    if(card) card.style.display = "none"; // 隐藏输入区
+    if(card) card.style.display = "none";
     if(mainBtn){ mainBtn.disabled=false; mainBtn.style.opacity="1"; mainBtn.style.cursor="pointer"; }
     log("✅ 管理员/代理直接进入 邀请码:"+urlInviteParam+" 房间:"+urlRoom);
     
   } else if(urlInviteParam && !urlRoom){
     // 情况2：链接带邀请码但没有房间号（对方收到链接）
-    // 显示邀请码（只读）+ 输入2位房间号
     inviteCode = urlInviteParam;
     const display = document.getElementById("inviteDisplay");
     if(display) display.textContent = urlInviteParam;
@@ -315,7 +314,7 @@ function initRoom(){
     log("对方模式：邀请码已自动填入，等待输入房间号");
     
   } else {
-    // 情况3：直接打开页面（无参数），显示输入框
+    // 情况3：直接打开页面（无参数）
     if(card) card.style.display = "block";
     if(mainBtn){ mainBtn.disabled=true; }
   }
@@ -330,7 +329,6 @@ function joinRoomByNumber(){
     if(s){s.textContent="请输入正确的房间号";s.style.color="#ef4444";}
     return;
   }
-  // 跳转到带房间号的页面，保留邀请码参数
   const lang = document.getElementById("myLang")?.value || "zh";
   location.href = location.pathname + "?invite=" + urlInviteParam + "&room=" + num + "&lang=" + lang;
 }
@@ -348,12 +346,10 @@ function copyLink(){
 // ═══════════════════════════════════════════════════════════
 function onLangChange(){
   const lang=$("myLang").value;t=UI[lang]||UI.zh;
-  // 基本UI文字
   const fields={tagline:t.tagline,labelMe:t.labelMe,labelThem:t.labelThem,labelRoom:t.labelRoom,labelBoxThem:t.labelBoxThem,labelBoxMe:t.labelBoxMe};
   Object.keys(fields).forEach(id=>{const el=$(id);if(el)el.textContent=fields[id];});
   $("boxThem").setAttribute("data-ph",t.phThem);
   $("boxMe").setAttribute("data-ph",t.phMe);
-  // 按钮文字
   const mainBtn=$("mainBtn");if(mainBtn)mainBtn.textContent=callActive?t.btnHangup:t.btnStart;
   const muteBtn=$("muteBtn");if(muteBtn)muteBtn.textContent=muted?t.btnMicOff:t.btnMic;
   const subBtn=$("subtitleBtn");if(subBtn)subBtn.textContent=subtitleOn?t.btnSubOn:t.btnSub;
@@ -363,18 +359,15 @@ function onLangChange(){
   const lvBtn=$("labelLocalVideo");if(lvBtn)lvBtn.textContent=t.localVid;
   const rvBtn=$("labelRemoteVideo");if(rvBtn)rvBtn.textContent=t.remoteVid;
   const tmBtn=$("timerLabel");if(tmBtn)tmBtn.textContent=t.timerLabel;
-  // 邀请码卡片
   const invLabel=$("inviteLabel");if(invLabel)invLabel.textContent=t.inviteLabel||"邀请码";
   const roomLabel=$("roomLabel");if(roomLabel)roomLabel.textContent=t.roomLabel||"房间号";
   const roomInput=$("roomInput");if(roomInput)roomInput.placeholder=t.roomPlaceholder||"输入2位房间号";
   const roomHint=$("inviteStatus");if(roomHint&&!roomHint.textContent.includes("✅"))roomHint.textContent=t.roomHint||"输入对方告知的2位房间号";
   const verifyBtn=$("verifyBtn");if(verifyBtn)verifyBtn.textContent=t.verifyBtn||"验证";
   const joinBtn=$("joinRoomBtn");if(joinBtn)joinBtn.textContent=t.joinBtn||"进入";
-  // 底部按钮
   const logBtns=document.querySelectorAll(".toggle-log");
   if(logBtns[0])logBtns[0].textContent=t.logBtn||"🔍 调试日志";
   if(logBtns[1])logBtns[1].textContent=t.clearBtn||"🗑️ 清除日志";
-  // 更新下拉框选项文字（用当前语言描述所有语言）
   if(t.langNames){
     ["myLang","theirLang"].forEach(selId=>{
       const sel=$(selId);
@@ -404,7 +397,7 @@ function updateQuality(ms){
 }
 
 // ═══════════════════════════════════════════════════════════
-// 计时器（仅在翻译启动后才开始）
+// 计时器
 // ═══════════════════════════════════════════════════════════
 function startTimer(){
   callStartTime=Date.now();$("timerBar").style.display="flex";
@@ -441,7 +434,7 @@ async function initTurn(){
 }
 
 // ═══════════════════════════════════════════════════════════
-// 本地ASR（免费，不走OpenAI）
+// 本地ASR
 // ═══════════════════════════════════════════════════════════
 function startASR(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -462,16 +455,11 @@ function startASR(){
 function stopASR(){if(speechRec){try{speechRec.stop();}catch{}speechRec=null;}}
 
 // ═══════════════════════════════════════════════════════════
-// 关闭session（正确止血）
-// 步骤：DataChannel发session.close → 等session.closed（最多2秒）→ 关闭PC → 通知服务器
+// 关闭session
 // ═══════════════════════════════════════════════════════════
 async function closeSession(tPc,sessionId){
   if(!tPc)return;
-  // 找DataChannel
-  const channels=tPc.getDataChannels?.()??[];
-  // 尝试通过已知dc发送
   try{
-    // 对于翻译session，dc在tPc内部
     if(tPc._dc&&tPc._dc.readyState==="open"){
       tPc._dc.send(JSON.stringify({type:"session.close"}));
       await new Promise(res=>{
@@ -482,7 +470,6 @@ async function closeSession(tPc,sessionId){
     }
   }catch{}
   try{tPc.close();}catch{}
-  // 通知服务器
   if(sessionId){
     try{await fetch(GLOTALK+"/session/close",{method:"POST",headers:{"Content-Type":"application/json","X-GloTalk-Token":TOKEN},body:JSON.stringify({session_id:sessionId}),keepalive:true});}
     catch{}
@@ -492,11 +479,8 @@ async function closeSession(tPc,sessionId){
 
 // ═══════════════════════════════════════════════════════════
 // 建立翻译session
-// 参考：OpenAI官方文档 realtime-translation guide
-// 双人通话模式：每个方向一个session
 // ═══════════════════════════════════════════════════════════
 async function buildSession(inputStream,outputLang,onDelta,onDone,audioEl){
-  // 1. 从服务器获取client_secret（有防护）
   const sr=await fetch(GLOTALK+"/session",{
     method:"POST",
     headers:{"Content-Type":"application/json","X-GloTalk-Token":TOKEN},
@@ -508,7 +492,6 @@ async function buildSession(inputStream,outputLang,onDelta,onDone,audioEl){
   if(!client_secret)throw new Error("no client_secret");
   log("✅ Session: "+session_id+" →"+outputLang);
 
-  // 2. 建立WebRTC连接
   const ctx=new(window.AudioContext||window.webkitAudioContext)();
   const silent=ctx.createMediaStreamDestination().stream;
   const tPc=new RTCPeerConnection({
@@ -516,7 +499,6 @@ async function buildSession(inputStream,outputLang,onDelta,onDone,audioEl){
     iceCandidatePoolSize:10
   });
 
-  // 翻译音频输出
   if(audioEl){
     tPc.ontrack=e=>{
       audioEl.srcObject=e.streams[0];
@@ -526,9 +508,8 @@ async function buildSession(inputStream,outputLang,onDelta,onDone,audioEl){
     };
   }
 
-  // DataChannel：字幕
   const tDc=tPc.createDataChannel("oai-events");
-  tPc._dc=tDc; // 保存引用，用于关闭
+  tPc._dc=tDc;
   tDc.onmessage=e=>{
     try{
       const ev=JSON.parse(e.data);
@@ -540,14 +521,11 @@ async function buildSession(inputStream,outputLang,onDelta,onDone,audioEl){
     }catch{}
   };
 
-  // 3. 静音占位流
   silent.getTracks().forEach(tk=>{tk.enabled=false;tPc.addTrack(tk,silent);});
 
-  // 4. 创建offer
   const offer=await tPc.createOffer();
   await tPc.setLocalDescription(offer);
 
-  // 5. SDP握手（通过我们的服务器中继）
   const sdpRes=await fetch(GLOTALK+"/sdp?model=gpt-realtime-translate",{
     method:"POST",
     headers:{"Authorization":"Bearer "+client_secret,"Content-Type":"application/sdp","X-GloTalk-Token":TOKEN},
@@ -558,7 +536,6 @@ async function buildSession(inputStream,outputLang,onDelta,onDone,audioEl){
 
   await tPc.setRemoteDescription({type:"answer",sdp:answerSdp});
 
-  // 6. 等待ICE连接
   await new Promise((resolve,reject)=>{
     const to=setTimeout(()=>reject(new Error("翻译引擎连接超时")),15000);
     const check=()=>{
@@ -569,7 +546,6 @@ async function buildSession(inputStream,outputLang,onDelta,onDone,audioEl){
     tPc.oniceconnectionstatechange=check;check();
   });
 
-  // 7. 替换真实音频轨道
   if(inputStream){
     const track=inputStream.getAudioTracks()[0];
     if(track){
@@ -584,15 +560,7 @@ async function buildSession(inputStream,outputLang,onDelta,onDone,audioEl){
 }
 
 // ═══════════════════════════════════════════════════════════
-// 核心费用控制逻辑
-//
-// 规则1：双方P2P连接成功后，各自发 ready 信号
-//        双方都收到 ready → 同时启动翻译session → 开始计费
-//
-// 规则2：任意一方挂断 → 发 peer_hangup 信号
-//        对方收到 → 立刻关闭所有翻译session → 停止计费
-//
-// 规则3：页面进入后台超过5分钟 → 自动挂断 → 通知对方停止计费
+// 翻译控制
 // ═══════════════════════════════════════════════════════════
 async function startTranslation(){
   if(translationStarted)return;
@@ -603,8 +571,6 @@ async function startTranslation(){
   const myLang=$("myLang").value;
   const theirLang=$("theirLang").value;
 
-  // 每人只建1个session：对方声音→翻译→我听+上框字幕
-  // 下框字幕用本地ASR（免费），费用减半
   if(!theirAudioStream){
     log("❌ 没有对方音频流");
     translationStarted=false;
@@ -614,15 +580,14 @@ async function startTranslation(){
   try{
     theirTransPc=await buildSession(
       theirAudioStream, myLang,
-      delta=>appendBox($("boxThem"),delta),  // 上框：翻译后文字
+      delta=>appendBox($("boxThem"),delta),
       ()=>newlineBox($("boxThem")),
-      $("audioThem")                          // 翻译后声音
+      $("audioThem")
     );
     theirSessionId=theirTransPc._sessionId;
     log("✅ 翻译session就绪（1个session）");
   }catch(err){
     log("❌ 翻译session失败: "+err.message);
-    // 降级：播放对方原始声音
     if(theirAudioStream){
       const ra=document.createElement("audio");
       ra.autoplay=true;ra.srcObject=theirAudioStream;
@@ -630,9 +595,9 @@ async function startTranslation(){
     }
   }
 
-  startASR(); // 下框字幕用本地ASR（免费）
+  startASR();
   setStatus(t.active,"green");
-  startTimer(); // 翻译启动后才开始计时
+  startTimer();
 }
 
 async function stopTranslation(reason){
@@ -674,10 +639,8 @@ async function createP2P(){
       return;
     }
     if(e.track.kind==="audio"){
-      // 保存对方音频流，等双方都ready才启动翻译
       theirAudioStream=new MediaStream([e.track]);
       log("对方音频已接收，等待双方就绪...");
-      // 如果双方都已ready（可能对方先发了ready），立刻检查
       checkBothReady();
     }
   };
@@ -705,7 +668,7 @@ async function createP2P(){
   },15000);
 }
 
-// DataChannel：双方就绪协议
+// DataChannel
 function setupDC(d){
   dc=d;
   dc.onopen=()=>{
@@ -722,16 +685,12 @@ function setupDC(d){
       const d=JSON.parse(e.data);
       if(d.type==="ping"){dc.send(JSON.stringify({type:"pong",t:d.t}));return;}
       if(d.type==="pong"){const ms=Date.now()-d.t;$("pingText").textContent=ms+"ms";updateQuality(ms);return;}
-
-      // 对方已就绪
       if(d.type==="ready"){
         log("← 收到对方 ready");
         peerReady=true;
         checkBothReady();
         return;
       }
-
-      // 对方挂断 → 立刻停止计费
       if(d.type==="peer_hangup"){
         log("← 收到对方挂断，停止计费");
         await stopTranslation("对方挂断");
@@ -743,9 +702,7 @@ function setupDC(d){
   };
 }
 
-// 检查双方是否都就绪
 function checkBothReady(){
-  // 需要：双方DC就绪 + 对方音频已到达 + 本地麦克风已获取
   if(iAmReady&&peerReady&&theirAudioStream&&localStream&&!translationStarted){
     log("✅ 双方均已就绪，启动翻译");
     startTranslation();
@@ -793,18 +750,15 @@ async function onSignal(payload){
 // 主流程
 // ═══════════════════════════════════════════════════════════
 async function startCall(){
-  // 检查邀请码
   if(!inviteVerified){
     const statusEl=document.getElementById("inviteStatus");
     if(statusEl){statusEl.textContent="❌ 请先验证邀请码";statusEl.style.color="#ef4444";}
     return;
   }
-  // 标记邀请码已使用（一次性）
   if(inviteCode){
     fetch(GLOTALK+"/invite/use",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({code:inviteCode})}).catch(()=>{});
   }
-  // 房间信令频道 = 邀请码前缀 + 2位房间号（确保唯一）
   const CALL_ROOM = ROOM_CHANNEL;
   callActive=true;translationStarted=false;iAmReady=false;peerReady=false;
   theirAudioStream=null;
@@ -814,7 +768,7 @@ async function startCall(){
   $("boxThem").textContent="";$("boxMe").textContent="";
   setStatus(t.connecting,"yellow");
   log("【GloTalk v5 · 邀请码+房间号架构】ID:"+myId+" 频道:"+CALL_ROOM);
-  await requestWakeLock(); // 通话开始，防止熄屏
+  await requestWakeLock();
 
   await initTurn();
 
@@ -860,14 +814,13 @@ async function startCall(){
 // 挂断
 // ═══════════════════════════════════════════════════════════
 async function hangup(){
-  // 通知对方立刻停止计费
   if(dc?.readyState==="open"){
     try{dc.send(JSON.stringify({type:"peer_hangup"}));log("→ 发送 peer_hangup");}catch{}
     await new Promise(r=>setTimeout(r,300));
   }
   callActive=false;
   clearTimeout(relayTimer);clearTimeout(bgTimer);
-  releaseWakeLock(); // 挂断时释放屏幕常亮
+  releaseWakeLock();
   await stopTranslation("我主动挂断");
   try{p2pPc?.close();}catch{}
   p2pPc=null;
@@ -883,7 +836,7 @@ async function hangup(){
 function handleMain(){if(callActive)hangup();else startCall();}
 
 // ═══════════════════════════════════════════════════════════
-// 后台超时保护（5分钟自动挂断，防止后台计费）
+// 后台超时保护
 // ═══════════════════════════════════════════════════════════
 document.addEventListener("visibilitychange",()=>{
   if(document.hidden&&callActive){
@@ -949,13 +902,12 @@ async function toggleVideo(){
   }
 }
 
-// ═══ 屏幕常亮（防止熄屏进入后台）═══
+// ═══ 屏幕常亮 ═══
 async function requestWakeLock(){
   try{
     if("wakeLock" in navigator){
       wakeLock=await navigator.wakeLock.request("screen");
       log("✅ 屏幕常亮已开启");
-      // 页面重新可见时重新请求（系统可能释放了锁）
       document.addEventListener("visibilitychange",async()=>{
         if(wakeLock!==null&&document.visibilityState==="visible"&&callActive){
           try{wakeLock=await navigator.wakeLock.request("screen");log("✅ 屏幕常亮已恢复");}catch{}
@@ -972,13 +924,15 @@ function releaseWakeLock(){
 window.addEventListener("load",()=>{
   checkBrowser();
   initRoom();
-  // URL带lang参数时自动设置语言
   if(urlLang&&UI[urlLang]){
     const sel=document.getElementById("myLang");
     if(sel)sel.value=urlLang;
   }
+  if(urlTheirLang){
+    const sel2=document.getElementById("theirLang");
+    if(sel2)sel2.value=urlTheirLang;
+  }
   onLangChange();
-  // 回车键进入房间
   const ri=document.getElementById("roomInput");
   if(ri) ri.addEventListener("keydown",e=>{if(e.key==="Enter")joinRoom();});
 });
