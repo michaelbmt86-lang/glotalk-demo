@@ -84,6 +84,16 @@
       <h2>🎫 为客户生成邀请码</h2>
       <div class="row">
         <input id="guestName" placeholder="客户/朋友姓名"/>
+        <select id="myLang">
+          <option value="zh" selected>🇨🇳 我说中文</option>
+          <option value="en">🇺🇸 我说英文</option>
+          <option value="ja">🇯🇵 我说日文</option>
+          <option value="ko">🇰🇷 我说韩文</option>
+          <option value="es">🇪🇸 我说西班牙文</option>
+          <option value="fr">🇫🇷 我说法文</option>
+          <option value="de">🇩🇪 我说德文</option>
+          <option value="ar">🇸🇦 我说阿拉伯文</option>
+        </select>
         <select id="inviteDuration">
           <option value="30">30分钟</option>
           <option value="60" selected>60分钟</option>
@@ -164,18 +174,34 @@ const LANGS = [
   {code:"ar", label:"🇸🇦 阿拉伯文"},
 ];
 
-function renderLangLinks(code) {
+function renderLangLinks(invCode, roomNum) {
   const base = "https://glotalk.tech/glotalk-fullduplex.html";
   const el = document.getElementById("langLinks");
   if (!el) return;
+  // 链接不带room，对方需要手输房间号
+  const myLangVal = (document.getElementById("myLang") && document.getElementById("myLang").value) || "zh";
+  // 默认 theirLang = LANGS 里第一个不是 myLang 的语言
+  const defaultTheirLang = (LANGS.find(x => x.code !== myLangVal) || LANGS[0]).code;
+  window._latestTheirLang = defaultTheirLang;
   el.innerHTML = LANGS.map(l => {
-    const link = `${base}?lang=${l.code}`;
-    const msg = `邀请码：${code}\n通话链接：${link}`;
-    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid #222">
+    const link = base + "?invite=" + invCode + "&lang=" + l.code + "&theirLang=" + myLangVal;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #222">
       <span>${l.label}</span>
-      <button class="copy-btn" onclick="copyText('${msg.replace(/'/g,"\'")}','${l.code}')" id="langBtn_${l.code}">📋 复制</button>
+      <button class="copy-btn" data-link="${link}" data-lang="${l.code}"
+        onclick="window._latestTheirLang='${l.code}';doCopy(this)" id="langBtn_${l.code}">📋 复制</button>
     </div>`;
   }).join("");
+}
+
+function doCopy(btn) {
+  const txt = btn.dataset.link;
+  const fb = () => {
+    const e = Object.assign(document.createElement("textarea"),{value:txt,style:"position:fixed;opacity:0"});
+    document.body.appendChild(e); e.select(); document.execCommand("copy"); document.body.removeChild(e);
+  };
+  navigator.clipboard ? navigator.clipboard.writeText(txt).then(()=>{}).catch(fb) : fb();
+  btn.textContent = "✅ 已复制";
+  setTimeout(() => btn.textContent = "📋 复制", 2000);
 }
 
 function copyText(text, langCode) {
@@ -265,7 +291,33 @@ async function createInvite() {
     if (d.ok && d.code) {
       latestCode = d.code;
       document.getElementById("latestCode").textContent = d.code;
-      renderLangLinks(d.code);
+      document.getElementById("latestMeta").textContent =
+        "给 " + guestName + " · 有效期" + duration + "分钟 · 剩余额度$" + d.remaining;
+      // 大字显示房间号
+      let roomEl = document.getElementById("latestRoom");
+      if(!roomEl){
+        roomEl = document.createElement("div");
+        roomEl.id = "latestRoom";
+        roomEl.style.cssText = "text-align:center;margin:10px 0;padding:10px;background:#1a0f0f;border:1px solid #2a1a1a;border-radius:10px";
+        document.getElementById("latestCard").querySelector(".copy-btn").parentNode.insertBefore(roomEl, document.getElementById("latestCard").querySelector(".copy-btn"));
+      }
+      roomEl.innerHTML = '<div style="font-size:11px;color:#888;margin-bottom:4px">房间号（另外告知对方）</div>' +
+        '<div style="font-size:36px;font-weight:900;color:#f59e0b;letter-spacing:6px">' + d.roomId + '</div>';
+      // 加「进入房间」按钮
+      let jumpEl = document.getElementById("agentJumpBtn");
+      if(!jumpEl){
+        jumpEl = document.createElement("button");
+        jumpEl.id = "agentJumpBtn";
+        jumpEl.style.cssText = "width:100%;background:#3b82f6;color:#fff;border:none;border-radius:10px;padding:12px;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px";
+        document.getElementById("latestCard").appendChild(jumpEl);
+      }
+      jumpEl.textContent = "🚀 进入房间 " + d.roomId + "（开始等待对方）";
+      jumpEl.onclick = function(){
+        var myLang = (document.getElementById("myLang") && document.getElementById("myLang").value) || "zh";
+        var theirLangCode = window._latestTheirLang || "en";
+        location.href = "https://glotalk.tech/glotalk-fullduplex.html?invite=" + d.code + "&room=" + d.roomId + "&lang=" + myLang + "&theirLang=" + theirLangCode;
+      };
+      renderLangLinks(d.code, d.roomId);
       document.getElementById("latestMeta").textContent =
         `给 ${guestName} · 有效期${duration}分钟 · 剩余额度$${d.remaining}`;
       document.getElementById("latestCard").style.display = "block";
