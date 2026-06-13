@@ -1,0 +1,7 @@
+.env
+*.env
+.env.*
+node_modules/
+billing.log
+invites.json
+agents.json
