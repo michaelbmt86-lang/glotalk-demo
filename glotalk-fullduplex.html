@@ -200,7 +200,6 @@ const BG_TIMEOUT=2*60*1000; // 后台2分钟自动挂断
 const urlRoom=new URLSearchParams(location.search).get("room")||"";
 const urlLang=new URLSearchParams(location.search).get("lang");
 const urlTheirLang=new URLSearchParams(location.search).get("theirLang");
-const urlProvider=new URLSearchParams(location.search).get("provider")||"gemini";
 const urlInviteParam=new URLSearchParams(location.search).get("invite")||"";
 // 邀请码前4位作前缀，不同邀请码下相同房间号不冲突（根目录+子目录）
 const invitePrefix=urlInviteParam?urlInviteParam.replace("GT-","").slice(0,4):Math.random().toString(36).slice(2,6).toUpperCase();
@@ -506,18 +505,17 @@ async function buildGeminiSession(inputStream,outputLang,inputLang,onDelta,onDon
   const{session_id,ws_url}=sd;
   log("✅ Gemini Session: "+session_id+" →"+outputLang);
 
-  // 使用服务器代理，避免浏览器直连Gemini的CORS问题
-  const proxyUrl = GLOTALK.replace("https://","wss://").replace("http://","ws://")
-    + "/gemini-ws?token=" + TOKEN
-    + "&outputLang=" + outputLang
-    + "&sessionId=" + session_id;
+  const proxyUrl=GLOTALK.replace("https://","wss://").replace("http://","ws://")
+    +"/gemini-ws?token="+TOKEN+"&outputLang="+outputLang+"&sessionId="+session_id;
 
   return new Promise((resolve,reject)=>{
     const ws=new WebSocket(proxyUrl);
-    const obj={_sessionId:session_id,_ws:ws,_inputStream:inputStream,close:()=>ws.close()};
+    const obj={_sessionId:session_id,_ws:ws,close:()=>{
+      if(obj._audioCtx){try{obj._proc.disconnect();obj._audioCtx.close();}catch{}}
+      ws.close();
+    }};
 
     ws.onopen=()=>{
-      // 发送setup消息
       ws.send(JSON.stringify({
         setup:{
           model:"models/gemini-3.5-live-translate-preview",
@@ -535,33 +533,28 @@ async function buildGeminiSession(inputStream,outputLang,inputLang,onDelta,onDon
     ws.onmessage=async(e)=>{
       try{
         const msg=typeof e.data==="string"?JSON.parse(e.data):JSON.parse(await e.data.text());
-        // 字幕
         if(msg.serverContent?.outputTranscription?.text){
           onDelta&&onDelta(msg.serverContent.outputTranscription.text);
         }
-        if(msg.serverContent?.outputTranscription?.finished){
-          onDone&&onDone();
-        }
-        // 翻译音频输出
+        if(msg.serverContent?.outputTranscription?.finished){onDone&&onDone();}
         if(msg.serverContent?.modelTurn?.parts){
           for(const part of msg.serverContent.modelTurn.parts){
             if(part.inlineData?.mimeType?.startsWith("audio/")){
-              const raw=atob(part.inlineData.data);
-              const buf=new ArrayBuffer(raw.length);
-              const view=new Uint8Array(buf);
-              for(let i=0;i<raw.length;i++)view[i]=raw.charCodeAt(i);
-              const audioCtx=new(window.AudioContext||window.webkitAudioContext)();
-              const decoded=await audioCtx.decodeAudioData(buf);
-              const src=audioCtx.createBufferSource();
-              src.buffer=decoded;
-              src.connect(audioCtx.destination);
-              src.start();
+              try{
+                const raw=atob(part.inlineData.data);
+                const buf=new ArrayBuffer(raw.length);
+                const view=new Uint8Array(buf);
+                for(let i=0;i<raw.length;i++)view[i]=raw.charCodeAt(i);
+                const actx=new(window.AudioContext||window.webkitAudioContext)();
+                const decoded=await actx.decodeAudioData(buf);
+                const src=actx.createBufferSource();
+                src.buffer=decoded;src.connect(actx.destination);src.start();
+              }catch(ae){log("音频播放错误:"+ae.message);}
             }
           }
         }
-        // setup完成后开始发送音频
         if(msg.setupComplete){
-          log("✅ Gemini翻译引擎就绪");
+          log("✅ Gemini翻译引擎就绪 →"+outputLang);
           if(inputStream){
             const audioCtx=new(window.AudioContext||window.webkitAudioContext)();
             const src=audioCtx.createMediaStreamSource(inputStream);
@@ -574,17 +567,15 @@ async function buildGeminiSession(inputStream,outputLang,inputLang,onDelta,onDon
               const b64=btoa(String.fromCharCode(...new Uint8Array(s16.buffer)));
               ws.send(JSON.stringify({realtimeInput:{mediaChunks:[{mimeType:"audio/pcm;rate=16000",data:b64}]}}));
             };
-            src.connect(proc);
-            proc.connect(audioCtx.destination);
-            obj._audioCtx=audioCtx;
-            obj._proc=proc;
+            src.connect(proc);proc.connect(audioCtx.destination);
+            obj._audioCtx=audioCtx;obj._proc=proc;
           }
           resolve(obj);
         }
       }catch(err){log("Gemini消息错误:"+err.message);}
     };
 
-    ws.onerror=e=>{log("❌ Gemini WS错误");reject(new Error("Gemini WebSocket错误"));};
+    ws.onerror=()=>reject(new Error("Gemini WebSocket连接失败"));
     ws.onclose=()=>{log("Gemini WS已关闭");};
     setTimeout(()=>reject(new Error("Gemini连接超时")),15000);
   });
@@ -691,29 +682,15 @@ async function startTranslation(){
   }
 
   try{
-    if(urlProvider==="gemini"){
-      log("🔵 使用 Gemini 3.5 Live Translate");
-      theirTransPc=await buildGeminiSession(
-        theirAudioStream, myLang, theirLang,
-        delta=>appendBox($("boxThem"),delta),
-        ()=>newlineBox($("boxThem")),
-        $("audioThem")
-      );
-    }else{
-      log("🟠 使用 OpenAI gpt-realtime-translate");
-      theirTransPc=await buildSession(
-        theirAudioStream, myLang,
-        delta=>appendBox($("boxThem"),delta),
-        ()=>newlineBox($("boxThem")),
-        $("audioThem")
-      );
-    }
+    log("🟠 临时使用备用模式");
+    throw new Error("临时备用模式");
     theirSessionId=theirTransPc._sessionId;
     log("✅ 翻译session就绪（1个session）");
   }catch(err){
     log("❌ 翻译session失败: "+err.message);
     if(theirAudioStream){
       const ra=document.createElement("audio");
+      log("🔊 备用：直接播放对方原始音频");
       ra.autoplay=true;ra.srcObject=theirAudioStream;
       document.body.appendChild(ra);
     }
@@ -769,7 +746,15 @@ async function createP2P(){
     }
   };
 
-  p2pPc.onicecandidate=async e=>{if(e.candidate)await bcast({type:"ice",candidate:e.candidate.toJSON()});};
+  p2pPc.onicecandidate=async e=>{
+    if(e.candidate){
+      log("🧊 ICE candidate: "+e.candidate.type+" "+e.candidate.address);
+      await bcast({type:"ice",candidate:e.candidate.toJSON()});
+      log("🧊 ICE candidate已发送");
+    }else{
+      log("🧊 ICE gathering完成");
+    }
+  };
   p2pPc.oniceconnectionstatechange=()=>{
     const s=p2pPc.iceConnectionState;
     log("P2P ICE: "+s);
