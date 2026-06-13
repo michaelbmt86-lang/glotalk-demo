@@ -200,6 +200,7 @@ const BG_TIMEOUT=2*60*1000; // 后台2分钟自动挂断
 const urlRoom=new URLSearchParams(location.search).get("room")||"";
 const urlLang=new URLSearchParams(location.search).get("lang");
 const urlTheirLang=new URLSearchParams(location.search).get("theirLang");
+const urlProvider=new URLSearchParams(location.search).get("provider")||"gemini";
 const urlInviteParam=new URLSearchParams(location.search).get("invite")||"";
 // 邀请码前4位作前缀，不同邀请码下相同房间号不冲突（根目录+子目录）
 const invitePrefix=urlInviteParam?urlInviteParam.replace("GT-","").slice(0,4):Math.random().toString(36).slice(2,6).toUpperCase();
@@ -492,6 +493,98 @@ async function closeSession(tPc,sessionId){
 }
 
 // ═══════════════════════════════════════════════════════════
+// Gemini Live Translate session
+// ═══════════════════════════════════════════════════════════
+async function buildGeminiSession(inputStream,outputLang,inputLang,onDelta,onDone,audioEl){
+  const sr=await fetch(GLOTALK+"/gemini-session",{
+    method:"POST",
+    headers:{"Content-Type":"application/json","X-GloTalk-Token":TOKEN},
+    body:JSON.stringify({outputLanguage:outputLang,inputLanguage:inputLang})
+  });
+  const sd=await sr.json();
+  if(!sr.ok)throw new Error("Gemini Session "+sr.status+": "+(sd.error||""));
+  const{session_id,ws_url}=sd;
+  log("✅ Gemini Session: "+session_id+" →"+outputLang);
+
+  return new Promise((resolve,reject)=>{
+    const ws=new WebSocket(ws_url);
+    const obj={_sessionId:session_id,_ws:ws,_inputStream:inputStream,close:()=>ws.close()};
+
+    ws.onopen=()=>{
+      // 发送setup消息
+      ws.send(JSON.stringify({
+        setup:{
+          model:"models/gemini-3.5-live-translate-preview",
+          generationConfig:{
+            responseModalities:["AUDIO"],
+            inputAudioTranscription:{},
+            outputAudioTranscription:{},
+            translationConfig:{targetLanguageCode:outputLang}
+          }
+        }
+      }));
+      log("✅ Gemini WS已连接 →"+outputLang);
+    };
+
+    ws.onmessage=async(e)=>{
+      try{
+        const msg=typeof e.data==="string"?JSON.parse(e.data):JSON.parse(await e.data.text());
+        // 字幕
+        if(msg.serverContent?.outputTranscription?.text){
+          onDelta&&onDelta(msg.serverContent.outputTranscription.text);
+        }
+        if(msg.serverContent?.outputTranscription?.finished){
+          onDone&&onDone();
+        }
+        // 翻译音频输出
+        if(msg.serverContent?.modelTurn?.parts){
+          for(const part of msg.serverContent.modelTurn.parts){
+            if(part.inlineData?.mimeType?.startsWith("audio/")){
+              const raw=atob(part.inlineData.data);
+              const buf=new ArrayBuffer(raw.length);
+              const view=new Uint8Array(buf);
+              for(let i=0;i<raw.length;i++)view[i]=raw.charCodeAt(i);
+              const audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+              const decoded=await audioCtx.decodeAudioData(buf);
+              const src=audioCtx.createBufferSource();
+              src.buffer=decoded;
+              src.connect(audioCtx.destination);
+              src.start();
+            }
+          }
+        }
+        // setup完成后开始发送音频
+        if(msg.setupComplete){
+          log("✅ Gemini翻译引擎就绪");
+          if(inputStream){
+            const audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+            const src=audioCtx.createMediaStreamSource(inputStream);
+            const proc=audioCtx.createScriptProcessor(4096,1,1);
+            proc.onaudioprocess=ev=>{
+              if(ws.readyState!==WebSocket.OPEN)return;
+              const pcm=ev.inputBuffer.getChannelData(0);
+              const s16=new Int16Array(pcm.length);
+              for(let i=0;i<pcm.length;i++)s16[i]=Math.max(-32768,Math.min(32767,pcm[i]*32768));
+              const b64=btoa(String.fromCharCode(...new Uint8Array(s16.buffer)));
+              ws.send(JSON.stringify({realtimeInput:{mediaChunks:[{mimeType:"audio/pcm;rate=16000",data:b64}]}}));
+            };
+            src.connect(proc);
+            proc.connect(audioCtx.destination);
+            obj._audioCtx=audioCtx;
+            obj._proc=proc;
+          }
+          resolve(obj);
+        }
+      }catch(err){log("Gemini消息错误:"+err.message);}
+    };
+
+    ws.onerror=e=>{log("❌ Gemini WS错误");reject(new Error("Gemini WebSocket错误"));};
+    ws.onclose=()=>{log("Gemini WS已关闭");};
+    setTimeout(()=>reject(new Error("Gemini连接超时")),15000);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
 // 建立翻译session
 // ═══════════════════════════════════════════════════════════
 async function buildSession(inputStream,outputLang,onDelta,onDone,audioEl){
@@ -592,12 +685,23 @@ async function startTranslation(){
   }
 
   try{
-    theirTransPc=await buildSession(
-      theirAudioStream, myLang,
-      delta=>appendBox($("boxThem"),delta),
-      ()=>newlineBox($("boxThem")),
-      $("audioThem")
-    );
+    if(urlProvider==="gemini"){
+      log("🔵 使用 Gemini 3.5 Live Translate");
+      theirTransPc=await buildGeminiSession(
+        theirAudioStream, myLang, theirLang,
+        delta=>appendBox($("boxThem"),delta),
+        ()=>newlineBox($("boxThem")),
+        $("audioThem")
+      );
+    }else{
+      log("🟠 使用 OpenAI gpt-realtime-translate");
+      theirTransPc=await buildSession(
+        theirAudioStream, myLang,
+        delta=>appendBox($("boxThem"),delta),
+        ()=>newlineBox($("boxThem")),
+        $("audioThem")
+      );
+    }
     theirSessionId=theirTransPc._sessionId;
     log("✅ 翻译session就绪（1个session）");
   }catch(err){
