@@ -5,6 +5,7 @@
  */
 
 const https  = require("https");
+const { WebSocket: WS } = require("ws");
 const http   = require("http");
 const fs     = require("fs");
 const crypto = require("crypto");
@@ -14,6 +15,7 @@ const PORT          = 3000;
 const ACCESS_TOKEN  = process.env.ACCESS_TOKEN  || "glotalk2026";
 const ADMIN_PASS    = process.env.ADMIN_PASS    || "gloAdmin2026";
 const OPENAI_KEY    = process.env.OPENAI_API_KEY;
+const GEMINI_KEY    = process.env.GEMINI_API_KEY;
 
 const MAX_SESSIONS_PER_DAY = 50;
 const MAX_SESSIONS_PER_IP  = 10;
@@ -399,10 +401,8 @@ async function createAgent() {
     msg.innerHTML = 
       '<div style="font-weight:700;margin-bottom:8px">✅ 代理已创建：' + d.agentId + ' (' + name + ') 月额度¥' + budget + '</div>' +
       '<div style="color:#888;font-size:12px;margin-bottom:6px">发给代理的链接（点复制）：</div>' +
-      '<div style="display:flex;align-items:center;gap:8px">' +
-        '<div style="flex:1;background:#111;border:1px solid #222;border-radius:6px;padding:6px 8px;font-size:12px;color:#22c55e;word-break:break-all">' + agentLink + '</div>' +
-        '<button id="copyAgentLink" style="background:#22c55e;color:#000;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">📋 复制</button>' +
-      '</div>';
+      '<div style="background:#111;border:1px solid #222;border-radius:6px;padding:8px;font-size:12px;color:#22c55e;word-break:break-all;margin-bottom:6px">' + agentLink + '</div>' +
+      '<button id="copyAgentLink" style="width:100%;background:#22c55e;color:#000;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700;cursor:pointer">📋 复制链接</button>';
     msg.style.display = 'block';
     document.getElementById('copyAgentLink').onclick = function(){
       navigator.clipboard.writeText(agentLink).then(function(){
@@ -673,6 +673,39 @@ const server = http.createServer(async (req, res) => {
   if (!verifyToken(req)) {
     log(`⚠️ 未授权: ${getIP(req)} ${url.pathname}`);
     jsonResp(res, {error:"Unauthorized"}, 403); return;
+  }
+
+  // ── /gemini-session：Gemini Live Translate WebSocket代理 ──
+  if (req.method === "POST" && url.pathname === "/gemini-session") {
+    checkDailyReset();
+    const ip = getIP(req);
+    if (dailySessionCount >= MAX_SESSIONS_PER_DAY) {
+      jsonResp(res, {error:"Daily session limit reached"}, 429); return;
+    }
+    if (!checkIPLimit(ip)) {
+      jsonResp(res, {error:"Too many requests from your IP"}, 429); return;
+    }
+    if (!GEMINI_KEY) { jsonResp(res, {error:"GEMINI_API_KEY not configured"}, 500); return; }
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { outputLanguage = "zh", inputLanguage = "ar" } = JSON.parse(body || "{}");
+        const sessionId = `gsess_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+        activeSessions.set(sessionId, { createdAt:Date.now(), ip, outputLang:outputLanguage, provider:"gemini" });
+        dailySessionCount++;
+        writeBillingLog({sessionId, outputLang:outputLanguage, ip, minutes:0, event:"OPEN"});
+        log(`✅ Gemini Session: ${sessionId} →${outputLanguage} IP:${ip}`);
+        jsonResp(res, {
+          session_id: sessionId,
+          gemini_key: GEMINI_KEY,
+          output_language: outputLanguage,
+          input_language: inputLanguage,
+          model: "gemini-3.5-live-translate-preview",
+          ws_url: `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${GEMINI_KEY}`,
+          max_minutes: SESSION_MAX_MINUTES
+        });
+      } catch(e) { log(`❌ /gemini-session: ${e.message}`); jsonResp(res, {error:e.message}, 500); }
+    }); return;
   }
 
   // ── /session：生成client_secret ───────────────────────
