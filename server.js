@@ -820,6 +820,38 @@ setInterval(() => {
   saveInvites(invites);
 }, 60 * 1000);
 
+// ═══ Gemini WebSocket 代理 ═══
+const { WebSocketServer } = require("ws");
+const wss = new WebSocketServer({ noServer: true });
+
+server.on("upgrade", (req, socket, head) => {
+  const url = new URL(req.url, "http://localhost");
+  if (url.pathname === "/gemini-ws") {
+    const token = url.searchParams.get("token") || "";
+    if (token !== ACCESS_TOKEN) { socket.destroy(); return; }
+    const outputLang = url.searchParams.get("outputLang") || "zh";
+    const sessionId = url.searchParams.get("sessionId") || "";
+    wss.handleUpgrade(req, socket, head, (clientWs) => {
+      if (!GEMINI_KEY) { clientWs.close(1011, "GEMINI_API_KEY not configured"); return; }
+      const geminiUrl = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=" + GEMINI_KEY;
+      const geminiWs = new WS(geminiUrl);
+      geminiWs.on("open", () => {
+        log("✅ Gemini WS代理已连接 →" + outputLang + " session:" + sessionId);
+        clientWs.on("message", (data) => {
+          if (geminiWs.readyState === WS.OPEN) geminiWs.send(data);
+        });
+        geminiWs.on("message", (data) => {
+          if (clientWs.readyState === WS.OPEN) clientWs.send(data);
+        });
+        clientWs.on("close", () => { geminiWs.close(); log("Gemini WS代理关闭: " + sessionId); });
+        geminiWs.on("close", () => { if(clientWs.readyState === WS.OPEN) clientWs.close(); });
+        geminiWs.on("error", (e) => { log("❌ Gemini WS错误: " + e.message); clientWs.close(1011, e.message); });
+      });
+      geminiWs.on("error", (e) => { log("❌ Gemini WS连接失败: " + e.message); clientWs.close(1011, e.message); });
+    });
+  }
+});
+
 server.listen(PORT, () => {
   log(`GloTalk Server v3 启动，端口${PORT}`);
   log(`ACCESS_TOKEN: ${ACCESS_TOKEN ? "已配置" : "⚠️未配置"}`);
