@@ -205,7 +205,7 @@ async function verifyInvite() {
   const code = $('inviteInput').value.trim().toUpperCase();
   const name = $('nameInput').value.trim();
   if (!code) { showError('请输入邀请码'); return; }
-  if (!name) { showError('请输入你的名字'); return; }
+  // 姓名可选
 
   $('verifyBtn').disabled = true;
   $('verifyBtn').textContent = '验证中...';
@@ -222,7 +222,7 @@ async function verifyInvite() {
 
     inviteData = data;
     myRoom = data.roomId || code;
-    myIdentity = name + '-' + Date.now().toString(36);
+    myIdentity = (name || '用户') + '-' + Date.now().toString(36);
 
     $('roomDisplay').textContent = myRoom;
     $('shareLink').textContent = location.origin + '?room=' + myRoom;
