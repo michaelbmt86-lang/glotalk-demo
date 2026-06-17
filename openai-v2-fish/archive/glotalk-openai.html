@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GloTalk — Live Translation (Route A)</title>
+
+  <!--
+    GloTalk 路线A — gpt-realtime-translate + LiveKit
+    参考来源：OpenAI Cookbook livekit-translation-demo（2026-05-07）
+      lib/realtime-translation.ts        → useRemoteTranslation 逻辑
+      lib/realtime-translation-config.js → 常量、语言列表
+      components/conference/livekit-video-conference.tsx → UI 流程
+    LiveKit Browser SDK via CDN（livekit-client 官方推荐方式）
+  -->
+
+  <!-- LiveKit Browser Client SDK（官方 CDN）-->
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.19.2/dist/livekit-client.umd.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f0f0f;
+      color: #f0f0f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid #2a2a2a;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    header .badge {
+      font-size: 0.7rem;
+      background: #1a4a8a;
+      color: #8ab4f8;
+      padding: 0.2rem 0.6rem;
+      border-radius: 99px;
+      font-weight: 600;
+    }
+
+    /* ── 登录界面 ── */
+    #lobby {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      padding: 2rem;
+    }
+    #lobby h2 { font-size: 1.5rem; font-weight: 600; }
+    #lobby p { color: #888; font-size: 0.9rem; text-align: center; max-width: 400px; }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      width: 100%;
+      max-width: 360px;
+    }
+    .form-group label { font-size: 0.85rem; color: #aaa; font-weight: 500; }
+    .form-group input, .form-group select {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #f0f0f0;
+      font-size: 0.95rem;
+      padding: 0.65rem 0.9rem;
+      outline: none;
+      width: 100%;
+      transition: border-color 0.15s;
+    }
+    .form-group input:focus, .form-group select:focus {
+      border-color: #8ab4f8;
+    }
+    .form-group select option { background: #1a1a1a; }
+
+    .btn {
+      background: #8ab4f8;
+      color: #111;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      padding: 0.75rem 1.5rem;
+      cursor: pointer;
+      width: 100%;
+      max-width: 360px;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: #a8c7fa; }
+    .btn:disabled { background: #333; color: #666; cursor: not-allowed; }
+    .btn.danger { background: #d84a38; color: #fff; }
+    .btn.danger:hover { background: #c23b2b; }
+
+    /* ── 会议界面 ── */
+    #meeting { flex: 1; display: none; flex-direction: column; }
+
+    .participants-grid {
+      flex: 1;
+      display: grid;
+      gap: 0.75rem;
+      padding: 1rem;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .participant-tile {
+      background: #1a1a1a;
+      border-radius: 16px;
+      border: 1px solid #2a2a2a;
+      position: relative;
+      min-height: 220px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .participant-tile.local { border-color: #8ab4f8; }
+
+    .participant-avatar {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: #2a2a2a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: #f0f0f0;
+    }
+
+    .participant-label {
+      position: absolute;
+      bottom: 0.75rem;
+      left: 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: #fff;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    }
+
+    /* 字幕 */
+    .subtitles {
+      position: absolute;
+      bottom: 2.5rem;
+      left: 0.75rem;
+      right: 0.75rem;
+      text-align: center;
+      pointer-events: none;
+    }
+    .subtitle-translated {
+      background: rgba(0,0,0,0.75);
+      color: #fff;
+      font-size: 0.85rem;
+      font-weight: 500;
+      padding: 0.4rem 0.75rem;
+      border-radius: 8px;
+      margin-bottom: 0.25rem;
+      display: none;
+    }
+    .subtitle-source {
+      background: rgba(0,0,0,0.5);
+      color: rgba(255,255,255,0.75);
+      font-size: 0.7rem;
+      padding: 0.3rem 0.6rem;
+      border-radius: 6px;
+      display: none;
+    }
+
+    /* 翻译状态徽章 */
+    .translation-badge {
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 0.2rem 0.5rem;
+      border-radius: 99px;
+      display: none;
+    }
+    .translation-badge.connecting { background: #3a3a00; color: #ffd600; display: block; }
+    .translation-badge.connected  { background: #003a1a; color: #00e676; display: block; }
+    .translation-badge.error      { background: #3a0000; color: #ff5252; display: block; }
+
+    /* 底部控制栏 */
+    .controls {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid #2a2a2a;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .controls-left { display: flex; align-items: center; gap: 0.75rem; }
+    .controls-center { display: flex; align-items: center; gap: 0.5rem; }
+    .controls-right { display: flex; align-items: center; gap: 0.75rem; }
+
+    .control-btn {
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      font-size: 1.1rem;
+      transition: background 0.15s;
+    }
+    .control-btn.active   { background: #2a2a2a; color: #f0f0f0; }
+    .control-btn.active:hover { background: #333; }
+    .control-btn.inactive { background: #d84a38; color: #fff; }
+    .control-btn.inactive:hover { background: #c23b2b; }
+    .control-btn.leave    { background: #d84a38; color: #fff; width: auto; border-radius: 8px; padding: 0 1rem; font-size: 0.85rem; font-weight: 600; }
+    .control-btn.leave:hover { background: #c23b2b; }
+
+    .translation-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 0.4rem 0.8rem;
+      cursor: pointer;
+      font-size: 0.85rem;
+      color: #aaa;
+      transition: all 0.15s;
+    }
+    .translation-toggle.on {
+      background: #1a3a6a;
+      border-color: #8ab4f8;
+      color: #8ab4f8;
+    }
+
+    /* 语言选择器（在控制栏内）*/
+    #lang-select {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #f0f0f0;
+      font-size: 0.85rem;
+      padding: 0.4rem 0.6rem;
+      outline: none;
+    }
+
+    /* 错误提示 */
+    #error-bar {
+      background: #3a0000;
+      color: #ff5252;
+      padding: 0.6rem 1rem;
+      font-size: 0.85rem;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>GloTalk</h1>
+  <span class="badge">Route A · gpt-realtime-translate</span>
+</header>
+
+<div id="error-bar"></div>
+
+<!-- 登录界面 -->
+<div id="lobby">
+  <h2>Join a room</h2>
+  <p>Real-time speech translation powered by gpt-realtime-translate + LiveKit</p>
+
+  <div class="form-group">
+    <label for="room-input">Room code</label>
+    <input id="room-input" type="text" placeholder="glotalk-demo" maxlength="80" />
+  </div>
+
+  <div class="form-group">
+    <label for="name-input">Your name</label>
+    <input id="name-input" type="text" placeholder="Your name" maxlength="80" />
+  </div>
+
+  <div class="form-group">
+    <label for="lang-lobby">I want to hear in</label>
+    <select id="lang-lobby">
+      <option value="en">English</option>
+      <option value="zh">Chinese 中文</option>
+      <option value="es">Spanish</option>
+      <option value="pt">Portuguese</option>
+      <option value="fr">French</option>
+      <option value="ja">Japanese 日本語</option>
+      <option value="ru">Russian</option>
+      <option value="de">German</option>
+      <option value="ko">Korean 한국어</option>
+      <option value="hi">Hindi हिन्दी</option>
+      <option value="id">Indonesian</option>
+      <option value="vi">Vietnamese</option>
+      <option value="it">Italian</option>
+    </select>
+  </div>
+
+  <button class="btn" id="join-btn">Join now</button>
+</div>
+
+<!-- 会议界面 -->
+<div id="meeting">
+  <div class="participants-grid" id="participants-grid">
+    <!-- 动态生成 -->
+  </div>
+
+  <div class="controls">
+    <div class="controls-left">
+      <!-- 翻译开关 + 语言选择 -->
+      <button class="translation-toggle" id="translation-toggle">
+        🌐 Translation: Off
+      </button>
+      <select id="lang-select">
+        <option value="en">English</option>
+        <option value="zh">Chinese</option>
+        <option value="es">Spanish</option>
+        <option value="pt">Portuguese</option>
+        <option value="fr">French</option>
+        <option value="ja">Japanese</option>
+        <option value="ru">Russian</option>
+        <option value="de">German</option>
+        <option value="ko">Korean</option>
+        <option value="hi">Hindi</option>
+        <option value="id">Indonesian</option>
+        <option value="vi">Vietnamese</option>
+        <option value="it">Italian</option>
+      </select>
+    </div>
+
+    <div class="controls-center">
+      <button class="control-btn active" id="mic-btn" title="Toggle microphone">🎤</button>
+      <button class="control-btn leave" id="leave-btn">Leave</button>
+    </div>
+
+    <div class="controls-right">
+      <span id="room-label" style="font-size:0.8rem;color:#666;"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// GloTalk 路线A — 前端逻辑
+// 参考来源：OpenAI Cookbook livekit-translation-demo（2026-05-07）
+//   lib/realtime-translation.ts        → WebRTC sidecar 流程
+//   lib/realtime-translation-config.js → 常量
+// ============================================================
+
+// ---- 官方常量（来自 realtime-translation-config.js）----
+const REALTIME_TRANSLATION_CALL_URL =
+  "https://api.openai.com/v1/realtime/translations/calls";
+
+// ---- 状态 ----
+let room = null;
+let micEnabled = true;
+let translationEnabled = false;
+let targetLanguage = "en";
+
+// 每个远端参与者对应一个翻译 sidecar
+// sidecars[participantIdentity] = { pc, dataChannel, audio, cleanup }
+const sidecars = {};
+
+// ---- DOM 引用 ----
+const lobbyEl       = document.getElementById("lobby");
+const meetingEl     = document.getElementById("meeting");
+const gridEl        = document.getElementById("participants-grid");
+const errorBar      = document.getElementById("error-bar");
+const joinBtn       = document.getElementById("join-btn");
+const roomInput     = document.getElementById("room-input");
+const nameInput     = document.getElementById("name-input");
+const langLobby     = document.getElementById("lang-lobby");
+const langSelect    = document.getElementById("lang-select");
+const micBtn        = document.getElementById("mic-btn");
+const leaveBtn      = document.getElementById("leave-btn");
+const roomLabel     = document.getElementById("room-label");
+const translToggle  = document.getElementById("translation-toggle");
+
+// ---- 错误显示 ----
+function showError(msg) {
+  errorBar.textContent = msg;
+  errorBar.style.display = "block";
+  setTimeout(() => { errorBar.style.display = "none"; }, 6000);
+}
+
+// ---- 加入房间 ----
+joinBtn.addEventListener("click", async () => {
+  const roomName = roomInput.value.trim() || "glotalk-demo";
+  const participantName = nameInput.value.trim() || "Guest";
+  targetLanguage = langLobby.value;
+  langSelect.value = targetLanguage;
+
+  joinBtn.disabled = true;
+  joinBtn.textContent = "Connecting…";
+
+  try {
+    // 1. 从服务器拿 LiveKit token（现有接口，不改动）
+    const tokenRes = await fetch(
+      `/livekit-token?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent(participantName)}&lang=${encodeURIComponent(targetLanguage)}`,
+      { headers: { 'x-glotalk-token': 'glotalk2026' } }
+    );
+    if (!tokenRes.ok) throw new Error(await tokenRes.text());
+    const tokenData = await tokenRes.json(); const token = tokenData.token; const url = tokenData.url || 'wss://glotalk-nppyx7kk.livekit.cloud';
+
+    // 2. 连接 LiveKit 房间（官方 LiveKit Browser SDK）
+    room = new LivekitClient.Room({
+      adaptiveStream: true,
+      dynacast: true,
+    });
+
+    room.on(LivekitClient.RoomEvent.ParticipantConnected, onParticipantConnected);
+    room.on(LivekitClient.RoomEvent.ParticipantDisconnected, onParticipantDisconnected);
+    room.on(LivekitClient.RoomEvent.TrackSubscribed, onTrackSubscribed);
+    room.on(LivekitClient.RoomEvent.TrackSubscribed, onTrackSubscribedAutoTranslate);
+    room.on(LivekitClient.RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
+    room.on(LivekitClient.RoomEvent.Disconnected, onDisconnected);
+
+    await room.connect(url, token, { autoSubscribe: true });
+    await room.localParticipant.setMicrophoneEnabled(true, { echoCancellation: true, noiseSuppression: true, autoGainControl: true });
+
+    // 3. 切换界面
+    lobbyEl.style.display = "none";
+    meetingEl.style.display = "flex";
+    roomLabel.textContent = `Room: ${roomName}`;
+
+    // 4. 本地参与者的 tile
+    renderLocalTile(participantName);
+
+    // 5. 已在房间里的远端参与者
+    room.remoteParticipants.forEach((participant) => {
+      onParticipantConnected(participant);
+    });
+
+  } catch (err) {
+    showError("Failed to join: " + err.message);
+    joinBtn.disabled = false;
+    joinBtn.textContent = "Join now";
+  }
+});
+
+// ---- 本地 tile ----
+function renderLocalTile(name) {
+  const tile = document.createElement("div");
+  tile.className = "participant-tile local";
+  tile.id = "tile-local";
+  tile.innerHTML = `
+    <div class="participant-avatar">${getInitial(name)}</div>
+    <div class="participant-label">You (${name})</div>
+  `;
+  gridEl.appendChild(tile);
+}
+
+// ---- 远端参与者加入 ----
+function onParticipantConnected(participant) {
+  const name = participant.name || participant.identity || "Participant";
+  const id   = participant.identity;
+
+  if (document.getElementById(`tile-${id}`)) return;
+
+  const tile = document.createElement("div");
+  tile.className = "participant-tile";
+  tile.id = `tile-${id}`;
+  tile.innerHTML = `
+    <div class="participant-avatar">${getInitial(name)}</div>
+    <audio id="audio-${id}" autoplay playsinline></audio>
+    <div class="subtitles">
+      <div class="subtitle-translated" id="sub-translated-${id}"></div>
+      <div class="subtitle-source" id="sub-source-${id}"></div>
+    </div>
+    <div class="translation-badge" id="badge-${id}"></div>
+    <div class="participant-label">${name}</div>
+  `;
+  gridEl.appendChild(tile);
+
+  // 如果翻译已开启，立刻启动 sidecar
+  if (translationEnabled) {
+    startTranslationSidecar(participant);
+  }
+}
+
+// ---- 远端参与者离开 ----
+function onParticipantDisconnected(participant) {
+  const id = participant.identity;
+  stopTranslationSidecar(id);
+  document.getElementById(`tile-${id}`)?.remove();
+}
+// ---- Track 订阅（收到远端音频轨道）----
+// 官方文档 https://docs.livekit.io/transport/media/subscribe/
+// track.attach() 不传参数，LiveKit 自动创建 audio 元素，避免 DOM 时序问题
+function onTrackSubscribed(track, publication, participant) {
+  if (track.kind === "audio") {
+    const element = track.attach();
+    element.volume = 1.0;
+    if (!document.getElementById(`tile-${participant.identity}`)) {
+      onParticipantConnected(participant);
+    }
+    const tile = document.getElementById(`tile-${participant.identity}`);
+    if (tile) tile.appendChild(element);
+    else document.body.appendChild(element);
+    if (translationEnabled) {
+      startTranslationSidecar(participant);
+    }
+  }
+}
+
+// ---- Track 取消订阅 ----
+function onTrackUnsubscribed(track, publication, participant) {
+  if (track.kind === "audio") {
+    track.detach();
+    stopTranslationSidecar(participant.identity);
+  }
+}
+
+// ---- 房间断开 ----
+function onDisconnected() {
+  Object.keys(sidecars).forEach(stopTranslationSidecar);
+  gridEl.innerHTML = "";
+  meetingEl.style.display = "none";
+  lobbyEl.style.display = "flex";
+  joinBtn.disabled = false;
+  joinBtn.textContent = "Join now";
+  room = null;
+  translationEnabled = false;
+  updateTranslationToggleUI();
+}
+
+// ============================================================
+// 翻译 Sidecar — 完全按官方 useRemoteTranslation 逻辑实现
+// 参考：lib/realtime-translation.ts
+// ============================================================
+
+// 获取参与者的 MediaStreamTrack（来自官方 getParticipantAudioMediaStreamTrack）
+function getParticipantAudioTrack(participant) {
+  const pub = participant.getTrackPublication(LivekitClient.Track.Source.Microphone);
+  const audioTrack = pub?.audioTrack ?? null;
+  if (!audioTrack) return null;
+  const mst = audioTrack.mediaStreamTrack;
+  return mst instanceof MediaStreamTrack ? mst : null;
+}
+
+// 启动翻译 Sidecar（来自官方 startTranslationSidecar + useRemoteTranslation）
+async function startTranslationSidecar(participant) {
+  const id = participant.identity;
+
+  // 已有 sidecar 则先停掉
+  stopTranslationSidecar(id);
+
+  const sourceTrack = getParticipantAudioTrack(participant);
+  if (!sourceTrack) return;
+
+  setBadge(id, "connecting", "Connecting…");
+
+  let cancelled = false;
+  let pc = null;
+  let dataChannel = null;
+  let translatedAudio = null;
+
+  try {
+    // 1. 从我们的服务器拿 client_secret（来自官方 /api/realtime/translation-token）
+    const tokenRes = await fetch("/api/translation-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-glotalk-token": "glotalk2026" },
+      body: JSON.stringify({
+        language: targetLanguage,
+        inputTranscriptionEnabled: true,   // 开启原文字幕
+        noiseReductionEnabled: false,
+      }),
+    });
+
+    if (!tokenRes.ok) throw new Error(await tokenRes.text());
+    if (cancelled) return;
+
+    const { clientSecret } = await tokenRes.json();
+
+    // 2. 建立 RTCPeerConnection（来自官方 startTranslationSidecar）
+    pc = new RTCPeerConnection();
+    dataChannel = pc.createDataChannel("oai-events");
+
+    // 3. 翻译后的音频从 remote track 播放
+    translatedAudio = new Audio();
+    translatedAudio.autoplay = true;
+    translatedAudio.setAttribute("playsinline", "");
+    translatedAudio.volume = 1.0;
+
+    pc.ontrack = ({ streams, track }) => {
+      if (cancelled) return;
+      translatedAudio.srcObject = streams[0] ?? new MediaStream([track]);
+      translatedAudio.play().catch(() => {});
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (cancelled || !pc) return;
+      if (pc.connectionState === "connected") {
+        setBadge(id, "connected", "Translating");
+      }
+      if (pc.connectionState === "failed") {
+        setBadge(id, "error", "Error");
+      }
+    };
+
+    // 4. DataChannel：收听字幕事件（来自官方 dataChannel.onmessage）
+    dataChannel.onopen = () => {
+      if (cancelled || !dataChannel) return;
+      // 官方：dataChannel 打开后发 session.update 告知目标语言
+      // 来自官方 realtime-translation.ts dataChannel.onopen
+      const sessionUpdate = {
+        type: "session.update",
+        session: {
+          audio: {
+            input: {
+              ...(true ? { transcription: { model: "gpt-realtime-whisper" } } : {}),
+              noise_reduction: null,
+            },
+            output: { language: targetLanguage },
+          },
+        },
+      };
+      dataChannel.send(JSON.stringify(sessionUpdate));
+    };
+
+    dataChannel.onmessage = (event) => {
+      if (cancelled) return;
+      handleRealtimeEvent(event.data, id);
+    };
+
+    dataChannel.onerror = () => {
+      if (!cancelled) setBadge(id, "error", "Channel error");
+    };
+
+    // 5. 把 LiveKit 远端麦克风 track 加入 PeerConnection（官方核心）
+    pc.addTrack(sourceTrack, new MediaStream([sourceTrack]));
+
+    // 6. SDP offer → OpenAI（来自官方 fetch REALTIME_TRANSLATION_CALL_URL）
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    const sdpRes = await fetch(REALTIME_TRANSLATION_CALL_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${clientSecret}`,
+        "Content-Type": "application/sdp",
+      },
+      body: offer.sdp,
+    });
+
+    const answerSdp = await sdpRes.text();
+    if (!sdpRes.ok) throw new Error(answerSdp);
+    if (cancelled) return;
+
+    await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+
+    sidecars[id] = {
+      pc,
+      dataChannel,
+      audio: translatedAudio,
+      cleanup: () => {
+        cancelled = true;
+        dataChannel?.close();
+        pc?.close();
+        if (translatedAudio) {
+          translatedAudio.pause();
+          translatedAudio.srcObject = null;
+        }
+      },
+    };
+
+  } catch (err) {
+    cancelled = true;
+    pc?.close();
+    if (translatedAudio) { translatedAudio.pause(); translatedAudio.srcObject = null; }
+    setBadge(id, "error", "Failed");
+    console.error(`[sidecar:${id}]`, err);
+  }
+}
+
+// 停止翻译 Sidecar（来自官方 cleanup 函数）
+function stopTranslationSidecar(id) {
+  if (sidecars[id]) {
+    sidecars[id].cleanup();
+    delete sidecars[id];
+  }
+  setBadge(id, "idle", "");
+  clearSubtitles(id);
+}
+
+// ---- 处理 OpenAI Realtime 事件（来自官方 handleRealtimeEvent）----
+async function handleRealtimeEvent(payload, participantId) {
+  const text = typeof payload === "string"
+    ? payload
+    : payload instanceof Blob
+      ? await payload.text()
+      : null;
+
+  if (!text) return;
+
+  let event;
+  try { event = JSON.parse(text); } catch { return; }
+
+  // 翻译字幕（来自官方：session.output_transcript.delta）
+  if (event.type === "session.output_transcript.delta" && typeof event.delta === "string") {
+    appendSubtitle(`sub-translated-${participantId}`, event.delta);
+  }
+
+  // 原文字幕（来自官方：session.input_transcript.delta）
+  if (event.type === "session.input_transcript.delta" && typeof event.delta === "string") {
+    appendSubtitle(`sub-source-${participantId}`, event.delta);
+  }
+
+  // 翻译句子结束，清空字幕准备下一句
+  if (event.type === "session.output_transcript.done") {
+    setTimeout(() => clearSubtitles(participantId), 3000);
+  }
+
+  if (event.type === "error") {
+    const msg = event.error?.message || "Translation error";
+    setBadge(participantId, "error", msg);
+  }
+}
+
+// ---- 字幕辅助函数（来自官方 appendTranscriptDelta）----
+function appendSubtitle(elId, delta) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!el.textContent) {
+    el.textContent = delta.replace(/^\s+/, "");
+  } else if (/\s$/.test(el.textContent) || /^\s/.test(delta) || /^[,.;:!?%)}]/.test(delta)) {
+    el.textContent += delta;
+  } else {
+    el.textContent += " " + delta;
+  }
+  el.style.display = "block";
+  // 只保留最后 180 字
+  if (el.textContent.length > 180) {
+    el.textContent = el.textContent.slice(el.textContent.length - 180);
+  }
+}
+
+function clearSubtitles(participantId) {
+  const t = document.getElementById(`sub-translated-${participantId}`);
+  const s = document.getElementById(`sub-source-${participantId}`);
+  if (t) { t.textContent = ""; t.style.display = "none"; }
+  if (s) { s.textContent = ""; s.style.display = "none"; }
+}
+
+// ---- 状态徽章 ----
+function setBadge(id, status, text) {
+  const el = document.getElementById(`badge-${id}`);
+  if (!el) return;
+  el.className = `translation-badge ${status}`;
+  el.textContent = text;
+}
+
+// ---- 翻译开关 ----
+translToggle.addEventListener("click", () => {
+  translationEnabled = !translationEnabled;
+  updateTranslationToggleUI();
+
+  if (!room) return;
+
+  if (translationEnabled) {
+    room.remoteParticipants.forEach((participant) => {
+      startTranslationSidecar(participant);
+    });
+  } else {
+    room.remoteParticipants.forEach((participant) => {
+      stopTranslationSidecar(participant.identity);
+    });
+  }
+});
+
+// 官方逻辑：有新 track 订阅时，如果翻译已开启，自动启动 sidecar
+// 来自官方 TranslatedMeetingTile 的 useEffect([active, sourceTrack])
+function onTrackSubscribedAutoTranslate(track, publication, participant) {
+  if (track.kind === "audio" && translationEnabled) {
+    startTranslationSidecar(participant);
+  }
+}
+
+// 语言切换：重启所有 sidecar（来自官方 session.update 逻辑）
+langSelect.addEventListener("change", () => {
+  targetLanguage = langSelect.value;
+  if (!room || !translationEnabled) return;
+  // 语言变更时重建所有 sidecar（最干净的做法，官方建议）
+  room.remoteParticipants.forEach((participant) => {
+    startTranslationSidecar(participant);
+  });
+});
+
+function updateTranslationToggleUI() {
+  if (translationEnabled) {
+    translToggle.className = "translation-toggle on";
+    translToggle.textContent = `🌐 Translation: ${getLanguageLabel(targetLanguage)}`;
+  } else {
+    translToggle.className = "translation-toggle";
+    translToggle.textContent = "🌐 Translation: Off";
+  }
+}
+
+// ---- 麦克风开关 ----
+micBtn.addEventListener("click", async () => {
+  if (!room) return;
+  micEnabled = !micEnabled;
+  await room.localParticipant.setMicrophoneEnabled(micEnabled);
+  micBtn.className = `control-btn ${micEnabled ? "active" : "inactive"}`;
+  micBtn.title = micEnabled ? "Mute" : "Unmute";
+  micBtn.textContent = micEnabled ? "🎤" : "🔇";
+});
+
+// ---- 离开房间 ----
+leaveBtn.addEventListener("click", async () => {
+  if (room) {
+    room.disconnect();
+  } else {
+    onDisconnected();
+  }
+});
+
+// ---- 工具函数 ----
+function getInitial(name) {
+  return (name || "?").trim().charAt(0).toUpperCase();
+}
+
+function getLanguageLabel(code) {
+  const map = {
+    en: "English", zh: "Chinese", es: "Spanish", pt: "Portuguese",
+    fr: "French", ja: "Japanese", ru: "Russian", de: "German",
+    ko: "Korean", hi: "Hindi", id: "Indonesian", vi: "Vietnamese", it: "Italian",
+  };
+  return map[code] || code;
+}
+</script>
+</body>
+</html>
