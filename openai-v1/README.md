@@ -1,21 +1,50 @@
-# GloTalk 模式1：OpenAI gpt-realtime-translate
+# LiveKit Realtime Translation Demo
 
-## 状态：已归档（2026-06-13 停用）
+Local Next.js 16 demo for a LiveKit video room with per-listener OpenAI
+Realtime Translation. LiveKit carries browser-to-browser camera and microphone
+media. Each browser translates subscribed remote microphone tracks through an
+OpenAI WebRTC connection and keeps captions/transcripts in local React state.
 
-## 停用原因
-- API Key 被 ACCIO Work（阿里外贸AI）盗刷，损失 $11.57
-- 费用比 Gemini 贵 32%（$0.034/分钟 vs $0.023/分钟）
+## Setup
 
-## 技术特点
-- gpt-realtime-translate 模型
-- WebRTC P2P 直连
-- ScriptProcessor 音频处理（已知有 Safari 兼容性问题）
+Create `.env` in this demo folder:
 
-## 切换回此模式
-1. 补充新的 OpenAI API Key 到 .env
-2. 前端 URL 加 ?provider=openai 参数
-3. server.js 已保留 /session 接口，随时可用
+```bash
+LIVEKIT_API_KEY=
+LIVEKIT_API_SECRET=
+LIVEKIT_URL=
+OPENAI_API_KEY=
+OPENAI_TRANSLATION_MODEL=gpt-realtime-translate
+```
 
-## 相关费用
-- gpt-realtime-translate: $0.034/分钟
-- 双向通话两个 session: $0.068/分钟
+`OPENAI_TRANSLATION_MODEL` is optional and defaults to
+`gpt-realtime-translate`.
+
+## Run
+
+From the cookbook repo root:
+
+```bash
+cd examples/voice_solutions/realtime_translation_guide/livekit-translation-demo
+pnpm install
+pnpm dev
+```
+
+Open the local URL printed by Next.js. Use the same meeting code in two browser
+windows to join the same LiveKit room.
+
+## Validation
+
+From the cookbook repo root:
+
+```bash
+cd examples/voice_solutions/realtime_translation_guide/livekit-translation-demo
+pnpm test
+pnpm lint
+pnpm typecheck
+pnpm build
+```
+
+The OpenAI translation payload tests cover the translation client secret request,
+the translation WebRTC call endpoint, `session.audio.output.language`, optional
+input transcription, and optional near-field noise reduction.
