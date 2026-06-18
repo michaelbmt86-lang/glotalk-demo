@@ -8,6 +8,17 @@ import {
   buildSessionUpdate,
 } from "@/lib/realtime-translation-config"
 
+import {
+  isQwen3Supported,
+  recordReferenceAudio,
+  cloneVoice,
+  synthesizeWithClonedVoice,
+  isSentenceComplete,
+} from "@/lib/qwen3-tts-client"
+
+// 本地存储 key（App 注册制：voice_id 永久保存，二次通话直接用）
+const VOICE_ID_STORAGE_KEY = "glotalk_qwen3_voice_id"
+
 export type TranslationLanguage = {
   value: string
   label: string
@@ -77,12 +88,70 @@ export function useRemoteTranslation({
   })
   const active = enabled && !!sourceTrack
 
+  // ── Qwen3-TTS 声音克隆状态 ──────────────────────────────────────
+  // voice_id 优先从 localStorage 读取（App 注册制：一次克隆永久复用）
+  const [voiceId, setVoiceId] = React.useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem(VOICE_ID_STORAGE_KEY)
+    }
+    return null
+  })
+  const [voiceCloneReady, setVoiceCloneReady] = React.useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return !!localStorage.getItem(VOICE_ID_STORAGE_KEY)
+    }
+    return false
+  })
+  // 累积翻译字幕，等句子完成后送给 Qwen3-TTS
+  const pendingTranslationRef = React.useRef<string>("")
+  // 标记是否已经开始录音（避免重复录）
+  const recordingStartedRef = React.useRef<boolean>(false)
+
   React.useEffect(() => {
     translatedVolumeRef.current = translatedVolume
     if (translatedAudioRef.current) {
       translatedAudioRef.current.volume = translatedVolume
     }
   }, [translatedVolume])
+
+  // ── 自动录音 + 声音克隆（通话开始10秒后执行）──────────────────────
+  // 设计逻辑（来自产品需求）：
+  // 1. 用户进入房间开始通话，前10秒自动静默录制参考音频（用户无感知）
+  // 2. 10秒后自动上传到阿里云 Qwen3-TTS，创建克隆音色
+  // 3. 克隆成功后，翻译声音从 OpenAI 机器声切换为克隆声音
+  // 4. voice_id 保存到 localStorage，下次通话直接跳过录音步骤
+  // 5. 仅对 Qwen3-TTS 支持的语言执行（其他语言将来用 Fish Audio S2）
+  React.useEffect(() => {
+    if (!active || !sourceTrack) return
+    if (voiceCloneReady) return  // 已有 voice_id，跳过录音
+    if (recordingStartedRef.current) return  // 已经在录了
+    if (!isQwen3Supported(language)) return  // 不支持的语言跳过
+
+    recordingStartedRef.current = true
+    let timer: ReturnType<typeof setTimeout>
+
+    // 10秒后开始录制10秒参考音频
+    timer = setTimeout(async () => {
+      console.log("[Qwen3-TTS] 开始录制参考音频（10秒）...")
+      try {
+        const { audioBase64, mimeType } = await recordReferenceAudio(sourceTrack, 10000)
+        console.log("[Qwen3-TTS] 录音完成，上传克隆中...")
+
+        const newVoiceId = await cloneVoice(audioBase64, mimeType, "glotalk-user")
+        console.log("[Qwen3-TTS] 声音克隆成功！voice_id:", newVoiceId)
+
+        // 保存到 localStorage（永久复用）
+        localStorage.setItem(VOICE_ID_STORAGE_KEY, newVoiceId)
+        setVoiceId(newVoiceId)
+        setVoiceCloneReady(true)
+      } catch (err) {
+        console.error("[Qwen3-TTS] 声音克隆失败（不影响翻译）:", err)
+        // 克隆失败不影响翻译，只是继续用 OpenAI 机器声
+      }
+    }, 10000)  // 10秒后开始
+
+    return () => clearTimeout(timer)
+  }, [active, sourceTrack, language, voiceCloneReady])
 
   React.useEffect(() => {
     const nextConfig = {
@@ -203,9 +272,39 @@ export function useRemoteTranslation({
               },
               onOutputAudio: () => setHasOutputAudio(true),
               onOutputTranscript: (delta) => {
+                // 更新字幕显示（官方逻辑，不动）
                 setTranslatedTranscript((current) =>
                   appendTranscriptDelta(current, delta)
                 )
+
+                // ── Qwen3-TTS 克隆声音播放 ──────────────────────────
+                // 克隆就绪后：累积翻译字幕，句子完成时用克隆声音朗读
+                // 克隆未就绪时：继续用 OpenAI 翻译音频（peerConnection.ontrack）
+                const currentVoiceId = voiceId
+                if (currentVoiceId && voiceCloneReady && isQwen3Supported(language)) {
+                  pendingTranslationRef.current += delta
+
+                  // 检测句子是否完成（遇到标点符号）
+                  if (isSentenceComplete(pendingTranslationRef.current)) {
+                    const sentence = pendingTranslationRef.current.trim()
+                    pendingTranslationRef.current = ""
+
+                    // 静音 OpenAI 翻译音频，切换到克隆声音
+                    if (translatedAudio) {
+                      translatedAudio.volume = 0
+                    }
+
+                    void synthesizeWithClonedVoice(sentence, currentVoiceId, language).catch(
+                      (err) => {
+                        console.warn("[Qwen3-TTS] 合成失败，回退到 OpenAI 音频:", err)
+                        // 合成失败时恢复 OpenAI 音频
+                        if (translatedAudio) {
+                          translatedAudio.volume = translatedVolumeRef.current
+                        }
+                      }
+                    )
+                  }
+                }
               },
               onError: (message) => {
                 setError(message)
