@@ -178,10 +178,11 @@ class GeminiSession:
 
     async def _connect_and_pump(self) -> None:
         """One Gemini WebSocket connect + bidirectional pump."""
-        url = f"{GEMINI_WS_URL}?key={self._gemini_api_key}"
+        url = GEMINI_WS_URL
         # Max payload size: enough to cover ~1s of 48 kHz 16-bit PCM in base64.
         async with websockets.connect(
-            url, max_size=2**22, ping_interval=20, ping_timeout=20
+            url, max_size=2**22, ping_interval=20, ping_timeout=20,
+            additional_headers={"x-goog-api-key": self._gemini_api_key}
         ) as ws:
             await ws.send(json.dumps(self._build_setup_payload()))
             logger.info(
