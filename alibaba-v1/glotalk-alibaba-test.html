@@ -100,6 +100,10 @@ async function startTranslation() {
         voice: 'Tina',
         output_audio_format: 'pcm',
         input_audio_format: 'pcm',
+        input_audio_transcription: {
+          model: 'qwen3-asr-flash-realtime',
+          language: 'zh'
+        },
         translation: { language: 'en' }
       }
     }));
