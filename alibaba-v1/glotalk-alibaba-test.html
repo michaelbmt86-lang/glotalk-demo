@@ -27,18 +27,45 @@ h1 { font-size: 1.4rem; font-weight: 600; color: #fff; margin-bottom: 6px; }
 </head>
 <body>
 <h1>GloTalk · Alibaba Test</h1>
-<p class="sub">qwen3-livetranslate-flash-realtime · 中文 → 英文</p>
+<p class="sub">qwen3-livetranslate-flash-realtime · 实时双向翻译</p>
 <div class="card">
   <div class="status"><div class="dot" id="dot"></div><span id="statusText">未连接</span></div>
-  <div style="margin-bottom:16px;">
-    <div class="label">翻译语音</div>
-    <div style="display:flex;gap:10px;">
-      <button id="btnFemale" onclick="setGender('female')" style="flex:1;padding:10px;border-radius:10px;border:2px solid #2563eb;background:#2563eb;color:#fff;font-size:0.9rem;cursor:pointer;">👩 女声</button>
-      <button id="btnMale" onclick="setGender('male')" style="flex:1;padding:10px;border-radius:10px;border:2px solid #333;background:#111;color:#888;font-size:0.9rem;cursor:pointer;">👨 男声</button>
+
+  <div style="background:#111;border:1px solid #222;border-radius:12px;padding:12px;margin-bottom:10px;">
+    <div class="label" style="margin-bottom:8px;">👤 对方</div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <div style="flex:1;">
+        <div style="font-size:0.72rem;color:#555;margin-bottom:4px;">说</div>
+        <div style="display:flex;gap:6px;">
+          <button id="btnOtherZh" onclick="setOtherLang('zh')" style="flex:1;padding:8px;border-radius:8px;border:2px solid #333;background:#111;color:#888;font-size:0.8rem;cursor:pointer;">🇨🇳 中文</button>
+          <button id="btnOtherEn" onclick="setOtherLang('en')" style="flex:1;padding:8px;border-radius:8px;border:2px solid #2563eb;background:#2563eb;color:#fff;font-size:0.8rem;cursor:pointer;">🇺🇸 英文</button>
+        </div>
+      </div>
     </div>
   </div>
-  <button class="btn btn-start" id="startBtn" onclick="startTranslation()">开始翻译</button>
-  <button class="btn btn-stop" id="stopBtn" onclick="stopTranslation()" style="display:none;margin-top:10px">停止</button>
+
+  <button class="btn btn-start" id="startBtn" onclick="startTranslation()" style="margin-bottom:10px;">开始翻译</button>
+  <button class="btn btn-stop" id="stopBtn" onclick="stopTranslation()" style="display:none;margin-bottom:10px;">停止</button>
+
+  <div style="background:#111;border:1px solid #222;border-radius:12px;padding:12px;margin-bottom:10px;">
+    <div class="label" style="margin-bottom:8px;">🎤 我</div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <div style="flex:1;">
+        <div style="font-size:0.72rem;color:#555;margin-bottom:4px;">说</div>
+        <div style="display:flex;gap:6px;">
+          <button id="btnMyZh" onclick="setMyLang('zh')" style="flex:1;padding:8px;border-radius:8px;border:2px solid #2563eb;background:#2563eb;color:#fff;font-size:0.8rem;cursor:pointer;">🇨🇳 中文</button>
+          <button id="btnMyEn" onclick="setMyLang('en')" style="flex:1;padding:8px;border-radius:8px;border:2px solid #333;background:#111;color:#888;font-size:0.8rem;cursor:pointer;">🇺🇸 英文</button>
+        </div>
+      </div>
+      <div style="flex:1;">
+        <div style="font-size:0.72rem;color:#555;margin-bottom:4px;">性别</div>
+        <div style="display:flex;gap:6px;">
+          <button id="btnFemale" onclick="setGender('female')" style="flex:1;padding:8px;border-radius:8px;border:2px solid #2563eb;background:#2563eb;color:#fff;font-size:0.8rem;cursor:pointer;">👩 女</button>
+          <button id="btnMale" onclick="setGender('male')" style="flex:1;padding:8px;border-radius:8px;border:2px solid #333;background:#111;color:#888;font-size:0.8rem;cursor:pointer;">👨 男</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <div class="label">源语言识别</div>
   <div class="source-box" id="sourceText">（说话后显示原文）</div>
   <div class="label">英文翻译</div>
@@ -49,6 +76,30 @@ h1 { font-size: 1.4rem; font-weight: 600; color: #fff; margin-bottom: 6px; }
 const WS_URL = 'wss://glotalk.tech/alibaba-ws';
 let ws = null, audioContext = null, mediaStream = null, processor = null;
 let selectedGender = 'female';
+let sourceLang = 'zh';
+let targetLang = 'en';
+
+function setMyLang(lang) {
+  sourceLang = lang;
+  ['My'].forEach(p => {
+    document.getElementById('btnMyZh').style.background = lang==='zh' ? '#2563eb' : '#111';
+    document.getElementById('btnMyZh').style.color = lang==='zh' ? '#fff' : '#888';
+    document.getElementById('btnMyZh').style.borderColor = lang==='zh' ? '#2563eb' : '#333';
+    document.getElementById('btnMyEn').style.background = lang==='en' ? '#2563eb' : '#111';
+    document.getElementById('btnMyEn').style.color = lang==='en' ? '#fff' : '#888';
+    document.getElementById('btnMyEn').style.borderColor = lang==='en' ? '#2563eb' : '#333';
+  });
+}
+
+function setOtherLang(lang) {
+  targetLang = lang;
+  document.getElementById('btnOtherZh').style.background = lang==='zh' ? '#2563eb' : '#111';
+  document.getElementById('btnOtherZh').style.color = lang==='zh' ? '#fff' : '#888';
+  document.getElementById('btnOtherZh').style.borderColor = lang==='zh' ? '#2563eb' : '#333';
+  document.getElementById('btnOtherEn').style.background = lang==='en' ? '#2563eb' : '#111';
+  document.getElementById('btnOtherEn').style.color = lang==='en' ? '#fff' : '#888';
+  document.getElementById('btnOtherEn').style.borderColor = lang==='en' ? '#2563eb' : '#333';
+}
 const femaleVoices = ['Tina'];
 const maleVoices = ['Raymond'];
 
@@ -127,9 +178,9 @@ async function startTranslation() {
         input_audio_format: 'pcm',
         input_audio_transcription: {
           model: 'qwen3-asr-flash-realtime',
-          language: 'zh'
+          language: sourceLang
         },
-        translation: { language: 'en' }
+        translation: { language: targetLang }
       }
     }));
     await startMicrophone();
