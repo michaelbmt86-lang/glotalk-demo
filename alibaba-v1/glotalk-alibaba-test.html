@@ -41,10 +41,11 @@ h1 { font-size: 1.4rem; font-weight: 600; color: #fff; margin-bottom: 6px; }
 <script>
 const WS_URL = 'wss://glotalk.tech/alibaba-ws';
 let ws = null, audioContext = null, mediaStream = null, processor = null;
-let playbackContext = null, audioQueue = [], isPlaying = false;
+let playbackContext = null, nextStartTime = 0;
 
 function initPlayback() {
   playbackContext = new AudioContext({ sampleRate: 24000 });
+  nextStartTime = 0;
 }
 
 function playPCMChunk(base64Data) {
@@ -60,7 +61,14 @@ function playPCMChunk(base64Data) {
   const source = playbackContext.createBufferSource();
   source.buffer = buffer;
   source.connect(playbackContext.destination);
-  source.start();
+  const now = playbackContext.currentTime;
+  const startAt = Math.max(now, nextStartTime);
+  source.start(startAt);
+  nextStartTime = startAt + buffer.duration;
+}
+
+function resetPlayback() {
+  nextStartTime = 0;
 }
 
 function log(msg) {
@@ -107,6 +115,8 @@ async function startTranslation() {
       if (ev.stash) document.getElementById('sourceText').textContent = ev.stash;
     } else if (ev.type === 'conversation.item.input_audio_transcription.completed') {
       if (ev.transcript) document.getElementById('sourceText').textContent = ev.transcript;
+    } else if (ev.type === 'response.created') {
+      resetPlayback();
     } else if (ev.type === 'response.audio.delta') {
       if (ev.delta) playPCMChunk(ev.delta);
     } else if (ev.type === 'response.audio_transcript.done') {
