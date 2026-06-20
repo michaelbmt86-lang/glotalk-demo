@@ -30,6 +30,13 @@ h1 { font-size: 1.4rem; font-weight: 600; color: #fff; margin-bottom: 6px; }
 <p class="sub">qwen3-livetranslate-flash-realtime · 中文 → 英文</p>
 <div class="card">
   <div class="status"><div class="dot" id="dot"></div><span id="statusText">未连接</span></div>
+  <div style="margin-bottom:16px;">
+    <div class="label">翻译语音</div>
+    <div style="display:flex;gap:10px;">
+      <button id="btnFemale" onclick="setGender('female')" style="flex:1;padding:10px;border-radius:10px;border:2px solid #2563eb;background:#2563eb;color:#fff;font-size:0.9rem;cursor:pointer;">👩 女声</button>
+      <button id="btnMale" onclick="setGender('male')" style="flex:1;padding:10px;border-radius:10px;border:2px solid #333;background:#111;color:#888;font-size:0.9rem;cursor:pointer;">👨 男声</button>
+    </div>
+  </div>
   <button class="btn btn-start" id="startBtn" onclick="startTranslation()">开始翻译</button>
   <button class="btn btn-stop" id="stopBtn" onclick="stopTranslation()" style="display:none;margin-top:10px">停止</button>
   <div class="label">源语言识别</div>
@@ -41,6 +48,24 @@ h1 { font-size: 1.4rem; font-weight: 600; color: #fff; margin-bottom: 6px; }
 <script>
 const WS_URL = 'wss://glotalk.tech/alibaba-ws';
 let ws = null, audioContext = null, mediaStream = null, processor = null;
+let selectedGender = 'female';
+const femaleVoices = ['Tina'];
+const maleVoices = ['Raymond'];
+
+function setGender(gender) {
+  selectedGender = gender;
+  document.getElementById('btnFemale').style.background = gender === 'female' ? '#2563eb' : '#111';
+  document.getElementById('btnFemale').style.color = gender === 'female' ? '#fff' : '#888';
+  document.getElementById('btnFemale').style.borderColor = gender === 'female' ? '#2563eb' : '#333';
+  document.getElementById('btnMale').style.background = gender === 'male' ? '#2563eb' : '#111';
+  document.getElementById('btnMale').style.color = gender === 'male' ? '#fff' : '#888';
+  document.getElementById('btnMale').style.borderColor = gender === 'male' ? '#2563eb' : '#333';
+}
+
+function getRandomVoice() {
+  const voices = selectedGender === 'female' ? femaleVoices : maleVoices;
+  return voices[Math.floor(Math.random() * voices.length)];
+}
 let playbackContext = null, nextStartTime = 0;
 
 function initPlayback() {
@@ -97,7 +122,7 @@ async function startTranslation() {
       type: 'session.update',
       session: {
         modalities: ['text', 'audio'],
-        voice: 'Tina',
+        voice: getRandomVoice(),
         output_audio_format: 'pcm',
         input_audio_format: 'pcm',
         input_audio_transcription: {
