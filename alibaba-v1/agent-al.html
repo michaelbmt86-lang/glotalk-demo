@@ -249,13 +249,17 @@ function renderLangLinks(invCode, roomNum) {
   const baseLink = "https://glotalk.tech/g/" + invCode;
   el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px">' +
     LANGS.map(l => {
-      const shortLink = baseLink + "?lang=" + l.code;
+      const agentLang = (document.getElementById("myLang") && document.getElementById("myLang").value) || "zh";
+      const shortLink = baseLink + "?lang=" + l.code + "&theirLang=" + agentLang;
       return '<button onclick="doCopyText(\'' + shortLink + '\',this)" style="padding:8px 4px;border-radius:8px;border:1px solid #333;background:#1a1a1a;color:#f59e0b;font:inherit;font-size:12px;cursor:pointer;text-align:center">' + l.label + '</button>';
     }).join("") + '</div>' +
     '<div style="font-size:11px;color:#555;margin-top:6px">👆 点击上方语言按钮，复制带语言信息的完整链接</div>';
 }
 
 function doCopyText(txt, btn) {
+  // 记录最后点击的语言
+  const urlParams = new URL(txt);
+  window._lastClickedLang = urlParams.searchParams.get('lang') || 'en';
   navigator.clipboard.writeText(txt).then(() => {
     const orig = btn.textContent;
     btn.textContent = '✅';
@@ -392,7 +396,8 @@ async function createInvite() {
         var myLang = (document.getElementById("myLang") && document.getElementById("myLang").value) || "zh";
         var theirLangCode = window._latestTheirLang || "en";
         var myLang = (document.getElementById("myLang") && document.getElementById("myLang").value) || "zh";
-        location.href = "https://glotalk.tech/glotalk-al.html?code=" + d.code + "&lang=" + myLang;
+        var lastLang = window._lastClickedLang || myLang;
+        location.href = "https://glotalk.tech/glotalk-al.html?code=" + d.code + "&lang=" + myLang + "&theirLang=" + lastLang;
       };
       renderLangLinks(d.code, d.roomId);
       document.getElementById("latestMeta").textContent =
