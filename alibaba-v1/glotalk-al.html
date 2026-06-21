@@ -236,6 +236,15 @@ function startTimer(){
   },1000);
 }
 
+// 自动读取URL里的code参数
+window.onload = function() {
+  const code = new URLSearchParams(location.search).get('code');
+  if (code) {
+    document.getElementById('inviteInput').value = code.toUpperCase();
+    setTimeout(verifyInvite, 300);
+  }
+};
+
 async function verifyInvite(){
   const code = $('inviteInput').value.trim().toUpperCase();
   const name = $('nameInput').value.trim();
@@ -244,7 +253,7 @@ async function verifyInvite(){
   $('verifyBtn').textContent = '验证中...';
   setStatus('验证邀请码...','yellow pulse');
   try{
-    const res = await fetch('/invite/verify',{
+    const res = await fetch('/invite-al/verify',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-glotalk-token':ACCESS_TOKEN},
       body:JSON.stringify({code,name})
@@ -291,8 +300,6 @@ async function joinRoom(){
     const tokenData = await tokenRes.json();
     if(!tokenData.token) throw new Error('获取Token失败');
 
-    // 2. 标记邀请码已使用
-    await useInvite();
 
     // 3. 连接 LiveKit 房间
     room = new LivekitClient.Room({
