@@ -77,14 +77,14 @@
       <input id="nameInput" type="text" placeholder="你的名字（选填）" maxlength="20" autocomplete="off" style="text-align:center"/>
     </div>
     <div class="error-msg" id="errorMsg"></div>
-    <button class="btn btn-primary" id="verifyBtn" onclick="verifyInvite()" style="margin-top:4px">验证邀请码</button>
+    <button class="btn btn-primary" id="verifyBtn" onclick="verifyInvite()" style="margin-top:4px" data-ui="verify">验证邀请码</button>
   </div>
 
   <!-- 第二步：通话设置 -->
   <div class="hidden" id="setupSection">
     <div class="card">
       <div class="row">
-        <div class="label">我说</div>
+        <div class="label" data-ui="myLang">我说</div>
         <select id="myLang">
           <option value="zh">🇨🇳 中文</option>
           <option value="en">🇺🇸 英文</option>
@@ -118,7 +118,7 @@
         </select>
       </div>
       <div class="row">
-        <div class="label">对方说</div>
+        <div class="label" data-ui="theirLang">对方说</div>
         <select id="targetLang">
           <option value="zh">🇨🇳 中文</option>
           <option value="en">🇺🇸 英文</option>
@@ -152,14 +152,14 @@
         </select>
       </div>
       <div class="row">
-        <div class="label">声音</div>
+        <div class="label" data-ui="voice">声音</div>
         <div class="gender-row" style="flex:1">
-          <button class="gender-btn active" id="btnFemale" onclick="setGender('female')">👩 女声</button>
-          <button class="gender-btn" id="btnMale" onclick="setGender('male')">👨 男声</button>
+          <button class="gender-btn active" id="btnFemale" onclick="setGender('female')" data-ui="female">👩 女声</button>
+          <button class="gender-btn" id="btnMale" onclick="setGender('male')" data-ui="male">👨 男声</button>
         </div>
       </div>
     </div>
-    <button class="btn btn-primary" id="joinBtn" onclick="joinRoom()">🎙️ 开始通话</button>
+    <button class="btn btn-primary" id="joinBtn" onclick="joinRoom()" data-ui="start">🎙️ 开始通话</button>
   </div>
 
   <!-- 第三步：通话中 -->
@@ -172,16 +172,16 @@
 
     <div class="subtitle-section visible">
       <div class="box-wrap">
-        <div class="box-label">对方说（翻译）</div>
+        <div class="box-label" data-ui="them">对方说（翻译）</div>
         <div class="tbox tbox-them" id="themBox" data-ph="等待对方说话..."></div>
       </div>
       <div class="box-wrap">
-        <div class="box-label">我说（识别）</div>
+        <div class="box-label" data-ui="me">我说（识别）</div>
         <div class="tbox tbox-me" id="meBox" data-ph="开始说话..."></div>
       </div>
     </div>
 
-    <button class="btn btn-danger" onclick="leaveRoom()">结束通话</button>
+    <button class="btn btn-danger" onclick="leaveRoom()" data-ui="leave">结束通话</button>
   </div>
 </div>
 
@@ -236,9 +236,45 @@ function startTimer(){
   },1000);
 }
 
-// 自动读取URL里的code参数
+// 界面文字多语言
+const UI_TEXT = {
+  zh: { myLang:'我说', theirLang:'对方说', voice:'声音', female:'👩 女声', male:'👨 男声', start:'🎙️ 开始通话', leave:'结束通话', waiting:'等待对方加入...', them:'对方说（翻译）', me:'我说（识别）', invite:'输入邀请码', verify:'验证邀请码', verifying:'验证中...' },
+  en: { myLang:'I speak', theirLang:'They speak', voice:'Voice', female:'👩 Female', male:'👨 Male', start:'🎙️ Start Call', leave:'End Call', waiting:'Waiting for other party...', them:'They said (translated)', me:'I said (recognized)', invite:'Enter invite code', verify:'Verify Code', verifying:'Verifying...' },
+  ja: { myLang:'私が話す', theirLang:'相手が話す', voice:'音声', female:'👩 女性', male:'👨 男性', start:'🎙️ 通話開始', leave:'通話終了', waiting:'相手を待っています...', them:'相手の翻訳', me:'自分の認識', invite:'招待コードを入力', verify:'確認', verifying:'確認中...' },
+  ko: { myLang:'내가 말하는', theirLang:'상대방이 말하는', voice:'음성', female:'👩 여성', male:'👨 남성', start:'🎙️ 통화 시작', leave:'통화 종료', waiting:'상대방 기다리는 중...', them:'상대방 번역', me:'내 인식', invite:'초대 코드 입력', verify:'확인', verifying:'확인 중...' },
+};
+
+function applyUILang(lang) {
+  const t = UI_TEXT[lang] || UI_TEXT['en'];
+  const setLabel = (sel, txt) => { const el = document.querySelector(sel); if(el) el.textContent = txt; };
+  setLabel('.label[for-id="myLang"]', t.myLang);
+  // 用 data-ui 属性标记需要翻译的元素
+  document.querySelectorAll('[data-ui]').forEach(el => {
+    const key = el.getAttribute('data-ui');
+    if(t[key]) el.textContent = t[key];
+  });
+}
+
+// 自动读取URL里的code和lang参数
 window.onload = function() {
-  const code = new URLSearchParams(location.search).get('code');
+  const params = new URLSearchParams(location.search);
+  const code = params.get('code');
+  const lang = params.get('lang');
+  if (lang) {
+    const myLangEl = document.getElementById('myLang');
+    const targetLangEl = document.getElementById('targetLang');
+    if (myLangEl) myLangEl.value = lang;
+    if (targetLangEl) {
+      const options = Array.from(targetLangEl.options);
+      const other = options.find(o => o.value !== lang);
+      if (other) targetLangEl.value = other.value;
+    }
+    applyUILang(lang);
+    // 验证按钮文字也要变
+    const vBtn = document.getElementById('verifyBtn');
+    const t = UI_TEXT[lang] || UI_TEXT['en'];
+    if(vBtn) vBtn.textContent = t.verify;
+  }
   if (code) {
     document.getElementById('inviteInput').value = code.toUpperCase();
     setTimeout(verifyInvite, 300);
@@ -263,7 +299,7 @@ async function verifyInvite(){
     inviteData = data;
     myRoom = data.roomId || code;
     myIdentity = (name||'用户')+'-'+Date.now().toString(36);
-    setStatus('验证成功，请选择语言','green');
+    const _t = UI_TEXT[new URLSearchParams(location.search).get('lang')] || UI_TEXT['zh']; setStatus(_t.myLang ? '✅ ' + (_t.verify === 'Verify Code' ? 'Verified! Select language' : '验证成功，请选择语言') : '验证成功，请选择语言','green');
     showSection('setupSection');
   }catch(e){
     showError(e.message);
