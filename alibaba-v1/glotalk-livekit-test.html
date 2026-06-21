@@ -226,9 +226,8 @@ async function startSession() {
   room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
     log(`🎵 订阅到音轨: ${participant.identity} → ${publication.trackName}`);
     // 只播放对方的翻译音轨（不播放自己的）
-    const myBotName = `bot-${identity}-${targetLang}`;
     if (participant.identity.startsWith('bot-') && 
-        participant.identity !== myBotName &&
+        !participant.identity.startsWith(`bot-${identity}-`) &&
         track.kind === Track.Kind.Audio) {
       log('🔊 开始播放对方翻译音频');
       const mediaStream = new MediaStream([track.mediaStreamTrack]);
