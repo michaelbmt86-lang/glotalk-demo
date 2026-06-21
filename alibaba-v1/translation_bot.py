@@ -59,14 +59,16 @@ class TranslationBridge:
                 'type': 'session.update',
                 'session': {
                     'modalities': ['text', 'audio'],
-                    'voice': self.voice,
+                    'voice': 'default',
                     'input_audio_format': 'pcm',
                     'output_audio_format': 'pcm',
                     'input_audio_transcription': {
                         'model': 'qwen3-asr-flash-realtime',
                         'language': self.source_lang
                     },
-                    'translation': {'language': self.target_lang}
+                    'translation': {'language': self.target_lang},
+                    'enable_voice_clone': True,
+                    'voice_clone_options': {'frequency': 'always'}
                 }
             }))
 
