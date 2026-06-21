@@ -643,7 +643,7 @@ const server = http.createServer(async (req, res) => {
 
   // ── 以下需要ACCESS_TOKEN ──────────────────────────────
   // 放行路线A和路线B的API接口（不需要用户token）
-  if (url.pathname === "/api/translation-token" || url.pathname.startsWith("/api/gemini/") || url.pathname === "/alibaba-token" || url.pathname === "/alibaba-ws") {
+  if (url.pathname === "/api/translation-token" || url.pathname.startsWith("/api/gemini/") || url.pathname === "/alibaba-token" || url.pathname === "/alibaba-ws" || url.pathname === "/start-bot") {
     // 继续往下走，不验证
   } else if (!verifyToken(req)) {
     log(`⚠️ 未授权: ${getIP(req)} ${url.pathname}`);
@@ -782,6 +782,25 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/start-bot") {
+    const { room, identity, source, target } = url.searchParams ? Object.fromEntries(url.searchParams) : {};
+    if (!room || !identity || !source || !target) {
+      res.writeHead(400, {"Content-Type":"application/json","Access-Control-Allow-Origin":"*"});
+      res.end(JSON.stringify({ ok: false, error: 'missing params' }));
+      return;
+    }
+    const { spawn } = require('child_process');
+    const env = { ...process.env };
+    const bot = spawn('python3', [
+      '/var/www/glotalk/translation_bot.py',
+      room, source, target, identity
+    ], { env, detached: true, stdio: 'ignore' });
+    bot.unref();
+    log(`[start-bot] 启动 Bot: room=${room} ${source}→${target} for ${identity}`);
+    res.writeHead(200, {"Content-Type":"application/json","Access-Control-Allow-Origin":"*"});
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
   res.writeHead(404, {"Access-Control-Allow-Origin":"*"}); res.end("Not found");
 });
 
