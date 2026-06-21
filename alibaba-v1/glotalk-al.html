@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <title>GloTalk</title>
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+    body{min-height:100dvh;background:#0a0a0a;color:#f0f0f0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif;display:flex;align-items:center;justify-content:center;padding:max(20px,env(safe-area-inset-top)) 20px max(20px,env(safe-area-inset-bottom))}
+    .app{width:min(100%,420px);display:flex;flex-direction:column;gap:12px}
+    .logo{font-size:30px;font-weight:800;letter-spacing:-1px;color:#fff}
+    .logo span{color:#22c55e}
+    .tagline{font-size:12px;color:#333;margin-top:2px}
+    .status-bar{display:flex;align-items:center;gap:8px;background:#111;border:1px solid #222;border-radius:12px;padding:10px 14px}
+    .dot{width:8px;height:8px;border-radius:50%;background:#333;flex-shrink:0;transition:all .3s}
+    .dot.green{background:#22c55e;box-shadow:0 0 6px #22c55e88}
+    .dot.yellow{background:#f59e0b;box-shadow:0 0 6px #f59e0b88}
+    .dot.red{background:#ef4444}
+    .dot.pulse{animation:pulse 1.5s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .status-text{font-size:13px;color:#888;flex:1}
+    .card{background:#111;border:1px solid #222;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+    .row{display:flex;align-items:center;gap:8px}
+    .label{font-size:11px;color:#555;font-weight:600;text-transform:uppercase;width:56px;flex-shrink:0}
+    input,select{flex:1;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;color:#f0f0f0;font:inherit;font-size:14px;padding:8px 10px;outline:none;-webkit-user-select:text;user-select:text}
+    input:focus,select:focus{border-color:#22c55e44}
+    input::placeholder{color:#333}
+    select option{background:#1a1a1a}
+    .btn{width:100%;padding:14px;border:none;border-radius:12px;font:inherit;font-size:16px;font-weight:700;cursor:pointer;transition:all .2s}
+    .btn-primary{background:#22c55e;color:#000}
+    .btn-primary:active{background:#16a34a}
+    .btn-primary:disabled{background:#1a3320;color:#2a5a3a;cursor:not-allowed}
+    .btn-danger{background:#1a0a0a;color:#ef4444;border:1px solid #2a1010}
+    .invite-input{width:100%;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:10px;color:#f0f0f0;font:inherit;font-size:18px;font-weight:700;padding:12px 14px;outline:none;text-align:center;letter-spacing:3px;text-transform:uppercase;-webkit-user-select:text;user-select:text}
+    .invite-input:focus{border-color:#22c55e44}
+    .invite-input::placeholder{color:#333;font-weight:400;letter-spacing:0;text-transform:none;font-size:14px}
+    .error-msg{font-size:12px;color:#ef4444;text-align:center;display:none}
+    .error-msg.visible{display:block}
+    .hidden{display:none!important}
+    .gender-row{display:flex;gap:8px}
+    .gender-btn{flex:1;padding:8px;border-radius:8px;border:1px solid #2a2a2a;background:#1a1a1a;color:#888;font:inherit;font-size:13px;cursor:pointer;transition:all .2s}
+    .gender-btn.active{border-color:#22c55e;background:#0d1a0f;color:#22c55e}
+    .subtitle-section{display:none;flex-direction:column;gap:8px}
+    .subtitle-section.visible{display:flex}
+    .box-wrap{display:flex;flex-direction:column;gap:4px}
+    .box-label{font-size:11px;color:#555;font-weight:600;text-transform:uppercase;padding-left:2px}
+    .tbox{min-height:72px;max-height:120px;overflow-y:auto;border-radius:12px;padding:12px;font-size:16px;font-weight:600;line-height:1.5;word-break:break-word;white-space:pre-wrap;-webkit-user-select:text;user-select:text}
+    .tbox-them{background:#0d1a0f;border:1px solid #1a3320;color:#22c55e}
+    .tbox-them:empty::before{content:attr(data-ph);color:#1a3320;font-size:13px;font-weight:400}
+    .tbox-me{background:#0f0f1a;border:1px solid #1a1a3a;color:#60a5fa}
+    .tbox-me:empty::before{content:attr(data-ph);color:#1a1a3a;font-size:13px;font-weight:400}
+    .call-indicator{display:none;align-items:center;justify-content:center;gap:10px;background:#0d1a0f;border:1px solid #1a3320;border-radius:12px;padding:12px}
+    .call-indicator.visible{display:flex}
+    .call-timer{font-size:22px;font-weight:700;color:#22c55e;font-variant-numeric:tabular-nums;letter-spacing:1px}
+    .participants-bar{font-size:12px;color:#444;text-align:center}
+    .participants-bar span{color:#22c55e}
+  </style>
+</head>
+<body>
+<div class="app">
+  <div>
+    <div class="logo">Glo<span>Talk</span></div>
+    <div class="tagline">实时语音翻译 · Real-time Voice Translation</div>
+  </div>
+
+  <div class="status-bar">
+    <div class="dot" id="dot"></div>
+    <div class="status-text" id="statusText">请输入邀请码加入通话</div>
+  </div>
+
+  <!-- 第一步：邀请码验证 -->
+  <div id="inviteSection">
+    <div class="card" style="gap:12px">
+      <input class="invite-input" id="inviteInput" type="text" placeholder="输入邀请码 GT-XXXXXX" maxlength="10" autocomplete="off" autocapitalize="characters" spellcheck="false"/>
+      <input id="nameInput" type="text" placeholder="你的名字（选填）" maxlength="20" autocomplete="off" style="text-align:center"/>
+    </div>
+    <div class="error-msg" id="errorMsg"></div>
+    <button class="btn btn-primary" id="verifyBtn" onclick="verifyInvite()" style="margin-top:4px">验证邀请码</button>
+  </div>
+
+  <!-- 第二步：通话设置 -->
+  <div class="hidden" id="setupSection">
+    <div class="card">
+      <div class="row">
+        <div class="label">我说</div>
+        <select id="myLang">
+          <option value="zh">🇨🇳 中文</option>
+          <option value="en">🇺🇸 英文</option>
+          <option value="ja">🇯🇵 日语</option>
+          <option value="ko">🇰🇷 韩语</option>
+          <option value="fr">🇫🇷 法语</option>
+          <option value="de">🇩🇪 德语</option>
+          <option value="es">🇪🇸 西班牙语</option>
+          <option value="pt">🇧🇷 葡萄牙语</option>
+          <option value="it">🇮🇹 意大利语</option>
+          <option value="ru">🇷🇺 俄语</option>
+          <option value="ar">🇸🇦 阿拉伯语</option>
+          <option value="hi">🇮🇳 印地语</option>
+          <option value="id">🇮🇩 印尼语</option>
+          <option value="ms">🇲🇾 马来语</option>
+          <option value="th">🇹🇭 泰语</option>
+          <option value="vi">🇻🇳 越南语</option>
+          <option value="nl">🇳🇱 荷兰语</option>
+          <option value="pl">🇵🇱 波兰语</option>
+          <option value="sv">🇸🇪 瑞典语</option>
+          <option value="da">🇩🇰 丹麦语</option>
+          <option value="fi">🇫🇮 芬兰语</option>
+          <option value="cs">🇨🇿 捷克语</option>
+          <option value="tr">🇹🇷 土耳其语</option>
+          <option value="ur">🇵🇰 乌尔都语</option>
+          <option value="nb">🇳🇴 挪威语</option>
+          <option value="he">🇮🇱 希伯来语</option>
+          <option value="fil">🇵🇭 菲律宾语</option>
+          <option value="fa">🇮🇷 波斯语</option>
+          <option value="is">🇮🇸 冰岛语</option>
+        </select>
+      </div>
+      <div class="row">
+        <div class="label">对方说</div>
+        <select id="targetLang">
+          <option value="zh">🇨🇳 中文</option>
+          <option value="en">🇺🇸 英文</option>
+          <option value="ja">🇯🇵 日语</option>
+          <option value="ko">🇰🇷 韩语</option>
+          <option value="fr">🇫🇷 法语</option>
+          <option value="de">🇩🇪 德语</option>
+          <option value="es">🇪🇸 西班牙语</option>
+          <option value="pt">🇧🇷 葡萄牙语</option>
+          <option value="it">🇮🇹 意大利语</option>
+          <option value="ru">🇷🇺 俄语</option>
+          <option value="ar">🇸🇦 阿拉伯语</option>
+          <option value="hi">🇮🇳 印地语</option>
+          <option value="id">🇮🇩 印尼语</option>
+          <option value="ms">🇲🇾 马来语</option>
+          <option value="th">🇹🇭 泰语</option>
+          <option value="vi">🇻🇳 越南语</option>
+          <option value="nl">🇳🇱 荷兰语</option>
+          <option value="pl">🇵🇱 波兰语</option>
+          <option value="sv">🇸🇪 瑞典语</option>
+          <option value="da">🇩🇰 丹麦语</option>
+          <option value="fi">🇫🇮 芬兰语</option>
+          <option value="cs">🇨🇿 捷克语</option>
+          <option value="tr">🇹🇷 土耳其语</option>
+          <option value="ur">🇵🇰 乌尔都语</option>
+          <option value="nb">🇳🇴 挪威语</option>
+          <option value="he">🇮🇱 希伯来语</option>
+          <option value="fil">🇵🇭 菲律宾语</option>
+          <option value="fa">🇮🇷 波斯语</option>
+          <option value="is">🇮🇸 冰岛语</option>
+        </select>
+      </div>
+      <div class="row">
+        <div class="label">声音</div>
+        <div class="gender-row" style="flex:1">
+          <button class="gender-btn active" id="btnFemale" onclick="setGender('female')">👩 女声</button>
+          <button class="gender-btn" id="btnMale" onclick="setGender('male')">👨 男声</button>
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="joinBtn" onclick="joinRoom()">🎙️ 开始通话</button>
+  </div>
+
+  <!-- 第三步：通话中 -->
+  <div class="hidden" id="callSection">
+    <div class="call-indicator visible">
+      <div class="call-timer" id="callTimer">00:00</div>
+      <div style="font-size:12px;color:#2a5a3a">通话中</div>
+    </div>
+    <div class="participants-bar" id="participantsBar">等待对方加入...</div>
+
+    <div class="subtitle-section visible">
+      <div class="box-wrap">
+        <div class="box-label">对方说（翻译）</div>
+        <div class="tbox tbox-them" id="themBox" data-ph="等待对方说话..."></div>
+      </div>
+      <div class="box-wrap">
+        <div class="box-label">我说（识别）</div>
+        <div class="tbox tbox-me" id="meBox" data-ph="开始说话..."></div>
+      </div>
+    </div>
+
+    <button class="btn btn-danger" onclick="leaveRoom()">结束通话</button>
+  </div>
+</div>
+
+<script>
+const ACCESS_TOKEN = 'glotalk2026';
+const LIVEKIT_URL = 'wss://glotalk-nppyx7kk.livekit.cloud';
+let room = null;
+let myRoom = '';
+let myIdentity = '';
+let myLang = 'zh';
+let targetLang = 'en';
+let myVoice = 'Tina';
+let timerInterval = null;
+let timerSeconds = 0;
+let inviteData = null;
+
+function $(id){ return document.getElementById(id); }
+
+function setStatus(text, dotClass=''){
+  $('statusText').textContent = text;
+  $('dot').className = 'dot' + (dotClass ? ' '+dotClass : '');
+}
+
+function showSection(id){
+  ['inviteSection','setupSection','callSection'].forEach(s => {
+    const el = $(s);
+    if(el) el.className = s === id ? (s==='inviteSection'?'':'') : 'hidden';
+  });
+  if(id==='inviteSection') $('inviteSection').className='';
+}
+
+function showError(msg){
+  const el = $('errorMsg');
+  el.textContent = msg;
+  el.className = 'error-msg visible';
+  setTimeout(()=>el.className='error-msg',3000);
+}
+
+function setGender(g){
+  myVoice = g==='female' ? 'Tina' : 'Raymond';
+  $('btnFemale').className = 'gender-btn' + (g==='female'?' active':'');
+  $('btnMale').className = 'gender-btn' + (g==='male'?' active':'');
+}
+
+function startTimer(){
+  timerSeconds = 0;
+  timerInterval = setInterval(()=>{
+    timerSeconds++;
+    const m = String(Math.floor(timerSeconds/60)).padStart(2,'0');
+    const s = String(timerSeconds%60).padStart(2,'0');
+    $('callTimer').textContent = m+':'+s;
+  },1000);
+}
+
+async function verifyInvite(){
+  const code = $('inviteInput').value.trim().toUpperCase();
+  const name = $('nameInput').value.trim();
+  if(!code){ showError('请输入邀请码'); return; }
+  $('verifyBtn').disabled = true;
+  $('verifyBtn').textContent = '验证中...';
+  setStatus('验证邀请码...','yellow pulse');
+  try{
+    const res = await fetch('/invite/verify',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-glotalk-token':ACCESS_TOKEN},
+      body:JSON.stringify({code,name})
+    });
+    const data = await res.json();
+    if(!data.ok) throw new Error(data.error||'邀请码无效');
+    inviteData = data;
+    myRoom = data.roomId || code;
+    myIdentity = (name||'用户')+'-'+Date.now().toString(36);
+    setStatus('验证成功，请选择语言','green');
+    showSection('setupSection');
+  }catch(e){
+    showError(e.message);
+    setStatus('验证失败','red');
+    $('verifyBtn').disabled = false;
+    $('verifyBtn').textContent = '验证邀请码';
+  }
+}
+
+async function useInvite(){
+  const code = $('inviteInput').value.trim().toUpperCase();
+  const name = $('nameInput').value.trim();
+  try{
+    await fetch('/invite/use',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-glotalk-token':ACCESS_TOKEN},
+      body:JSON.stringify({code,name})
+    });
+  }catch(e){}
+}
+
+async function joinRoom(){
+  myLang = $('myLang').value;
+  targetLang = $('targetLang').value;
+  $('joinBtn').disabled = true;
+  $('joinBtn').textContent = '连接中...';
+  setStatus('获取通话凭证...','yellow pulse');
+  try{
+    // 1. 获取 LiveKit Token
+    const tokenRes = await fetch(
+      `/livekit-token?room=${encodeURIComponent(myRoom)}&identity=${encodeURIComponent(myIdentity)}&lang=${myLang}`,
+      {headers:{'x-glotalk-token':ACCESS_TOKEN}}
+    );
+    const tokenData = await tokenRes.json();
+    if(!tokenData.token) throw new Error('获取Token失败');
+
+    // 2. 标记邀请码已使用
+    await useInvite();
+
+    // 3. 连接 LiveKit 房间
+    room = new LivekitClient.Room({
+      adaptiveStream:true,
+      dynacast:true,
+      audioCaptureDefaults:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}
+    });
+
+    room.on(LivekitClient.RoomEvent.ParticipantConnected, p=>{
+      $('participantsBar').innerHTML = `对方已加入 · <span>${p.identity}</span>`;
+    });
+
+    room.on(LivekitClient.RoomEvent.ParticipantDisconnected, ()=>{
+      $('participantsBar').textContent = '对方已离开';
+    });
+
+    room.on(LivekitClient.RoomEvent.TrackSubscribed, (track, pub, participant)=>{
+      // 只播放对方的翻译音轨
+      const myBotName = `bot-${myIdentity}-${targetLang}`;
+      if(participant.identity.startsWith('bot-') &&
+         participant.identity !== myBotName &&
+         track.kind === LivekitClient.Track.Kind.Audio){
+        const ms = new MediaStream([track.mediaStreamTrack]);
+        const audio = new Audio();
+        audio.srcObject = ms;
+        audio.play().catch(()=>{});
+      }
+    });
+
+    room.on(LivekitClient.RoomEvent.DataReceived, (data)=>{
+      try{
+        const msg = JSON.parse(new TextDecoder().decode(data));
+        if(msg.type==='transcript') $('meBox').textContent = msg.text;
+        if(msg.type==='translation') $('themBox').textContent = msg.text;
+      }catch(e){}
+    });
+
+    room.on(LivekitClient.RoomEvent.Disconnected, ()=>{
+      setStatus('通话已结束','');
+      clearInterval(timerInterval);
+      showSection('inviteSection');
+      $('verifyBtn').disabled=false;
+      $('verifyBtn').textContent='验证邀请码';
+    });
+
+    await room.connect(LIVEKIT_URL, tokenData.token);
+    await room.localParticipant.setMicrophoneEnabled(true);
+
+    // 4. 启动翻译 Bot
+    await fetch(`/start-bot?room=${encodeURIComponent(myRoom)}&identity=${encodeURIComponent(myIdentity)}&source=${myLang}&target=${targetLang}&voice=${myVoice}`);
+
+    showSection('callSection');
+    startTimer();
+    setStatus('通话中','green');
+
+  }catch(e){
+    showError('连接失败: '+e.message);
+    setStatus('连接失败','red');
+    $('joinBtn').disabled=false;
+    $('joinBtn').textContent='🎙️ 开始通话';
+  }
+}
+
+async function leaveRoom(){
+  if(room){ await room.disconnect(); room=null; }
+  clearInterval(timerInterval);
+  setStatus('请输入邀请码加入通话','');
+  showSection('inviteSection');
+  $('verifyBtn').disabled=false;
+  $('verifyBtn').textContent='验证邀请码';
+  $('inviteInput').value='';
+}
+</script>
+</body>
+</html>
