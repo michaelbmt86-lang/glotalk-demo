@@ -52,9 +52,15 @@
 </head>
 <body>
 <div class="app">
-  <div>
-    <div class="logo">Glo<span>Talk</span> <span style="font-size:14px;color:#555;font-weight:400">代理中心</span></div>
-    <div class="tagline">代理专用管理界面</div>
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <div>
+      <div class="logo">Glo<span>Talk</span> <span style="font-size:14px;color:#555;font-weight:400">代理中心</span></div>
+      <div class="tagline">代理专用管理界面</div>
+    </div>
+    <div id="headerCode" style="display:none;text-align:center;background:#1a1200;border:1px solid #3a2800;border-radius:10px;padding:6px 12px">
+      <div id="headerCodeText" style="font-size:22px;font-weight:900;color:#f59e0b;letter-spacing:3px"></div>
+      <button class="copy-btn" style="padding:3px 8px;font-size:10px;margin-top:2px" onclick="copyLatest()">📋 复制</button>
+    </div>
   </div>
 
   <!-- 登录 -->
@@ -95,7 +101,7 @@
           </div>
         </div>
         <select id="inviteDuration">
-          <option value="30">30分钟</option>
+          <option value="30" >30分钟</option>
           <option value="60">60分钟</option>
           <option value="120">2小时</option>
           <option value="480">8小时</option>
@@ -105,21 +111,20 @@
       <div class="msg" id="createMsg"></div>
     </div>
 
-    <!-- 最新生成的邀请码（大显示） -->
+    <!-- 最新生成的邀请码（紧凑布局） -->
     <div class="card" id="latestCard" style="display:none">
-      <h2>✅ 最新邀请码</h2>
-      <div style="text-align:center;padding:16px 0">
-        <div id="latestCode" style="font-size:32px;font-weight:900;color:#f59e0b;letter-spacing:4px"></div>
-        <div id="latestMeta" style="font-size:13px;color:#555;margin-top:8px"></div>
-        <button class="copy-btn" style="margin-top:12px;padding:8px 20px;font-size:14px" onclick="copyLatest()">
-          📋 复制邀请码
-        </button>
+      <!-- 顶部：邀请码右上角 + 语言矩阵 -->
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">
+        <div style="font-size:12px;color:#888;margin-bottom:8px;text-align:center">
+          📤 点击语言 → 复制链接发给客户
+        </div>
+        <div id="latestCode" style="display:none"></div>
+        <div id="latestMeta" style="display:none"></div>
       </div>
-      <div style="background:#1a1a1a;border-radius:8px;padding:12px;margin-top:8px">
-        <div style="color:#888;margin-bottom:8px;font-weight:600;font-size:12px">📤 点击语言按钮 → 复制对应链接发给客户：</div>
-        <div id="langLinks"></div>
-        <div id="copiedLink" style="display:none;margin-top:8px;background:#0d1a0f;border:1px solid #1a3320;border-radius:8px;padding:8px;font-size:12px;color:#22c55e;word-break:break-all;cursor:pointer" onclick="navigator.clipboard.writeText(this.dataset.link).then(()=>this.textContent='✅ 已复制！')"></div>
-      </div>
+      <!-- 语言矩阵 -->
+      <div id="langLinks"></div>
+      <!-- 已复制链接展示 -->
+      <div id="copiedLink" style="display:none;margin-top:8px;background:#0d1a0f;border:1px solid #1a3320;border-radius:8px;padding:8px;font-size:12px;color:#22c55e;word-break:break-all;cursor:pointer" onclick="navigator.clipboard.writeText(this.dataset.link).then(()=>this.textContent='✅ 已复制！')"></div>
     </div>
 
     <!-- 邀请码历史 -->
@@ -366,6 +371,11 @@ async function createInvite() {
     if (d.ok && d.code) {
       latestCode = d.code;
       document.getElementById("latestCode").textContent = d.code;
+      // 同步更新右上角邀请码
+      document.getElementById("headerCode").style.display = "block";
+      document.getElementById("headerCodeText").textContent = d.code;
+      const hm = document.getElementById("headerMeta");
+      if(hm) hm.textContent = "给 " + guestName + " · " + duration + "分钟";
       document.getElementById("latestMeta").textContent =
         "给 " + guestName + " · 有效期" + duration + "分钟";
 
@@ -381,7 +391,8 @@ async function createInvite() {
       jumpEl.onclick = function(){
         var myLang = (document.getElementById("myLang") && document.getElementById("myLang").value) || "zh";
         var theirLangCode = window._latestTheirLang || "en";
-        location.href = "https://glotalk.tech/glotalk-al.html?code=" + d.code;
+        var myLang = (document.getElementById("myLang") && document.getElementById("myLang").value) || "zh";
+        location.href = "https://glotalk.tech/glotalk-al.html?code=" + d.code + "&lang=" + myLang;
       };
       renderLangLinks(d.code, d.roomId);
       document.getElementById("latestMeta").textContent =
