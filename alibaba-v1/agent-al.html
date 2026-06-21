@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>GloTalk 代理中心</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0a0a0a;color:#f0f0f0;font-family:-apple-system,sans-serif;padding:20px;min-height:100vh}
+  .app{width:min(100%,480px);margin:0 auto;display:flex;flex-direction:column;gap:16px}
+  .logo{font-size:26px;font-weight:800;color:#fff}.logo span{color:#22c55e}
+  .tagline{font-size:12px;color:#333;margin-top:2px}
+  .card{background:#111;border:1px solid #222;border-radius:14px;padding:16px}
+  h2{color:#888;font-size:13px;font-weight:600;text-transform:uppercase;margin-bottom:12px}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .stat{background:#1a1a1a;border-radius:10px;padding:12px}
+  .stat-val{font-size:20px;font-weight:800;color:#22c55e}
+  .stat-val.warn{color:#f59e0b}
+  .stat-val.danger{color:#ef4444}
+  .stat-label{font-size:11px;color:#555;margin-top:3px}
+  .progress{background:#1a1a1a;border-radius:4px;height:6px;margin-top:8px;overflow:hidden}
+  .progress-bar{height:100%;border-radius:4px;background:#22c55e;transition:width .3s}
+  .progress-bar.warn{background:#f59e0b}
+  .progress-bar.danger{background:#ef4444}
+  input,select{background:#1a1a1a;border:1px solid #333;border-radius:8px;color:#f0f0f0;
+    font:inherit;font-size:14px;padding:10px 12px;outline:none;width:100%}
+  input:focus{border-color:#22c55e44}
+  .row{display:flex;gap:8px;margin-bottom:10px}
+  .row input,.row select{flex:1}
+  button.primary{background:#22c55e;color:#000;border:none;border-radius:10px;
+    padding:14px;font:inherit;font-size:15px;font-weight:700;cursor:pointer;width:100%}
+  button.primary:active{transform:scale(.98)}
+  button.primary:disabled{opacity:.4;cursor:not-allowed}
+  .msg{padding:10px 12px;border-radius:8px;font-size:13px;display:none;margin-top:8px}
+  .msg.ok{background:#0d1a0f;color:#22c55e;border:1px solid #1a3320}
+  .msg.err{background:#1a0f0f;color:#ef4444;border:1px solid #2a1010}
+  .invite-item{background:#1a1a1a;border-radius:10px;padding:12px;margin-bottom:8px}
+  .invite-code{font-size:18px;font-weight:800;color:#f59e0b;letter-spacing:2px}
+  .invite-meta{font-size:12px;color:#555;margin-top:4px}
+  .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+  .badge.ok{background:#0d1a0f;color:#22c55e}
+  .badge.used{background:#1a1a1a;color:#555}
+  .badge.exp{background:#1a0f0f;color:#ef4444}
+  .login-card{background:#111;border:1px solid #222;border-radius:14px;padding:24px}
+  #loginSection{display:flex;flex-direction:column;gap:12px}
+  #mainSection{display:none;flex-direction:column;gap:16px}
+  .copy-btn{background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#888;
+    font:inherit;font-size:12px;padding:4px 10px;cursor:pointer;margin-left:8px}
+  .copy-btn:active{background:#222}
+  .empty{text-align:center;color:#333;padding:20px;font-size:13px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div>
+    <div class="logo">Glo<span>Talk</span> <span style="font-size:14px;color:#555;font-weight:400">代理中心</span></div>
+    <div class="tagline">代理专用管理界面</div>
+  </div>
+
+  <!-- 登录 -->
+  <div class="login-card" id="loginSection">
+    <h2>🔑 输入代理ID</h2>
+    <input id="agentIdInput" placeholder="AG-XXXXXX" maxlength="9"
+      oninput="this.value=this.value.toUpperCase()" style="letter-spacing:2px;font-size:16px;font-weight:700"/>
+    <button class="primary" onclick="login()">进入代理中心</button>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <!-- 主界面（登录后显示） -->
+  <div id="mainSection">
+
+    <!-- 欢迎+额度 -->
+    <div class="card" id="statusCard">
+      <h2>📊 本月额度</h2>
+      <div class="stats" id="statsGrid"></div>
+      <div class="progress" style="margin-top:12px">
+        <div class="progress-bar" id="progressBar" style="width:0%"></div>
+      </div>
+      <div style="font-size:11px;color:#555;margin-top:6px" id="progressLabel"></div>
+    </div>
+
+    <!-- 生成邀请码 -->
+    <div class="card">
+      <h2>🎫 为客户生成邀请码</h2>
+      <div class="row">
+        <input id="guestName" placeholder="客户/朋友姓名"/>
+        <select id="myLang">
+          <option value="zh" selected>🇨🇳 我说中文</option>
+          <option value="en">🇺🇸 我说英文</option>
+          <option value="ja">🇯🇵 我说日文</option>
+          <option value="ko">🇰🇷 我说韩文</option>
+          <option value="es">🇪🇸 我说西班牙文</option>
+          <option value="fr">🇫🇷 我说法文</option>
+          <option value="de">🇩🇪 我说德文</option>
+          <option value="ar">🇸🇦 我说阿拉伯文</option>
+        </select>
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:#555;font-weight:600;text-transform:uppercase;margin-bottom:6px">翻译声音</div>
+          <div style="display:flex;gap:8px">
+            <button id="btnFemale" onclick="setVoice('Tina',this)" style="flex:1;padding:8px;border-radius:8px;border:1px solid #22c55e;background:#0d1a0f;color:#22c55e;font:inherit;font-size:13px;cursor:pointer">👩 女声</button>
+            <button id="btnMale" onclick="setVoice('Raymond',this)" style="flex:1;padding:8px;border-radius:8px;border:1px solid #2a2a2a;background:#1a1a1a;color:#888;font:inherit;font-size:13px;cursor:pointer">👨 男声</button>
+          </div>
+        </div>
+        <select id="inviteDuration">
+          <option value="30">30分钟</option>
+          <option value="60" selected>60分钟</option>
+          <option value="120">2小时</option>
+          <option value="480">8小时</option>
+        </select>
+      </div>
+      <button class="primary" id="createBtn" onclick="createInvite()">生成邀请码</button>
+      <div class="msg" id="createMsg"></div>
+    </div>
+
+    <!-- 最新生成的邀请码（大显示） -->
+    <div class="card" id="latestCard" style="display:none">
+      <h2>✅ 最新邀请码</h2>
+      <div style="text-align:center;padding:16px 0">
+        <div id="latestCode" style="font-size:32px;font-weight:900;color:#f59e0b;letter-spacing:4px"></div>
+        <div id="latestMeta" style="font-size:13px;color:#555;margin-top:8px"></div>
+        <button class="copy-btn" style="margin-top:12px;padding:8px 20px;font-size:14px" onclick="copyLatest()">
+          📋 复制邀请码
+        </button>
+      </div>
+      <div style="background:#1a1a1a;border-radius:8px;padding:12px;margin-top:8px;font-size:12px;color:#555;line-height:1.8">
+        <div style="color:#888;margin-bottom:8px;font-weight:600">📤 发给客户的链接（按语言选择）：</div>
+        <div id="langLinks"></div>
+      </div>
+    </div>
+
+    <!-- 邀请码历史 -->
+    <div class="card">
+      <h2>📋 邀请码记录</h2>
+      <div id="inviteList"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const BASE = "https://glotalk.tech";
+let currentAgentId = "";
+let agentData = null;
+let latestCode = "";
+
+// 从URL读取agentId
+const urlAgent = new URLSearchParams(location.search).get("id");
+if (urlAgent) {
+  document.getElementById("agentIdInput").value = urlAgent.toUpperCase();
+  setTimeout(login, 100);
+}
+
+async function login() {
+  const id = (document.getElementById("agentIdInput").value || "").trim().toUpperCase();
+  if (id.length < 6) { showMsg("loginMsg", "请输入完整的代理ID", true); return; }
+  try {
+    const r = await fetch(`${BASE}/agent/status?id=${id}`);
+    const d = await r.json();
+    if (d.error) { showMsg("loginMsg", "❌ " + d.error, true); return; }
+    if (!d.active) { showMsg("loginMsg", "❌ 此代理账号已停用，请联系管理员", true); return; }
+    currentAgentId = id;
+    agentData = d;
+    document.getElementById("loginSection").style.display = "none";
+    document.getElementById("mainSection").style.display = "flex";
+    history.replaceState(null, "", "?id=" + id);
+    renderStatus(d);
+    renderInvites(d.invites || []);
+  } catch(e) {
+    showMsg("loginMsg", "❌ 网络错误，请重试", true);
+  }
+}
+
+const LANGS = [
+  {code:"zh", label:"🇨🇳 中文"},
+  {code:"en", label:"🇺🇸 英文"},
+  {code:"ja", label:"🇯🇵 日语"},
+  {code:"ko", label:"🇰🇷 韩语"},
+  {code:"fr", label:"🇫🇷 法语"},
+  {code:"de", label:"🇩🇪 德语"},
+  {code:"es", label:"🇪🇸 西班牙语"},
+  {code:"pt", label:"🇧🇷 葡萄牙语"},
+  {code:"it", label:"🇮🇹 意大利语"},
+  {code:"ru", label:"🇷🇺 俄语"},
+  {code:"ar", label:"🇸🇦 阿拉伯语"},
+  {code:"hi", label:"🇮🇳 印地语"},
+  {code:"id", label:"🇮🇩 印尼语"},
+  {code:"ms", label:"🇲🇾 马来语"},
+  {code:"th", label:"🇹🇭 泰语"},
+  {code:"vi", label:"🇻🇳 越南语"},
+  {code:"nl", label:"🇳🇱 荷兰语"},
+  {code:"pl", label:"🇵🇱 波兰语"},
+  {code:"sv", label:"🇸🇪 瑞典语"},
+  {code:"da", label:"🇩🇰 丹麦语"},
+  {code:"fi", label:"🇫🇮 芬兰语"},
+  {code:"cs", label:"🇨🇿 捷克语"},
+  {code:"tr", label:"🇹🇷 土耳其语"},
+  {code:"ur", label:"🇵🇰 乌尔都语"},
+  {code:"nb", label:"🇳🇴 挪威语"},
+  {code:"he", label:"🇮🇱 希伯来语"},
+  {code:"fil", label:"🇵🇭 菲律宾语"},
+  {code:"fa", label:"🇮🇷 波斯语"},
+  {code:"is", label:"🇮🇸 冰岛语"},
+];
+
+function setVoice(voice, btn) {
+  window._selectedVoice = voice;
+  document.getElementById('btnFemale').style.borderColor = voice==='Tina' ? '#22c55e' : '#2a2a2a';
+  document.getElementById('btnFemale').style.background = voice==='Tina' ? '#0d1a0f' : '#1a1a1a';
+  document.getElementById('btnFemale').style.color = voice==='Tina' ? '#22c55e' : '#888';
+  document.getElementById('btnMale').style.borderColor = voice==='Raymond' ? '#22c55e' : '#2a2a2a';
+  document.getElementById('btnMale').style.background = voice==='Raymond' ? '#0d1a0f' : '#1a1a1a';
+  document.getElementById('btnMale').style.color = voice==='Raymond' ? '#22c55e' : '#888';
+}
+window._selectedVoice = 'Tina';
+
+function renderLangLinks(invCode, roomNum) {
+  const base = "https://glotalk.tech/glotalk-al.html";
+  const el = document.getElementById("langLinks");
+  if (!el) return;
+  // 链接不带room，对方需要手输房间号
+  const myLangVal = (document.getElementById("myLang") && document.getElementById("myLang").value) || "zh";
+  // 默认 theirLang = LANGS 里第一个不是 myLang 的语言
+  const defaultTheirLang = (LANGS.find(x => x.code !== myLangVal) || LANGS[0]).code;
+  window._latestTheirLang = defaultTheirLang;
+  el.innerHTML = LANGS.map(l => {
+    const link = base + "?invite=" + invCode + "&lang=" + l.code + "&theirLang=" + myLangVal + "&voice=" + (window._selectedVoice||"Tina");
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #222">
+      <span>${l.label}</span>
+      <button class="copy-btn" data-link="${link}" data-lang="${l.code}"
+        onclick="window._latestTheirLang='${l.code}';doCopy(this)" id="langBtn_${l.code}">📋 复制</button>
+    </div>`;
+  }).join("");
+}
+
+function doCopy(btn) {
+  const txt = btn.dataset.link;
+  const fb = () => {
+    const e = Object.assign(document.createElement("textarea"),{value:txt,style:"position:fixed;opacity:0"});
+    document.body.appendChild(e); e.select(); document.execCommand("copy"); document.body.removeChild(e);
+  };
+  navigator.clipboard ? navigator.clipboard.writeText(txt).then(()=>{}).catch(fb) : fb();
+  btn.textContent = "✅ 已复制";
+  setTimeout(() => btn.textContent = "📋 复制", 2000);
+}
+
+function copyText(text, langCode) {
+  const fb = v => {
+    const e = Object.assign(document.createElement("textarea"),{value:v,style:"position:fixed;opacity:0"});
+    document.body.appendChild(e); e.select(); document.execCommand("copy"); document.body.removeChild(e);
+  };
+  try { navigator.clipboard.writeText(text).catch(() => fb(text)); } catch { fb(text); }
+  const btn = document.getElementById("langBtn_"+langCode);
+  if (btn) { btn.textContent = "✅ 已复制"; setTimeout(() => btn.textContent = "📋 复制", 2000); }
+}
+
+function renderStatus(d) {
+  const used = parseFloat(d.usedUSD);
+  const budget = parseFloat(d.monthlyBudgetUSD);
+  const pct = budget > 0 ? Math.min(100, Math.round(used/budget*100)) : 0;
+  const mins = d.remainingMinutes || 0;
+  const color = pct > 80 ? "danger" : pct > 60 ? "warn" : "";
+
+  document.getElementById("statsGrid").innerHTML = `
+    <div class="stat">
+      <div class="stat-val">¥${d.monthlyBudgetRMB}</div>
+      <div class="stat-label">月度额度（人民币）</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val ${color}">$${d.usedUSD}</div>
+      <div class="stat-label">本月已消耗</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val ${color}">$${d.remainingUSD}</div>
+      <div class="stat-label">剩余额度</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val ${color}">${mins}分钟</div>
+      <div class="stat-label">剩余通话时长</div>
+    </div>
+  `;
+
+  const bar = document.getElementById("progressBar");
+  bar.style.width = pct + "%";
+  bar.className = "progress-bar" + (color ? " " + color : "");
+  document.getElementById("progressLabel").textContent =
+    `已用 ${pct}%（$${used.toFixed(4)} / $${budget.toFixed(2)}）`;
+
+  if (pct >= 100) {
+    document.getElementById("createBtn").disabled = true;
+    document.getElementById("createBtn").textContent = "本月额度已用完";
+  }
+}
+
+function renderInvites(invites) {
+  const el = document.getElementById("inviteList");
+  if (!invites.length) {
+    el.innerHTML = '<div class="empty">暂无邀请码记录</div>'; return;
+  }
+  el.innerHTML = invites.slice().reverse().map(inv => {
+    const badgeClass = inv.status === "可用" ? "ok" : inv.status === "已使用" ? "used" : "exp";
+    return `<div class="invite-item">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span class="invite-code">${inv.code}</span>
+        <span class="badge ${badgeClass}">${inv.status}</span>
+      </div>
+      <div class="invite-meta">
+        客户：${inv.name} · 有效期${inv.duration}分钟
+        ${inv.usedAt !== "-" ? " · 使用于 " + inv.usedAt : ""}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+async function createInvite() {
+  const guestName = document.getElementById("guestName").value.trim() || "客户";
+  const duration = parseInt(document.getElementById("inviteDuration").value);
+  if (!currentAgentId) return;
+
+  document.getElementById("createBtn").disabled = true;
+  document.getElementById("createBtn").textContent = "生成中...";
+
+  try {
+    const r = await fetch(`${BASE}/agent/invite/create`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({agentId: currentAgentId, guestName, duration})
+    });
+    const d = await r.json();
+
+    if (d.ok && d.code) {
+      latestCode = d.code;
+      document.getElementById("latestCode").textContent = d.code;
+      document.getElementById("latestMeta").textContent =
+        "给 " + guestName + " · 有效期" + duration + "分钟 · 剩余额度$" + d.remaining;
+      // 大字显示房间号
+      let roomEl = document.getElementById("latestRoom");
+      if(!roomEl){
+        roomEl = document.createElement("div");
+        roomEl.id = "latestRoom";
+        roomEl.style.cssText = "text-align:center;margin:10px 0;padding:10px;background:#1a0f0f;border:1px solid #2a1a1a;border-radius:10px";
+        document.getElementById("latestCard").querySelector(".copy-btn").parentNode.insertBefore(roomEl, document.getElementById("latestCard").querySelector(".copy-btn"));
+      }
+      roomEl.innerHTML = '<div style="font-size:11px;color:#888;margin-bottom:4px">房间号（另外告知对方）</div>' +
+        '<div style="font-size:36px;font-weight:900;color:#f59e0b;letter-spacing:6px">' + d.roomId + '</div>';
+      // 加「进入房间」按钮
+      let jumpEl = document.getElementById("agentJumpBtn");
+      if(!jumpEl){
+        jumpEl = document.createElement("button");
+        jumpEl.id = "agentJumpBtn";
+        jumpEl.style.cssText = "width:100%;background:#3b82f6;color:#fff;border:none;border-radius:10px;padding:12px;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px";
+        document.getElementById("latestCard").appendChild(jumpEl);
+      }
+      jumpEl.textContent = "🚀 进入房间 " + d.roomId + "（开始等待对方）";
+      jumpEl.onclick = function(){
+        var myLang = (document.getElementById("myLang") && document.getElementById("myLang").value) || "zh";
+        var theirLangCode = window._latestTheirLang || "en";
+        location.href = "https://glotalk.tech/glotalk-fullduplex.html?invite=" + d.code + "&room=" + d.roomId + "&lang=" + myLang + "&theirLang=" + theirLangCode;
+      };
+      renderLangLinks(d.code, d.roomId);
+      document.getElementById("latestMeta").textContent =
+        `给 ${guestName} · 有效期${duration}分钟 · 剩余额度$${d.remaining}`;
+      document.getElementById("latestCard").style.display = "block";
+      document.getElementById("guestName").value = "";
+      showMsg("createMsg", "✅ 邀请码已生成：" + d.code, false);
+      // 刷新状态
+      setTimeout(async () => {
+        const r2 = await fetch(`${BASE}/agent/status?id=${currentAgentId}`);
+        const d2 = await r2.json();
+        if (!d2.error) { agentData = d2; renderStatus(d2); renderInvites(d2.invites || []); }
+      }, 500);
+    } else {
+      showMsg("createMsg", "❌ " + (d.error || "生成失败"), true);
+    }
+  } catch(e) {
+    showMsg("createMsg", "❌ 网络错误，请重试", true);
+  }
+
+  document.getElementById("createBtn").disabled = false;
+  document.getElementById("createBtn").textContent = "生成邀请码";
+}
+
+function copyLatest() {
+  if (!latestCode) return;
+  const fb = v => {
+    const e = Object.assign(document.createElement("textarea"),{value:v,style:"position:fixed;opacity:0"});
+    document.body.appendChild(e); e.select(); document.execCommand("copy"); document.body.removeChild(e);
+  };
+  try { navigator.clipboard.writeText(latestCode).catch(() => fb(latestCode)); }
+  catch { fb(latestCode); }
+  const btn = event.target;
+  btn.textContent = "✅ 已复制";
+  setTimeout(() => btn.textContent = "📋 复制邀请码", 2000);
+}
+
+function showMsg(id, text, isErr) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className = "msg " + (isErr ? "err" : "ok");
+  el.style.display = "block";
+  setTimeout(() => el.style.display = "none", 5000);
+}
+
+// 回车登录
+document.getElementById("agentIdInput")?.addEventListener("keydown", e => {
+  if (e.key === "Enter") login();
+});
+</script>
+</body>
+</html>
