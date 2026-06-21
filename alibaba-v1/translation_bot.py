@@ -155,6 +155,16 @@ async def run_bot(room_name, source_lang, target_lang, participant_identity, voi
     await room.connect(LIVEKIT_URL, jwt)
     logger.info(f'[Bot] 已加入房间: {room_name}')
 
+    # 处理已经在房间里的参与者（Bot 启动时用户可能已经在了）
+    for participant in room.remote_participants.values():
+        if participant.identity == participant_identity:
+            logger.info(f'[Bot] 发现已在房间的参与者: {participant_identity}')
+            for publication in participant.track_publications.values():
+                if publication.track and publication.track.kind == rtc.TrackKind.KIND_AUDIO:
+                    logger.info(f'[Bot] 订阅已有音轨')
+                    bridge = TranslationBridge(room, participant, source_lang, target_lang, voice)
+                    asyncio.ensure_future(bridge.start(publication.track))
+
     try:
         await asyncio.wait_for(participant_left.wait(), timeout=3600)
     except asyncio.TimeoutError:
