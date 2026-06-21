@@ -483,7 +483,9 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === "GET" && url.pathname.startsWith("/g/")) {
     const code = url.pathname.slice(3).toUpperCase();
-    res.writeHead(302, {"Location": "https://glotalk.tech/glotalk-al.html?code=" + code, "Access-Control-Allow-Origin": "*"});
+    const lang = url.searchParams.get("lang") || "";
+    const langParam = lang ? "&lang=" + lang : "";
+    res.writeHead(302, {"Location": "https://glotalk.tech/glotalk-al.html?code=" + code + langParam, "Access-Control-Allow-Origin": "*"});
     res.end(); return;
   }
 
@@ -760,7 +762,7 @@ const server = http.createServer(async (req, res) => {
         if (!ag) { jsonResp(res, {error:"代理ID无效"}, 403); return; }
         if (!ag.active) { jsonResp(res, {error:"代理账号已停用"}, 403); return; }
         const code = generateInviteCodeAL();
-        const roomId = generateRoomNumber();
+        const roomId = code;
         const expiresAt = Date.now() + duration * 60 * 1000;
         invitesAL[code] = {
           name: guestName, duration, expiresAt,
