@@ -1,9 +1,11 @@
 """
-GloTalk Translation Bot
+GloTalk Translation Bot v2
 参考：google-gemini/gemini-live-api-examples/gemini-live-translate-livekit
 架构：LiveKit AudioStream → 阿里云 qwen3.5-livetranslate → LiveKit AudioSource
+新增：用户离开时自动退出
 """
 import asyncio
+import array
 import base64
 import json
 import os
@@ -26,29 +28,25 @@ FRAME_SIZE_MS = 100
 
 
 class TranslationBridge:
-    def __init__(self, room: rtc.Room, participant: rtc.RemoteParticipant,
-                 source_lang: str, target_lang: str, voice: str = 'Tina'):
+    def __init__(self, room, participant, source_lang, target_lang, voice='Tina'):
         self.room = room
         self.participant = participant
         self.source_lang = source_lang
         self.target_lang = target_lang
         self.voice = voice
-        self.ali_ws = None
         self.audio_source = rtc.AudioSource(OUTPUT_SAMPLE_RATE, 1)
         self.running = False
 
-    async def start(self, track: rtc.Track):
+    async def start(self, track):
         self.running = True
-        bot_name = f'translator-{self.participant.identity}-{self.target_lang}'
+        bot_name = f'translation-{self.target_lang}'
         logger.info(f'[Bot] 启动翻译桥: {self.participant.identity} → {self.target_lang}')
 
-        # 发布翻译音轨到 LiveKit
         local_track = rtc.LocalAudioTrack.create_audio_track(bot_name, self.audio_source)
         pub_options = rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE)
         await self.room.local_participant.publish_track(local_track, pub_options)
         logger.info(f'[Bot] 翻译音轨已发布: {bot_name}')
 
-        # 连接阿里云
         async with websockets.connect(
             ALIBABA_WS_URL,
             additional_headers={'Authorization': f'Bearer {DASHSCOPE_API_KEY}'}
@@ -56,7 +54,6 @@ class TranslationBridge:
             self.ali_ws = ali_ws
             logger.info('[Bot] 已连接阿里云')
 
-            # 发送 session.update
             await ali_ws.send(json.dumps({
                 'event_id': 'evt_init',
                 'type': 'session.update',
@@ -73,14 +70,12 @@ class TranslationBridge:
                 }
             }))
 
-            # 并发：接收音频 + 接收翻译
             await asyncio.gather(
                 self._stream_audio(track, ali_ws),
                 self._receive_translation(ali_ws)
             )
 
-    async def _stream_audio(self, track: rtc.Track, ali_ws):
-        """订阅 LiveKit 音频 → 转发给阿里云"""
+    async def _stream_audio(self, track, ali_ws):
         audio_stream = rtc.AudioStream(
             track,
             sample_rate=INPUT_SAMPLE_RATE,
@@ -90,8 +85,7 @@ class TranslationBridge:
         async for frame_event in audio_stream:
             if not self.running:
                 break
-            frame = frame_event.frame
-            pcm_bytes = bytes(frame.data)
+            pcm_bytes = bytes(frame_event.frame.data)
             b64 = base64.b64encode(pcm_bytes).decode()
             await ali_ws.send(json.dumps({
                 'event_id': 'evt_audio',
@@ -100,43 +94,35 @@ class TranslationBridge:
             }))
 
     async def _receive_translation(self, ali_ws):
-        """接收阿里云翻译音频 → 发布到 LiveKit"""
         async for msg in ali_ws:
+            if not self.running:
+                break
             text = msg if isinstance(msg, str) else msg.decode()
             ev = json.loads(text)
             ev_type = ev.get('type', '')
 
-            if ev_type == 'session.created':
-                logger.info('[Bot] 阿里云 session 创建成功')
-            elif ev_type == 'session.updated':
-                logger.info('[Bot] 阿里云 session 配置完成')
+            if ev_type in ('session.created', 'session.updated'):
+                logger.info(f'[Bot] {ev_type}')
             elif ev_type == 'response.audio.delta':
                 delta = ev.get('delta', '')
                 if delta:
                     pcm = base64.b64decode(delta)
-                    # 转成 int16 frame 发布到 LiveKit
-                    import array
                     samples = array.array('h', pcm)
-                    samples_per_channel = len(samples)
                     frame = rtc.AudioFrame(
                         data=bytes(samples),
                         sample_rate=OUTPUT_SAMPLE_RATE,
                         num_channels=1,
-                        samples_per_channel=samples_per_channel
+                        samples_per_channel=len(samples)
                     )
                     await self.audio_source.capture_frame(frame)
             elif ev_type == 'response.audio_transcript.done':
-                logger.info(f'[Bot] 翻译完成: {ev.get("transcript", "")}')
+                logger.info(f'[Bot] 翻译: {ev.get("transcript", "")}')
 
     def stop(self):
         self.running = False
 
 
-async def run_bot(room_name: str, source_lang: str, target_lang: str,
-                  participant_identity: str, voice: str = 'Tina'):
-    """Bot 加入房间，等待指定用户的音轨，开始翻译"""
-
-    # 生成 Bot token
+async def run_bot(room_name, source_lang, target_lang, participant_identity, voice='Tina'):
     token = api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
     token.with_identity(f'bot-{participant_identity}-{target_lang}')
     token.with_name(f'Translator ({target_lang})')
@@ -144,39 +130,45 @@ async def run_bot(room_name: str, source_lang: str, target_lang: str,
     jwt = token.to_jwt()
 
     room = rtc.Room()
-    bridge = None
+    participant_left = asyncio.Event()
+    active_bridge = None
 
     @room.on('track_subscribed')
     def on_track_subscribed(track, publication, participant):
-        nonlocal bridge
+        nonlocal active_bridge
         if (participant.identity == participant_identity and
                 track.kind == rtc.TrackKind.KIND_AUDIO):
             logger.info(f'[Bot] 订阅到 {participant_identity} 的音轨')
-            bridge = TranslationBridge(room, participant, source_lang, target_lang, voice)
-            asyncio.ensure_future(bridge.start(track))
+            active_bridge = TranslationBridge(room, participant, source_lang, target_lang, voice)
+            asyncio.ensure_future(active_bridge.start(track))
+
+    @room.on('participant_disconnected')
+    def on_participant_disconnected(participant):
+        if participant.identity == participant_identity:
+            logger.info(f'[Bot] 用户 {participant_identity} 已离开，Bot 退出')
+            if active_bridge:
+                active_bridge.stop()
+            participant_left.set()
 
     await room.connect(LIVEKIT_URL, jwt)
     logger.info(f'[Bot] 已加入房间: {room_name}')
 
-    # 保持运行直到断开
     try:
-        await asyncio.sleep(3600)  # 最多1小时
+        await asyncio.wait_for(participant_left.wait(), timeout=3600)
+    except asyncio.TimeoutError:
+        logger.info(f'[Bot] 超时1小时，自动退出')
     finally:
         await room.disconnect()
-        logger.info('[Bot] 已退出房间')
+        logger.info(f'[Bot] 已退出: {room_name}')
 
 
 if __name__ == '__main__':
     import sys
     if len(sys.argv) < 5:
         print('用法: python3 translation_bot.py <room> <source_lang> <target_lang> <participant>')
-        print('例子: python3 translation_bot.py glotalk-room zh en user-alice Tina')
         sys.exit(1)
 
-    room_name = sys.argv[1]
-    source_lang = sys.argv[2]
-    target_lang = sys.argv[3]
-    participant_identity = sys.argv[4]
-    voice = sys.argv[5] if len(sys.argv) > 5 else 'Tina'
-
-    asyncio.run(run_bot(room_name, source_lang, target_lang, participant_identity, voice))
+    asyncio.run(run_bot(
+        sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4],
+        sys.argv[5] if len(sys.argv) > 5 else 'Tina'
+    ))
