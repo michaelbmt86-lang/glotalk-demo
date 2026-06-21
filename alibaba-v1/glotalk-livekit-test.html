@@ -171,9 +171,12 @@ async function startSession() {
 
   room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
     log(`🎵 订阅到音轨: ${participant.identity} → ${publication.trackName}`);
-    // 如果是 Bot 发布的翻译音轨，用 Web Audio 播放
-    if (participant.identity.startsWith('bot-') && track.kind === Track.Kind.Audio) {
-      log('🔊 开始播放翻译音频');
+    // 只播放对方的翻译音轨（不播放自己的）
+    const myBotName = `bot-${identity}-${targetLang}`;
+    if (participant.identity.startsWith('bot-') && 
+        participant.identity !== myBotName &&
+        track.kind === Track.Kind.Audio) {
+      log('🔊 开始播放对方翻译音频');
       const mediaStream = new MediaStream([track.mediaStreamTrack]);
       const audio = new Audio();
       audio.srcObject = mediaStream;
