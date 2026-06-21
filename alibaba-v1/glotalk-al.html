@@ -260,14 +260,19 @@ window.onload = function() {
   const params = new URLSearchParams(location.search);
   const code = params.get('code');
   const lang = params.get('lang');
+  const theirLang = params.get('theirLang');
   if (lang) {
     const myLangEl = document.getElementById('myLang');
     const targetLangEl = document.getElementById('targetLang');
     if (myLangEl) myLangEl.value = lang;
     if (targetLangEl) {
-      const options = Array.from(targetLangEl.options);
-      const other = options.find(o => o.value !== lang);
-      if (other) targetLangEl.value = other.value;
+      if (theirLang) {
+        targetLangEl.value = theirLang;
+      } else {
+        const options = Array.from(targetLangEl.options);
+        const other = options.find(o => o.value !== lang);
+        if (other) targetLangEl.value = other.value;
+      }
     }
     applyUILang(lang);
     // 验证按钮文字也要变
