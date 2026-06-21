@@ -14,14 +14,17 @@ const crypto = require("crypto");
 const PORT          = 3000;
 const ACCESS_TOKEN  = process.env.ACCESS_TOKEN  || "glotalk2026";
 const ADMIN_PASS    = process.env.ADMIN_PASS    || "gloAdmin2026";
+const ADMIN_AL_PASS = process.env.ADMIN_AL_PASS || "gloAdminAL2026";
 const OPENAI_KEY    = process.env.OPENAI_API_KEY;
 
 const MAX_SESSIONS_PER_DAY = 50;
 const MAX_SESSIONS_PER_IP  = 10;
 const SESSION_MAX_MINUTES  = 30;
 const BILLING_LOG = "/var/www/glotalk/billing.log";
-const INVITE_FILE = "/var/www/glotalk/invites.json";
-const AGENT_FILE  = "/var/www/glotalk/agents.json";
+const INVITE_FILE    = "/var/www/glotalk/invites.json";
+const AGENT_FILE     = "/var/www/glotalk/agents.json";
+const INVITE_AL_FILE = "/var/www/glotalk/invites-al.json";
+const AGENT_AL_FILE  = "/var/www/glotalk/agents-al.json";
 
 // ═══ 状态 ═══
 let dailySessionCount = 0;
@@ -54,6 +57,23 @@ function saveAgents(agents) {
   try { fs.writeFileSync(AGENT_FILE, JSON.stringify(agents, null, 2)); } catch(e) {}
 }
 let agents = loadAgents();
+// alibaba-v1 独立数据
+function loadInvitesAL() {
+  try { if (fs.existsSync("/var/www/glotalk/invites-al.json")) return JSON.parse(fs.readFileSync("/var/www/glotalk/invites-al.json", "utf8")); } catch(e) {}
+  return {};
+}
+function saveInvitesAL(data) {
+  try { fs.writeFileSync("/var/www/glotalk/invites-al.json", JSON.stringify(data, null, 2)); } catch(e) {}
+}
+function loadAgentsAL() {
+  try { if (fs.existsSync("/var/www/glotalk/agents-al.json")) return JSON.parse(fs.readFileSync("/var/www/glotalk/agents-al.json", "utf8")); } catch(e) {}
+  return {};
+}
+function saveAgentsAL(data) {
+  try { fs.writeFileSync("/var/www/glotalk/agents-al.json", JSON.stringify(data, null, 2)); } catch(e) {}
+}
+let invitesAL = loadInvitesAL();
+let agentsAL  = loadAgentsAL();
 
 // 生成代理ID
 function generateAgentId() {
@@ -134,6 +154,13 @@ function writeBillingLog(entry) {
 }
 
 // ═══ 生成邀请码 ═══
+function generateInviteCodeAL() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 3; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
 function generateInviteCode() {
   // 用时间戳后4位+随机2位确保唯一性
   const ts = Date.now().toString(36).toUpperCase().slice(-4);
@@ -422,6 +449,9 @@ async function revoke(code) {
 </html>`;
 }
 
+// ═══ alibaba-v1 Admin HTML ═══
+
+
 // ═══ HTTP服务 ═══
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
@@ -451,7 +481,181 @@ const server = http.createServer(async (req, res) => {
     if (!verifyAdmin(req)) { jsonResp(res, {error:"Unauthorized"}, 403); return; }
     htmlResp(res, adminHTML()); return;
   }
+  if (req.method === "GET" && url.pathname.startsWith("/g/")) {
+    const code = url.pathname.slice(3).toUpperCase();
+    res.writeHead(302, {"Location": "https://glotalk.tech/glotalk-al.html?code=" + code, "Access-Control-Allow-Origin": "*"});
+    res.end(); return;
+  }
 
+  if (req.method === "GET" && url.pathname === "/admin-al") {
+    const q = url.searchParams.get("admin") || "";
+    if (q !== ADMIN_AL_PASS) { jsonResp(res, {error:"Unauthorized"}, 403); return; }
+    const alHtml = fs.readFileSync('/var/www/glotalk/admin-al.html', 'utf8');
+    htmlResp(res, alHtml); return;
+  }
+
+  // ── alibaba-v1 独立接口 ──────────────────────────
+  if (req.method === "POST" && url.pathname === "/invite-al/verify") {
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { code } = JSON.parse(body || "{}");
+        const inv = invitesAL[code];
+        if (!inv) { jsonResp(res, {ok:false, error:"邀请码不存在"}); return; }
+        if (Date.now() > inv.expiresAt) { jsonResp(res, {ok:false, error:"邀请码已过期"}); return; }
+        // 不标记已使用，允许多次使用
+        const roomId = inv.roomId || code;
+        jsonResp(res, {ok:true, roomId, name:inv.name, duration:inv.duration});
+      } catch(e) { jsonResp(res, {ok:false, error:e.message}); }
+    }); return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/admin-al/data") {
+    const q = url.searchParams.get("admin") || "";
+    if (q !== ADMIN_AL_PASS) { jsonResp(res, {error:"Unauthorized"}, 403); return; }
+    jsonResp(res, { invites: invitesAL, agents: agentsAL }); return;
+  }
+  if (req.method === "POST" && url.pathname === "/admin-al/invite") {
+    const q = url.searchParams.get("admin") || req.headers["x-admin-pass"] || "";
+    if (q !== ADMIN_AL_PASS) { jsonResp(res, {error:"Unauthorized"}, 403); return; }
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { name = "\u6d4b\u8bd5\u7528\u6237", duration = 60 } = JSON.parse(body || "{}");
+        const code = generateInviteCodeAL();
+        const roomId = generateRoomNumber();
+        const expiresAt = Date.now() + duration * 60 * 1000;
+        invitesAL[code] = { name, duration, expiresAt, used: false, createdAt: Date.now(), usedAt: null, roomId };
+        saveInvitesAL(invitesAL);
+        log("[AL] \u9080\u8bf7\u7801\u751f\u6210: " + code);
+        jsonResp(res, { code, expiresAt, duration, roomId });
+      } catch(e) { jsonResp(res, {error: e.message}, 500); }
+    }); return;
+  }
+  if (req.method === "POST" && url.pathname === "/admin-al/invite/revoke") {
+    const q = url.searchParams.get("admin") || req.headers["x-admin-pass"] || "";
+    if (q !== ADMIN_AL_PASS) { jsonResp(res, {error:"Unauthorized"}, 403); return; }
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { code } = JSON.parse(body || "{}");
+        if (!invitesAL[code]) { jsonResp(res, {error:"\u9080\u8bf7\u7801\u4e0d\u5b58\u5728"}, 404); return; }
+        delete invitesAL[code]; saveInvitesAL(invitesAL);
+        jsonResp(res, { ok: true });
+      } catch(e) { jsonResp(res, {error: e.message}, 500); }
+    }); return;
+  }
+  if (req.method === "POST" && url.pathname === "/admin-al/agent/create") {
+    const q = url.searchParams.get("admin") || req.headers["x-admin-pass"] || "";
+    if (q !== ADMIN_AL_PASS) { jsonResp(res, {error:"Unauthorized"}, 403); return; }
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { name, monthlyBudgetRMB = 200 } = JSON.parse(body || "{}");
+        if (!name) { jsonResp(res, {error:"\u8bf7\u8f93\u5165\u4ee3\u7406\u59d3\u540d"}, 400); return; }
+        const agentId = generateAgentId();
+        const monthlyBudgetUSD = parseFloat((monthlyBudgetRMB / 7).toFixed(2));
+        agentsAL[agentId] = { name, monthlyBudgetRMB, monthlyBudgetUSD, active: true, createdAt: Date.now(), inviteCount: 0 };
+        saveAgentsAL(agentsAL);
+        jsonResp(res, { agentId, name, monthlyBudgetRMB, monthlyBudgetUSD });
+      } catch(e) { jsonResp(res, {error: e.message}, 500); }
+    }); return;
+  }
+  if (req.method === "POST" && url.pathname === "/admin-al/agent/toggle") {
+    const q = url.searchParams.get("admin") || req.headers["x-admin-pass"] || "";
+    if (q !== ADMIN_AL_PASS) { jsonResp(res, {error:"Unauthorized"}, 403); return; }
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { agentId, action } = JSON.parse(body || "{}");
+        if (!agentsAL[agentId]) { jsonResp(res, {error:"\u4ee3\u7406\u4e0d\u5b58\u5728"}, 404); return; }
+        agentsAL[agentId].active = (action === "enable");
+        saveAgentsAL(agentsAL);
+        jsonResp(res, { ok: true });
+      } catch(e) { jsonResp(res, {error: e.message}, 500); }
+    }); return;
+  }
+  // ── alibaba-v1 独立接口 ──────────────────────────
+  if (req.method === "POST" && url.pathname === "/invite-al/verify") {
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { code } = JSON.parse(body || "{}");
+        const inv = invitesAL[code];
+        if (!inv) { jsonResp(res, {ok:false, error:"邀请码不存在"}); return; }
+        if (Date.now() > inv.expiresAt) { jsonResp(res, {ok:false, error:"邀请码已过期"}); return; }
+        // 不标记已使用，允许多次使用
+        const roomId = inv.roomId || code;
+        jsonResp(res, {ok:true, roomId, name:inv.name, duration:inv.duration});
+      } catch(e) { jsonResp(res, {ok:false, error:e.message}); }
+    }); return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/admin-al/data") {
+    const q = url.searchParams.get("admin") || "";
+    if (q !== ADMIN_AL_PASS) { jsonResp(res, {error:"Unauthorized"}, 403); return; }
+    jsonResp(res, { invites: invitesAL, agents: agentsAL }); return;
+  }
+  if (req.method === "POST" && url.pathname === "/admin-al/invite") {
+    const q = url.searchParams.get("admin") || req.headers["x-admin-pass"] || "";
+    if (q !== ADMIN_AL_PASS) { jsonResp(res, {error:"Unauthorized"}, 403); return; }
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { name = "\u6d4b\u8bd5\u7528\u6237", duration = 60 } = JSON.parse(body || "{}");
+        const code = generateInviteCodeAL();
+        const roomId = generateRoomNumber();
+        const expiresAt = Date.now() + duration * 60 * 1000;
+        invitesAL[code] = { name, duration, expiresAt, used: false, createdAt: Date.now(), usedAt: null, roomId };
+        saveInvitesAL(invitesAL);
+        log("[AL] \u9080\u8bf7\u7801\u751f\u6210: " + code);
+        jsonResp(res, { code, expiresAt, duration, roomId });
+      } catch(e) { jsonResp(res, {error: e.message}, 500); }
+    }); return;
+  }
+  if (req.method === "POST" && url.pathname === "/admin-al/invite/revoke") {
+    const q = url.searchParams.get("admin") || req.headers["x-admin-pass"] || "";
+    if (q !== ADMIN_AL_PASS) { jsonResp(res, {error:"Unauthorized"}, 403); return; }
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { code } = JSON.parse(body || "{}");
+        if (!invitesAL[code]) { jsonResp(res, {error:"\u9080\u8bf7\u7801\u4e0d\u5b58\u5728"}, 404); return; }
+        delete invitesAL[code]; saveInvitesAL(invitesAL);
+        jsonResp(res, { ok: true });
+      } catch(e) { jsonResp(res, {error: e.message}, 500); }
+    }); return;
+  }
+  if (req.method === "POST" && url.pathname === "/admin-al/agent/create") {
+    const q = url.searchParams.get("admin") || req.headers["x-admin-pass"] || "";
+    if (q !== ADMIN_AL_PASS) { jsonResp(res, {error:"Unauthorized"}, 403); return; }
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { name, monthlyBudgetRMB = 200 } = JSON.parse(body || "{}");
+        if (!name) { jsonResp(res, {error:"\u8bf7\u8f93\u5165\u4ee3\u7406\u59d3\u540d"}, 400); return; }
+        const agentId = generateAgentId();
+        const monthlyBudgetUSD = parseFloat((monthlyBudgetRMB / 7).toFixed(2));
+        agentsAL[agentId] = { name, monthlyBudgetRMB, monthlyBudgetUSD, active: true, createdAt: Date.now(), inviteCount: 0 };
+        saveAgentsAL(agentsAL);
+        jsonResp(res, { agentId, name, monthlyBudgetRMB, monthlyBudgetUSD });
+      } catch(e) { jsonResp(res, {error: e.message}, 500); }
+    }); return;
+  }
+  if (req.method === "POST" && url.pathname === "/admin-al/agent/toggle") {
+    const q = url.searchParams.get("admin") || req.headers["x-admin-pass"] || "";
+    if (q !== ADMIN_AL_PASS) { jsonResp(res, {error:"Unauthorized"}, 403); return; }
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { agentId, action } = JSON.parse(body || "{}");
+        if (!agentsAL[agentId]) { jsonResp(res, {error:"\u4ee3\u7406\u4e0d\u5b58\u5728"}, 404); return; }
+        agentsAL[agentId].active = (action === "enable");
+        saveAgentsAL(agentsAL);
+        jsonResp(res, { ok: true });
+      } catch(e) { jsonResp(res, {error: e.message}, 500); }
+    }); return;
+  }
   // ── 生成邀请码 ────────────────────────────────────────
   if (req.method === "POST" && url.pathname === "/admin/invite") {
     if (!verifyAdmin(req)) { jsonResp(res, {error:"Unauthorized"}, 403); return; }
@@ -523,6 +727,55 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── 代理生成邀请码（消耗代理额度） ────────────────────
+  // ── alibaba-v1 代理接口 ──────────────────────────────
+  if (req.method === "GET" && url.pathname === "/agent-al/status") {
+    const agentId = url.searchParams.get("id");
+    const ag = agentsAL[agentId];
+    if (!ag) { jsonResp(res, {error:"代理ID无效"}, 403); return; }
+    const myInvites = Object.entries(invitesAL)
+      .filter(([, inv]) => inv.agentId === agentId)
+      .map(([code, inv]) => ({
+        code, name: inv.name,
+        status: Date.now() > inv.expiresAt ? "已过期" : "可用",
+        duration: inv.duration
+      }));
+    jsonResp(res, {
+      agentId, name: ag.name, active: ag.active,
+      monthlyBudgetRMB: ag.monthlyBudgetRMB,
+      monthlyBudgetUSD: ag.monthlyBudgetUSD,
+      usedUSD: "0.0000",
+      remainingUSD: ag.monthlyBudgetUSD.toFixed(4),
+      remainingMinutes: Math.floor(ag.monthlyBudgetUSD / 0.046 * 60),
+      invites: myInvites
+    });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/agent-al/invite/create") {
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { agentId, guestName = "客户", duration = 1440 } = JSON.parse(body || "{}");
+        const ag = agentsAL[agentId];
+        if (!ag) { jsonResp(res, {error:"代理ID无效"}, 403); return; }
+        if (!ag.active) { jsonResp(res, {error:"代理账号已停用"}, 403); return; }
+        const code = generateInviteCodeAL();
+        const roomId = generateRoomNumber();
+        const expiresAt = Date.now() + duration * 60 * 1000;
+        invitesAL[code] = {
+          name: guestName, duration, expiresAt,
+          used: false, createdAt: Date.now(), usedAt: null,
+          roomId, agentId, agentName: ag.name
+        };
+        ag.inviteCount = (ag.inviteCount || 0) + 1;
+        saveInvitesAL(invitesAL);
+        saveAgentsAL(agentsAL);
+        log("[AL] 代理" + agentId + "生成邀请码: " + code);
+        jsonResp(res, { ok: true, code, roomId, expiresAt, duration });
+      } catch(e) { jsonResp(res, {error: e.message}, 500); }
+    }); return;
+  }
+
   if (req.method === "POST" && url.pathname === "/agent/invite/create") {
     let body = ""; req.on("data", c => body += c);
     req.on("end", () => {
@@ -643,7 +896,7 @@ const server = http.createServer(async (req, res) => {
 
   // ── 以下需要ACCESS_TOKEN ──────────────────────────────
   // 放行路线A和路线B的API接口（不需要用户token）
-  if (url.pathname === "/api/translation-token" || url.pathname.startsWith("/api/gemini/") || url.pathname === "/alibaba-token" || url.pathname === "/alibaba-ws" || url.pathname === "/start-bot") {
+  if (url.pathname === "/api/translation-token" || url.pathname.startsWith("/api/gemini/") || url.pathname === "/alibaba-token" || url.pathname === "/alibaba-ws" || url.pathname === "/start-bot" || url.pathname.startsWith("/agent-al/") || url.pathname.startsWith("/invite-al/") || url.pathname.startsWith("/admin-al") || url.pathname.startsWith("/g/")) {
     // 继续往下走，不验证
   } else if (!verifyToken(req)) {
     log(`⚠️ 未授权: ${getIP(req)} ${url.pathname}`);
