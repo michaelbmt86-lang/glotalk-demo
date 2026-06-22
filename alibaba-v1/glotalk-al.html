@@ -282,7 +282,19 @@ window.onload = function() {
   }
   if (code) {
     document.getElementById('inviteInput').value = code.toUpperCase();
-    setTimeout(verifyInvite, 300);
+    const autostart = params.get('autostart');
+    if (autostart === '1') {
+      // agent跳转过来，验证成功后直接进入通话
+      setTimeout(async () => {
+        await verifyInvite();
+        setTimeout(() => {
+          const joinBtn = document.getElementById('joinBtn');
+          if (joinBtn && !joinBtn.disabled) joinBtn.click();
+        }, 500);
+      }, 300);
+    } else {
+      setTimeout(verifyInvite, 300);
+    }
   }
 };
 
