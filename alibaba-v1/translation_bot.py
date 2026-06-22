@@ -34,7 +34,7 @@ class TranslationBridge:
         self.source_lang = source_lang
         self.target_lang = target_lang
         self.voice = voice
-        self.audio_source = rtc.AudioSource(OUTPUT_SAMPLE_RATE, 1, queue_size_ms=0)
+        self.audio_source = rtc.AudioSource(OUTPUT_SAMPLE_RATE, 1)
         self.running = False
 
     async def start(self, track):
