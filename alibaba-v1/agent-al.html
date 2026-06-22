@@ -397,7 +397,7 @@ async function createInvite() {
         var theirLangCode = window._latestTheirLang || "en";
         var myLang = (document.getElementById("myLang") && document.getElementById("myLang").value) || "zh";
         var lastLang = window._lastClickedLang || myLang;
-        location.href = "https://glotalk.tech/glotalk-al.html?code=" + d.code + "&lang=" + myLang + "&theirLang=" + lastLang;
+        location.href = "https://glotalk.tech/glotalk-al.html?code=" + d.code + "&lang=" + myLang + "&theirLang=" + lastLang + "&autostart=1";
       };
       renderLangLinks(d.code, d.roomId);
       document.getElementById("latestMeta").textContent =
