@@ -1044,16 +1044,16 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ ok: false, error: 'missing params' }));
       return;
     }
-    // 防止重复启动同一个 Bot
-    const botKey = `${room}:${identity}:${target}`;
-    if (!global._activeBots) global._activeBots = new Set();
+    // botKey = room:source，同一房间同一说话语言只允许一个Bot
+    const botKey = `${room}:${source}`;
+    if (!global._activeBots) global._activeBots = new Map();
     if (global._activeBots.has(botKey)) {
-      log(`[start-bot] Bot已存在，跳过: ${botKey}`);
-      res.writeHead(200, {"Content-Type":"application/json","Access-Control-Allow-Origin":"*"});
-      res.end(JSON.stringify({ ok: true, skipped: true }));
-      return;
+      // 已有同source语言的Bot，kill旧的再启动新的
+      const oldBot = global._activeBots.get(botKey);
+      try { process.kill(oldBot.pid, 'SIGTERM'); } catch(e) {}
+      global._activeBots.delete(botKey);
+      log(`[start-bot] 终止旧Bot(同语言重复): ${botKey}`);
     }
-    global._activeBots.add(botKey);
     const { spawn } = require('child_process');
     const env = { ...process.env };
     const bot = spawn('python3', [
@@ -1061,9 +1061,12 @@ const server = http.createServer(async (req, res) => {
       room, source, target, identity
     ], { env, detached: true, stdio: 'ignore' });
     bot.on('exit', () => {
-      global._activeBots.delete(botKey);
+      if (global._activeBots.get(botKey) === bot) {
+        global._activeBots.delete(botKey);
+      }
       log(`[start-bot] Bot退出: ${botKey}`);
     });
+    global._activeBots.set(botKey, bot);
     bot.unref();
     log(`[start-bot] 启动 Bot: room=${room} ${source}→${target} for ${identity}`);
     res.writeHead(200, {"Content-Type":"application/json","Access-Control-Allow-Origin":"*"});
