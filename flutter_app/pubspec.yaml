@@ -1,0 +1,16 @@
+name: glotalk_app
+description: GloTalk - Real-time translation app
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  livekit_client: ^2.8.1
+  http: ^1.6.0
+
+flutter:
+  uses-material-design: true
