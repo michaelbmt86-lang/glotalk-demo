@@ -4,6 +4,9 @@ import 'dart:convert';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+const String kServerUrl = 'https://glotalk.tech';
+const String kAccessToken = 'glotalk2026';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Permission.microphone.request();
@@ -24,6 +27,7 @@ class GloTalkApp extends StatelessWidget {
   }
 }
 
+// ── 页面1：邀请码验证 ──────────────────────────
 class InvitePage extends StatefulWidget {
   const InvitePage({super.key});
   @override
@@ -39,18 +43,23 @@ class _InvitePageState extends State<InvitePage> {
     setState(() { _loading = true; _error = ''; });
     try {
       final res = await http.post(
-        Uri.parse('https://glotalk.tech/invite-al/verify'),
+        Uri.parse('$kServerUrl/invite-al/verify'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'code': _controller.text.trim()}),
       );
       final data = jsonDecode(res.body);
       if (!mounted) return;
-      if (data['success'] == true) {
+      // 修复问题1：服务器返回 ok 不是 success
+      if (data['ok'] == true) {
+        final roomId = data['roomId'] ?? _controller.text.trim();
         Navigator.push(context, MaterialPageRoute(
-          builder: (_) => LanguagePage(inviteCode: _controller.text.trim()),
+          builder: (_) => LanguagePage(
+            inviteCode: _controller.text.trim(),
+            roomId: roomId,
+          ),
         ));
       } else {
-        setState(() { _error = '邀请码无效，请重试'; });
+        setState(() { _error = data['error'] ?? '邀请码无效，请重试'; });
       }
     } catch (e) {
       if (!mounted) return;
@@ -108,9 +117,11 @@ class _InvitePageState extends State<InvitePage> {
   }
 }
 
+// ── 页面2：语言选择 ────────────────────────────
 class LanguagePage extends StatefulWidget {
   final String inviteCode;
-  const LanguagePage({super.key, required this.inviteCode});
+  final String roomId; // 修复问题4：传入roomId
+  const LanguagePage({super.key, required this.inviteCode, required this.roomId});
   @override
   State<LanguagePage> createState() => _LanguagePageState();
 }
@@ -148,7 +159,7 @@ class _LanguagePageState extends State<LanguagePage> {
               child: ElevatedButton(
                 onPressed: () => Navigator.push(context, MaterialPageRoute(
                   builder: (_) => CallPage(
-                    inviteCode: widget.inviteCode,
+                    roomId: widget.roomId,
                     myLang: _myLang,
                     theirLang: _theirLang,
                   ),
@@ -180,11 +191,12 @@ class _LanguagePageState extends State<LanguagePage> {
   }
 }
 
+// ── 页面3：通话界面 ────────────────────────────
 class CallPage extends StatefulWidget {
-  final String inviteCode;
+  final String roomId;
   final String myLang;
   final String theirLang;
-  const CallPage({super.key, required this.inviteCode,
+  const CallPage({super.key, required this.roomId,
     required this.myLang, required this.theirLang});
   @override
   State<CallPage> createState() => _CallPageState();
@@ -203,27 +215,45 @@ class _CallPageState extends State<CallPage> {
 
   Future<void> _connect() async {
     try {
-      final res = await http.post(
-        Uri.parse('https://glotalk.tech/alibaba-token'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'inviteCode': widget.inviteCode,
+      // 修复问题2：正确调用 /livekit-token GET接口
+      final identity = 'user-${DateTime.now().millisecondsSinceEpoch}';
+      final tokenUri = Uri.parse('$kServerUrl/livekit-token').replace(
+        queryParameters: {
+          'room': widget.roomId,
+          'identity': identity,
           'lang': widget.myLang,
-          'theirLang': widget.theirLang,
-        }),
+        },
       );
-      final data = jsonDecode(res.body);
-      final token = data['token'];
-      final url = data['url'] ?? 'wss://glotalk-nppyx7kk.livekit.cloud';
+      final tokenRes = await http.get(
+        tokenUri,
+        headers: {
+          'x-glotalk-token': kAccessToken,
+        },
+      );
+      final tokenData = jsonDecode(tokenRes.body);
+      final token = tokenData['token'];
+      const livekitUrl = 'wss://glotalk-nppyx7kk.livekit.cloud';
 
+      // 连接 LiveKit 房间
       final room = Room(
         roomOptions: const RoomOptions(
           adaptiveStream: true,
           dynacast: true,
         ),
       );
-      await room.connect(url, token);
+      await room.connect(livekitUrl, token);
       await room.localParticipant?.setMicrophoneEnabled(true);
+
+      // 修复问题3：启动翻译Bot
+      final botUri = Uri.parse('$kServerUrl/start-bot').replace(
+        queryParameters: {
+          'room': widget.roomId,
+          'identity': 'bot-${widget.myLang}-${DateTime.now().millisecondsSinceEpoch}',
+          'source': widget.myLang,
+          'target': widget.theirLang,
+        },
+      );
+      await http.get(botUri);
 
       if (!mounted) return;
       setState(() {
