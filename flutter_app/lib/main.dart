@@ -129,8 +129,24 @@ class _LanguagePageState extends State<LanguagePage> {
   String _theirLang = 'en';
 
   final _languages = {
-    'zh': '中文', 'en': 'English', 'ja': '日本語',
-    'ko': '한국어', 'es': 'Español', 'fr': 'Français',
+    'zh': '中文',
+    'en': 'English',
+    'ja': '日本語',
+    'ko': '한국어',
+    'es': 'Español',
+    'fr': 'Français',
+    'de': 'Deutsch',
+    'ru': 'Русский',
+    'pt': 'Português',
+    'it': 'Italiano',
+    'ar': 'العربية',
+    'hi': 'हिन्दी',
+    'id': 'Indonesia',
+    'th': 'ภาษาไทย',
+    'vi': 'Tiếng Việt',
+    'tr': 'Türkçe',
+    'el': 'Ελληνικά',
+    'yue': '粤语',
   };
 
   @override
@@ -201,7 +217,7 @@ class CallPage extends StatefulWidget {
 
 class _CallPageState extends State<CallPage> {
   Room? _room;
-  EventsListener<RoomEvent>? _listener; // ← 修改1：加EventsListener变量
+  EventsListener<RoomEvent>? _listener;
   bool _muted = false;
   String _status = '连接中...';
   final List<Map<String, String>> _captions = [];
@@ -237,7 +253,6 @@ class _CallPageState extends State<CallPage> {
         ),
       );
 
-      // ← 修改2：用官方EventsListener监听字幕
       final listener = room.createListener();
       listener.on<DataReceivedEvent>((event) {
         try {
@@ -254,16 +269,16 @@ class _CallPageState extends State<CallPage> {
           }
         } catch (_) {}
       });
-      _listener = listener; // ← 修改3：保存listener引用
+      _listener = listener;
 
       await room.connect(livekitUrl, token);
       await room.localParticipant?.setMicrophoneEnabled(true);
 
-      // 启动Bot
+      // 启动Bot，传用户自己的identity
       final botUri = Uri.parse('$kServerUrl/start-bot').replace(
         queryParameters: {
           'room': widget.roomId,
-          'identity': 'bot-${widget.myLang}-${DateTime.now().millisecondsSinceEpoch}',
+          'identity': identity,
           'source': widget.myLang,
           'target': widget.theirLang,
         },
@@ -302,7 +317,7 @@ class _CallPageState extends State<CallPage> {
 
   @override
   void dispose() {
-    _listener?.dispose(); // ← 修改4：释放listener
+    _listener?.dispose();
     _stopBot();
     _room?.disconnect();
     super.dispose();
@@ -322,7 +337,6 @@ class _CallPageState extends State<CallPage> {
             Text(_status, style: const TextStyle(color: Colors.grey, fontSize: 13)),
             const SizedBox(height: 16),
 
-            // 字幕显示区域
             Expanded(
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
