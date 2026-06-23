@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -200,6 +201,7 @@ class CallPage extends StatefulWidget {
 
 class _CallPageState extends State<CallPage> {
   Room? _room;
+  EventsListener<RoomEvent>? _listener; // ← 修改1：加EventsListener变量
   bool _muted = false;
   String _status = '连接中...';
   final List<Map<String, String>> _captions = [];
@@ -235,9 +237,9 @@ class _CallPageState extends State<CallPage> {
         ),
       );
 
-      // 监听字幕数据包
-      room.addListener(() {});
-      room.on<DataReceivedEvent>((event) {
+      // ← 修改2：用官方EventsListener监听字幕
+      final listener = room.createListener();
+      listener.on<DataReceivedEvent>((event) {
         try {
           final text = utf8.decode(event.data);
           final json = jsonDecode(text);
@@ -252,11 +254,12 @@ class _CallPageState extends State<CallPage> {
           }
         } catch (_) {}
       });
+      _listener = listener; // ← 修改3：保存listener引用
 
       await room.connect(livekitUrl, token);
       await room.localParticipant?.setMicrophoneEnabled(true);
 
-      // 启动Bot（我说的语言→对方语言）
+      // 启动Bot
       final botUri = Uri.parse('$kServerUrl/start-bot').replace(
         queryParameters: {
           'room': widget.roomId,
@@ -299,6 +302,7 @@ class _CallPageState extends State<CallPage> {
 
   @override
   void dispose() {
+    _listener?.dispose(); // ← 修改4：释放listener
     _stopBot();
     _room?.disconnect();
     super.dispose();
