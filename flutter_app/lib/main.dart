@@ -278,20 +278,9 @@ class _CallPageState extends State<CallPage> {
         } catch (_) {}
       });
 
-      // 监听音轨：只播对方Bot翻译音轨，停止对方原声
+      // 暂时允许所有音轨播放，验证声音是否正常
       listener.on<TrackSubscribedEvent>((event) {
-        final participantIdentity = event.participant.identity;
-        final myBotName = 'bot-$_myIdentity-${widget.theirLang}';
-        if (event.publication.kind == TrackType.AUDIO) {
-          final isBot = participantIdentity.startsWith('bot-');
-          final isMyBot = participantIdentity == myBotName;
-          if (isBot && !isMyBot) {
-            // 对方Bot翻译音轨 → 允许播放
-          } else {
-            // 对方原声或我自己的Bot → 停止
-            event.track.stop();
-          }
-        }
+        // 所有音轨默认播放，待声音验证后再加过滤
       });
 
       _listener = listener;
