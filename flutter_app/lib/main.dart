@@ -275,20 +275,22 @@ class _CallPageState extends State<CallPage> {
         } catch (_) {}
       });
 
-      // 监听音轨订阅，只播放对方Bot的翻译音轨，静音其他所有音轨
+      // 监听音轨订阅：只播放对方Bot翻译音轨，禁用对方原声
       listener.on<TrackSubscribedEvent>((event) {
         final participantIdentity = event.participant.identity;
         final myBotName = 'bot-$_myIdentity-${widget.theirLang}';
 
-        // 只播放：是Bot 且 不是我自己的Bot 且 是音频
-        if (participantIdentity.startsWith('bot-') &&
-            participantIdentity != myBotName &&
-            event.track.kind == TrackType.AUDIO) {
-          // 允许播放，LiveKit Flutter 自动播放已订阅的音频
-        } else if (!participantIdentity.startsWith('bot-') &&
-            event.track.kind == TrackType.AUDIO) {
-          // 对方原声静音
-          event.publication.muted = true;
+        if (event.publication.kind == TrackType.AUDIO) {
+          if (participantIdentity.startsWith('bot-') &&
+              participantIdentity != myBotName) {
+            // 对方Bot翻译音轨 → 允许播放（LiveKit默认自动播放）
+          } else if (!participantIdentity.startsWith('bot-')) {
+            // 对方原声 → 禁用
+            event.publication.disable();
+          } else {
+            // 我自己的Bot → 禁用
+            event.publication.disable();
+          }
         }
       });
 
