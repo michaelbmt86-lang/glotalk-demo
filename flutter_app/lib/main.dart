@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:livekit_client/livekit_client.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 void main() {
   runApp(const GloTalkApp());
@@ -193,7 +194,17 @@ class _CallPageState extends State<CallPage> {
   @override
   void initState() {
     super.initState();
-    _connect();
+    _requestPermissionsAndConnect();
+  }
+
+  Future<void> _requestPermissionsAndConnect() async {
+    final micStatus = await Permission.microphone.request();
+    if (!mounted) return;
+    if (micStatus.isGranted) {
+      _connect();
+    } else {
+      setState(() { _status = '需要麦克风权限才能通话'; });
+    }
   }
 
   Future<void> _connect() async {
