@@ -19,7 +19,6 @@ class GloTalkApp extends StatelessWidget {
   }
 }
 
-// ── 页面1：邀请码验证 ──────────────────────────
 class InvitePage extends StatefulWidget {
   const InvitePage({super.key});
   @override
@@ -104,7 +103,6 @@ class _InvitePageState extends State<InvitePage> {
   }
 }
 
-// ── 页面2：语言选择 ────────────────────────────
 class LanguagePage extends StatefulWidget {
   final String inviteCode;
   const LanguagePage({super.key, required this.inviteCode});
@@ -177,7 +175,6 @@ class _LanguagePageState extends State<LanguagePage> {
   }
 }
 
-// ── 页面3：通话界面 ────────────────────────────
 class CallPage extends StatefulWidget {
   final String inviteCode;
   final String myLang;
