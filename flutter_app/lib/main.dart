@@ -219,8 +219,9 @@ class _CallPageState extends State<CallPage> {
   Room? _room;
   EventsListener<RoomEvent>? _listener;
   bool _muted = false;
+  bool _showCaptions = false; // 字幕默认隐藏
   String _status = '连接中...';
-  final List<Map<String, String>> _captions = [];
+  String _lastCaption = ''; // 只保留最新一条翻译
   String _myIdentity = '';
 
   @override
@@ -250,44 +251,50 @@ class _CallPageState extends State<CallPage> {
       const livekitUrl = 'wss://glotalk-nppyx7kk.livekit.cloud';
 
       final room = Room(
-        roomOptions: const RoomOptions(
+        roomOptions: RoomOptions(
           adaptiveStream: true,
           dynacast: true,
+          // 修复问题2：加回声消除
+          defaultAudioCaptureOptions: const AudioCaptureOptions(
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          ),
         ),
       );
 
       final listener = room.createListener();
 
-      // 监听字幕数据包
+      // 修复问题3：只显示对方Bot发来的字幕
       listener.on<DataReceivedEvent>((event) {
         try {
           final text = utf8.decode(event.data);
           final json = jsonDecode(text);
           if (json['type'] == 'caption' && mounted) {
-            setState(() {
-              _captions.add({
-                'text': json['text'] ?? '',
-                'lang': json['lang'] ?? '',
+            // 只显示对方Bot（不是我自己Bot）发来的字幕
+            final senderIdentity = event.participant?.identity ?? '';
+            final myBotName = 'bot-$_myIdentity-${widget.theirLang}';
+            if (senderIdentity != myBotName &&
+                senderIdentity.startsWith('bot-')) {
+              setState(() {
+                _lastCaption = json['text'] ?? '';
               });
-              if (_captions.length > 10) _captions.removeAt(0);
-            });
+            }
           }
         } catch (_) {}
       });
 
-      // 监听音轨订阅：只播放对方Bot翻译音轨，停止对方原声
+      // 监听音轨：只播对方Bot翻译音轨，停止对方原声
       listener.on<TrackSubscribedEvent>((event) {
         final participantIdentity = event.participant.identity;
         final myBotName = 'bot-$_myIdentity-${widget.theirLang}';
-
         if (event.publication.kind == TrackType.AUDIO) {
           final isBot = participantIdentity.startsWith('bot-');
           final isMyBot = participantIdentity == myBotName;
-
           if (isBot && !isMyBot) {
-            // 对方Bot翻译音轨 → 允许播放（LiveKit默认自动播放）
+            // 对方Bot翻译音轨 → 允许播放
           } else {
-            // 对方原声 或 我自己的Bot → 停止
+            // 对方原声或我自己的Bot → 停止
             event.track.stop();
           }
         }
@@ -298,7 +305,7 @@ class _CallPageState extends State<CallPage> {
       await room.connect(livekitUrl, token);
       await room.localParticipant?.setMicrophoneEnabled(true);
 
-      // 启动Bot，传用户自己的identity
+      // 启动Bot
       final botUri = Uri.parse('$kServerUrl/start-bot').replace(
         queryParameters: {
           'room': widget.roomId,
@@ -355,39 +362,46 @@ class _CallPageState extends State<CallPage> {
         child: Column(
           children: [
             const SizedBox(height: 24),
-            const Text('GloTalk', style: TextStyle(
-              color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+            // 顶部标题 + 字幕开关按钮
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Spacer(),
+                const Text('GloTalk', style: TextStyle(
+                  color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                const Spacer(),
+                // 字幕开关按钮（眼睛图标）
+                IconButton(
+                  icon: Icon(
+                    _showCaptions ? Icons.subtitles : Icons.subtitles_off,
+                    color: _showCaptions ? Colors.blue : Colors.grey,
+                  ),
+                  onPressed: () => setState(() => _showCaptions = !_showCaptions),
+                ),
+              ],
+            ),
             const SizedBox(height: 4),
             Text(_status, style: const TextStyle(color: Colors.grey, fontSize: 13)),
             const SizedBox(height: 16),
 
-            Expanded(
-              child: Container(
+            // 字幕区域（默认隐藏）
+            if (_showCaptions)
+              Container(
+                width: double.infinity,
                 margin: const EdgeInsets.symmetric(horizontal: 16),
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.grey[900],
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: _captions.isEmpty
-                  ? const Center(
-                      child: Text('翻译字幕将在这里显示',
-                        style: TextStyle(color: Colors.grey)))
-                  : ListView.builder(
-                      itemCount: _captions.length,
-                      itemBuilder: (_, i) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Text(
-                          _captions[i]['text'] ?? '',
-                          style: const TextStyle(
-                            color: Colors.white, fontSize: 16),
-                        ),
-                      ),
-                    ),
+                child: Text(
+                  _lastCaption.isEmpty ? '等待翻译...' : _lastCaption,
+                  style: const TextStyle(color: Colors.white, fontSize: 18),
+                  textAlign: TextAlign.center,
+                ),
               ),
-            ),
 
-            const SizedBox(height: 24),
+            const Spacer(),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
