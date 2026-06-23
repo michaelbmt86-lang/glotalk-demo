@@ -27,7 +27,6 @@ class GloTalkApp extends StatelessWidget {
   }
 }
 
-// ── 页面1：邀请码验证 ──────────────────────────
 class InvitePage extends StatefulWidget {
   const InvitePage({super.key});
   @override
@@ -49,7 +48,6 @@ class _InvitePageState extends State<InvitePage> {
       );
       final data = jsonDecode(res.body);
       if (!mounted) return;
-      // 修复问题1：服务器返回 ok 不是 success
       if (data['ok'] == true) {
         final roomId = data['roomId'] ?? _controller.text.trim();
         Navigator.push(context, MaterialPageRoute(
@@ -117,10 +115,9 @@ class _InvitePageState extends State<InvitePage> {
   }
 }
 
-// ── 页面2：语言选择 ────────────────────────────
 class LanguagePage extends StatefulWidget {
   final String inviteCode;
-  final String roomId; // 修复问题4：传入roomId
+  final String roomId;
   const LanguagePage({super.key, required this.inviteCode, required this.roomId});
   @override
   State<LanguagePage> createState() => _LanguagePageState();
@@ -191,7 +188,6 @@ class _LanguagePageState extends State<LanguagePage> {
   }
 }
 
-// ── 页面3：通话界面 ────────────────────────────
 class CallPage extends StatefulWidget {
   final String roomId;
   final String myLang;
@@ -206,6 +202,7 @@ class _CallPageState extends State<CallPage> {
   Room? _room;
   bool _muted = false;
   String _status = '连接中...';
+  final List<Map<String, String>> _captions = [];
 
   @override
   void initState() {
@@ -215,7 +212,6 @@ class _CallPageState extends State<CallPage> {
 
   Future<void> _connect() async {
     try {
-      // 修复问题2：正确调用 /livekit-token GET接口
       final identity = 'user-${DateTime.now().millisecondsSinceEpoch}';
       final tokenUri = Uri.parse('$kServerUrl/livekit-token').replace(
         queryParameters: {
@@ -226,25 +222,41 @@ class _CallPageState extends State<CallPage> {
       );
       final tokenRes = await http.get(
         tokenUri,
-        headers: {
-          'x-glotalk-token': kAccessToken,
-        },
+        headers: {'x-glotalk-token': kAccessToken},
       );
       final tokenData = jsonDecode(tokenRes.body);
       final token = tokenData['token'];
       const livekitUrl = 'wss://glotalk-nppyx7kk.livekit.cloud';
 
-      // 连接 LiveKit 房间
       final room = Room(
         roomOptions: const RoomOptions(
           adaptiveStream: true,
           dynacast: true,
         ),
       );
+
+      // 监听字幕数据包
+      room.addListener(() {});
+      room.on<DataReceivedEvent>((event) {
+        try {
+          final text = utf8.decode(event.data);
+          final json = jsonDecode(text);
+          if (json['type'] == 'caption' && mounted) {
+            setState(() {
+              _captions.add({
+                'text': json['text'] ?? '',
+                'lang': json['lang'] ?? '',
+              });
+              if (_captions.length > 10) _captions.removeAt(0);
+            });
+          }
+        } catch (_) {}
+      });
+
       await room.connect(livekitUrl, token);
       await room.localParticipant?.setMicrophoneEnabled(true);
 
-      // 修复问题3：启动翻译Bot
+      // 启动Bot（我说的语言→对方语言）
       final botUri = Uri.parse('$kServerUrl/start-bot').replace(
         queryParameters: {
           'room': widget.roomId,
@@ -266,7 +278,20 @@ class _CallPageState extends State<CallPage> {
     }
   }
 
+  Future<void> _stopBot() async {
+    try {
+      final stopUri = Uri.parse('$kServerUrl/stop-bot').replace(
+        queryParameters: {
+          'room': widget.roomId,
+          'source': widget.myLang,
+        },
+      );
+      await http.get(stopUri);
+    } catch (_) {}
+  }
+
   Future<void> _disconnect() async {
+    await _stopBot();
     await _room?.disconnect();
     if (!mounted) return;
     Navigator.pop(context);
@@ -274,6 +299,7 @@ class _CallPageState extends State<CallPage> {
 
   @override
   void dispose() {
+    _stopBot();
     _room?.disconnect();
     super.dispose();
   }
@@ -285,12 +311,41 @@ class _CallPageState extends State<CallPage> {
       body: SafeArea(
         child: Column(
           children: [
-            const SizedBox(height: 40),
+            const SizedBox(height: 24),
             const Text('GloTalk', style: TextStyle(
               color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Text(_status, style: const TextStyle(color: Colors.grey)),
-            const Spacer(),
+            const SizedBox(height: 4),
+            Text(_status, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+            const SizedBox(height: 16),
+
+            // 字幕显示区域
+            Expanded(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[900],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: _captions.isEmpty
+                  ? const Center(
+                      child: Text('翻译字幕将在这里显示',
+                        style: TextStyle(color: Colors.grey)))
+                  : ListView.builder(
+                      itemCount: _captions.length,
+                      itemBuilder: (_, i) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Text(
+                          _captions[i]['text'] ?? '',
+                          style: const TextStyle(
+                            color: Colors.white, fontSize: 16),
+                        ),
+                      ),
+                    ),
+              ),
+            ),
+
+            const SizedBox(height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -311,7 +366,7 @@ class _CallPageState extends State<CallPage> {
                 ),
               ],
             ),
-            const SizedBox(height: 60),
+            const SizedBox(height: 40),
           ],
         ),
       ),
