@@ -275,21 +275,20 @@ class _CallPageState extends State<CallPage> {
         } catch (_) {}
       });
 
-      // 监听音轨订阅：只播放对方Bot翻译音轨，禁用对方原声
+      // 监听音轨订阅：只播放对方Bot翻译音轨，停止对方原声
       listener.on<TrackSubscribedEvent>((event) {
         final participantIdentity = event.participant.identity;
         final myBotName = 'bot-$_myIdentity-${widget.theirLang}';
 
         if (event.publication.kind == TrackType.AUDIO) {
-          if (participantIdentity.startsWith('bot-') &&
-              participantIdentity != myBotName) {
+          final isBot = participantIdentity.startsWith('bot-');
+          final isMyBot = participantIdentity == myBotName;
+
+          if (isBot && !isMyBot) {
             // 对方Bot翻译音轨 → 允许播放（LiveKit默认自动播放）
-          } else if (!participantIdentity.startsWith('bot-')) {
-            // 对方原声 → 禁用
-            event.publication.disable();
           } else {
-            // 我自己的Bot → 禁用
-            event.publication.disable();
+            // 对方原声 或 我自己的Bot → 停止
+            event.track.stop();
           }
         }
       });
