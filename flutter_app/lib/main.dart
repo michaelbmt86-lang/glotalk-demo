@@ -271,15 +271,9 @@ class _CallPageState extends State<CallPage> {
           final text = utf8.decode(event.data);
           final json = jsonDecode(text);
           if (json['type'] == 'caption' && mounted) {
-            // 只显示对方Bot（不是我自己Bot）发来的字幕
-            final senderIdentity = event.participant?.identity ?? '';
-            final myBotName = 'bot-$_myIdentity-${widget.theirLang}';
-            if (senderIdentity != myBotName &&
-                senderIdentity.startsWith('bot-')) {
-              setState(() {
-                _lastCaption = json['text'] ?? '';
-              });
-            }
+            setState(() {
+              _lastCaption = json['text'] ?? '';
+            });
           }
         } catch (_) {}
       });
