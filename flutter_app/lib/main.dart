@@ -221,6 +221,7 @@ class _CallPageState extends State<CallPage> {
   bool _muted = false;
   String _status = '连接中...';
   final List<Map<String, String>> _captions = [];
+  String _myIdentity = '';
 
   @override
   void initState() {
@@ -231,6 +232,8 @@ class _CallPageState extends State<CallPage> {
   Future<void> _connect() async {
     try {
       final identity = 'user-${DateTime.now().millisecondsSinceEpoch}';
+      _myIdentity = identity;
+
       final tokenUri = Uri.parse('$kServerUrl/livekit-token').replace(
         queryParameters: {
           'room': widget.roomId,
@@ -254,6 +257,8 @@ class _CallPageState extends State<CallPage> {
       );
 
       final listener = room.createListener();
+
+      // 监听字幕数据包
       listener.on<DataReceivedEvent>((event) {
         try {
           final text = utf8.decode(event.data);
@@ -269,6 +274,24 @@ class _CallPageState extends State<CallPage> {
           }
         } catch (_) {}
       });
+
+      // 监听音轨订阅，只播放对方Bot的翻译音轨，静音其他所有音轨
+      listener.on<TrackSubscribedEvent>((event) {
+        final participantIdentity = event.participant.identity;
+        final myBotName = 'bot-$_myIdentity-${widget.theirLang}';
+
+        // 只播放：是Bot 且 不是我自己的Bot 且 是音频
+        if (participantIdentity.startsWith('bot-') &&
+            participantIdentity != myBotName &&
+            event.track.kind == TrackType.AUDIO) {
+          // 允许播放，LiveKit Flutter 自动播放已订阅的音频
+        } else if (!participantIdentity.startsWith('bot-') &&
+            event.track.kind == TrackType.AUDIO) {
+          // 对方原声静音
+          event.publication.muted = true;
+        }
+      });
+
       _listener = listener;
 
       await room.connect(livekitUrl, token);
