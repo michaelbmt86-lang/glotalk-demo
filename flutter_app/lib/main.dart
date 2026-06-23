@@ -4,7 +4,11 @@ import 'dart:convert';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Permission.microphone.request();
+  await Permission.bluetooth.request();
+  await Permission.bluetoothConnect.request();
   runApp(const GloTalkApp());
 }
 
@@ -194,17 +198,7 @@ class _CallPageState extends State<CallPage> {
   @override
   void initState() {
     super.initState();
-    _requestPermissionsAndConnect();
-  }
-
-  Future<void> _requestPermissionsAndConnect() async {
-    final micStatus = await Permission.microphone.request();
-    if (!mounted) return;
-    if (micStatus.isGranted) {
-      _connect();
-    } else {
-      setState(() { _status = '需要麦克风权限才能通话'; });
-    }
+    _connect();
   }
 
   Future<void> _connect() async {
