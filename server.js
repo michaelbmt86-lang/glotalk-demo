@@ -898,7 +898,7 @@ const server = http.createServer(async (req, res) => {
 
   // ── 以下需要ACCESS_TOKEN ──────────────────────────────
   // 放行路线A和路线B的API接口（不需要用户token）
-  if (url.pathname === "/api/translation-token" || url.pathname.startsWith("/api/gemini/") || url.pathname === "/alibaba-token" || url.pathname === "/alibaba-ws" || url.pathname === "/livekit-token" || url.pathname === "/start-bot" || url.pathname === "/stop-bot" || url.pathname.startsWith("/agent-al/") || url.pathname.startsWith("/invite-al/") || url.pathname.startsWith("/admin-al") || url.pathname.startsWith("/g/")) {
+  if (url.pathname === "/api/translation-token" || url.pathname.startsWith("/api/gemini/") || url.pathname === "/alibaba-token" || url.pathname === "/alibaba-ws" || url.pathname === "/livekit-token" || url.pathname === "/start-bot" || url.pathname === "/stop-bot" || url.pathname.startsWith("/al-web/") || url.pathname.startsWith("/al-app/") || url.pathname.startsWith("/agent-al/") || url.pathname.startsWith("/invite-al/") || url.pathname.startsWith("/admin-al") || url.pathname.startsWith("/g/")) {
     // 继续往下走，不验证
   } else if (!verifyToken(req)) {
     log(`⚠️ 未授权: ${getIP(req)} ${url.pathname}`);
@@ -1034,6 +1034,226 @@ const server = http.createServer(async (req, res) => {
     if (!apiKey) { res.writeHead(500); res.end("DASHSCOPE_API_KEY not set"); return; }
     res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
     res.end(JSON.stringify({ token: apiKey }));
+    return;
+  }
+
+
+  // ══════════════════════════════════════════════════════════
+  // AL-WEB：alibaba 网页版专用接口
+  // ══════════════════════════════════════════════════════════
+
+  if (req.method === "POST" && url.pathname === "/al-web/invite/verify") {
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { code } = JSON.parse(body || "{}");
+        const inv = invitesAL[code];
+        if (!inv) { jsonResp(res, {ok:false, error:"邀请码不存在"}); return; }
+        if (Date.now() > inv.expiresAt) { jsonResp(res, {ok:false, error:"邀请码已过期"}); return; }
+        const roomId = inv.roomId || code;
+        jsonResp(res, {ok:true, roomId, name:inv.name, duration:inv.duration});
+      } catch(e) { jsonResp(res, {ok:false, error:e.message}); }
+    }); return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/al-web/token") {
+    const q = url.searchParams;
+    const room = q.get("room") || "glotalk-room";
+    const identity = q.get("identity") || ("用户-" + Math.random().toString(36).slice(2,10));
+    const lang = q.get("lang") || "zh";
+    const { AccessToken } = require("livekit-server-sdk");
+    const LK_KEY = process.env.LIVEKIT_API_KEY || "";
+    const LK_SECRET = process.env.LIVEKIT_API_SECRET || "";
+    const LK_URL = process.env.LIVEKIT_URL || "wss://glotalk-nppyx7kk.livekit.cloud";
+    if (!LK_KEY || !LK_SECRET) { jsonResp(res, {error:"LiveKit not configured"}, 500); return; }
+    const at = new AccessToken(LK_KEY, LK_SECRET, { identity, ttl: 7200, attributes: { lang } });
+    at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true, roomCreate: true });
+    const token = await at.toJwt();
+    jsonResp(res, { token, url: LK_URL, room, identity, lang });
+    log("LiveKit token: " + identity + " room:" + room + " lang:" + lang);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/al-web/start-bot") {
+    const { room, identity, source, target } = url.searchParams ? Object.fromEntries(url.searchParams) : {};
+    if (!room || !identity || !source || !target) {
+      jsonResp(res, { ok: false, error: 'missing params' }, 400); return;
+    }
+    const botKey = `${room}:${source}`;
+    if (!global._activeBotsWeb) global._activeBotsWeb = new Map();
+    if (global._activeBotsWeb.has(botKey)) {
+      const oldBot = global._activeBotsWeb.get(botKey);
+      try { process.kill(oldBot.pid, 'SIGTERM'); } catch(e) {}
+      global._activeBotsWeb.delete(botKey);
+      log(`[al-web] 终止旧Bot: ${botKey}`);
+    }
+    const { spawn } = require('child_process');
+    const bot = spawn('python3', [
+      '/var/www/glotalk/translation_bot.py',
+      room, source, target, identity
+    ], { env: { ...process.env }, detached: true, stdio: 'ignore' });
+    bot.on('exit', () => {
+      if (global._activeBotsWeb.get(botKey) === bot) {
+        global._activeBotsWeb.delete(botKey);
+      }
+      log(`[al-web] Bot退出: ${botKey}`);
+    });
+    global._activeBotsWeb.set(botKey, bot);
+    bot.unref();
+    log(`[al-web] 启动Bot: room=${room} ${source}→${target} for ${identity}`);
+    jsonResp(res, { ok: true });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/al-web/stop-bot") {
+    const { room, source } = url.searchParams ? Object.fromEntries(url.searchParams) : {};
+    if (!room || !source) { jsonResp(res, { ok: false, error: "missing params" }, 400); return; }
+    const botKey = `${room}:${source}`;
+    if (global._activeBotsWeb && global._activeBotsWeb.has(botKey)) {
+      const bot = global._activeBotsWeb.get(botKey);
+      try { process.kill(bot.pid, "SIGTERM"); } catch(e) {}
+      global._activeBotsWeb.delete(botKey);
+      log(`[al-web] 终止Bot: ${botKey}`);
+    }
+    jsonResp(res, { ok: true });
+    return;
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // AL-APP：alibaba App版专用接口
+  // ══════════════════════════════════════════════════════════
+
+  if (req.method === "POST" && url.pathname === "/al-app/invite/verify") {
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { code } = JSON.parse(body || "{}");
+        const inv = invitesAL[code];
+        if (!inv) { jsonResp(res, {ok:false, error:"邀请码不存在"}); return; }
+        if (Date.now() > inv.expiresAt) { jsonResp(res, {ok:false, error:"邀请码已过期"}); return; }
+        const roomId = inv.roomId || code;
+        jsonResp(res, {ok:true, roomId, name:inv.name, duration:inv.duration});
+      } catch(e) { jsonResp(res, {ok:false, error:e.message}); }
+    }); return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/al-app/token") {
+    const h = req.headers["x-glotalk-token"] || "";
+    if (h !== ACCESS_TOKEN) { jsonResp(res, {error:"Unauthorized"}, 401); return; }
+    const q = url.searchParams;
+    const room = q.get("room") || "glotalk-room";
+    const identity = q.get("identity") || ("user-" + Date.now());
+    const lang = q.get("lang") || "zh";
+    const { AccessToken } = require("livekit-server-sdk");
+    const LK_KEY = process.env.LIVEKIT_API_KEY || "";
+    const LK_SECRET = process.env.LIVEKIT_API_SECRET || "";
+    const LK_URL = process.env.LIVEKIT_URL || "wss://glotalk-nppyx7kk.livekit.cloud";
+    if (!LK_KEY || !LK_SECRET) { jsonResp(res, {error:"LiveKit not configured"}, 500); return; }
+    const at = new AccessToken(LK_KEY, LK_SECRET, { identity, ttl: 7200, attributes: { lang } });
+    at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true, roomCreate: true });
+    const token = await at.toJwt();
+    jsonResp(res, { token, url: LK_URL, room, identity, lang });
+    log("LiveKit token: " + identity + " room:" + room + " lang:" + lang);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/al-app/start-bot") {
+    const { room, identity, source, target } = url.searchParams ? Object.fromEntries(url.searchParams) : {};
+    if (!room || !identity || !source || !target) {
+      jsonResp(res, { ok: false, error: 'missing params' }, 400); return;
+    }
+    // 房间锁：同一房间1秒内只处理一次
+    if (!global._roomLocksApp) global._roomLocksApp = new Map();
+    const lockKey = `lock:${room}`;
+    if (global._roomLocksApp.has(lockKey)) {
+      log(`[al-app] 房间锁忽略重复请求: ${room}`);
+      jsonResp(res, { ok: true, waiting: true });
+      return;
+    }
+    global._roomLocksApp.set(lockKey, true);
+    setTimeout(() => global._roomLocksApp.delete(lockKey), 1000);
+
+    try {
+      const { RoomServiceClient } = require('livekit-server-sdk');
+      const LK_KEY = process.env.LIVEKIT_API_KEY || "";
+      const LK_SECRET = process.env.LIVEKIT_API_SECRET || "";
+      const LK_HOST = (process.env.LIVEKIT_URL || "wss://glotalk-nppyx7kk.livekit.cloud").replace('wss://', 'https://');
+      const svc = new RoomServiceClient(LK_HOST, LK_KEY, LK_SECRET);
+      const participants = await svc.listParticipants(room);
+      const realUsers = participants.filter(p => !p.identity.startsWith('bot-'));
+
+      if (realUsers.length > 2) {
+        jsonResp(res, { ok: false, error: '房间已满，最多2人通话' }, 400); return;
+      }
+      if (realUsers.length <= 1) {
+        log(`[al-app] 等待第二人加入: room=${room}`);
+        jsonResp(res, { ok: true, waiting: true }); return;
+      }
+
+      const user1 = realUsers[0];
+      const user2 = realUsers[1];
+      const lang1 = (user1.attributes && user1.attributes.lang) || source;
+      const lang2 = (user2.attributes && user2.attributes.lang) || target;
+
+      if (lang1 === lang2) {
+        log(`[al-app] 两端语言相同(${lang1})，不启动Bot`);
+        jsonResp(res, { ok: false, error: '两端语言相同，无需翻译' }, 400); return;
+      }
+
+      if (!global._activeBotsApp) global._activeBotsApp = new Map();
+      const { spawn } = require('child_process');
+
+      function spawnBotApp(srcLang, tgtLang, userIdentity) {
+        const botKey = `${room}:${srcLang}`;
+        if (global._activeBotsApp.has(botKey)) {
+          const oldBot = global._activeBotsApp.get(botKey);
+          try { process.kill(oldBot.pid, 'SIGTERM'); } catch(e) {}
+          global._activeBotsApp.delete(botKey);
+          log(`[al-app] 终止旧Bot: ${botKey}`);
+        }
+        const bot = spawn('python3', [
+          '/var/www/glotalk/translation_bot.py',
+          room, srcLang, tgtLang, userIdentity
+        ], { env: { ...process.env }, detached: true, stdio: 'ignore' });
+        bot.on('exit', () => {
+          if (global._activeBotsApp.get(botKey) === bot) {
+            global._activeBotsApp.delete(botKey);
+          }
+          log(`[al-app] Bot退出: ${botKey}`);
+          const otherKey = `${room}:${tgtLang}`;
+          if (global._activeBotsApp && global._activeBotsApp.has(otherKey)) {
+            const otherBot = global._activeBotsApp.get(otherKey);
+            try { process.kill(otherBot.pid, 'SIGTERM'); } catch(e) {}
+            global._activeBotsApp.delete(otherKey);
+            log(`[al-app] 连带停止Bot: ${otherKey}`);
+          }
+        });
+        global._activeBotsApp.set(botKey, bot);
+        bot.unref();
+        log(`[al-app] 启动Bot: room=${room} ${srcLang}→${tgtLang} for ${userIdentity}`);
+      }
+
+      spawnBotApp(lang1, lang2, user1.identity);
+      spawnBotApp(lang2, lang1, user2.identity);
+      jsonResp(res, { ok: true, waiting: false });
+    } catch(e) {
+      log(`[al-app] 错误: ${e.message}`);
+      jsonResp(res, { ok: false, error: e.message }, 500);
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/al-app/stop-bot") {
+    const { room, source } = url.searchParams ? Object.fromEntries(url.searchParams) : {};
+    if (!room || !source) { jsonResp(res, { ok: false, error: "missing params" }, 400); return; }
+    const botKey = `${room}:${source}`;
+    if (global._activeBotsApp && global._activeBotsApp.has(botKey)) {
+      const bot = global._activeBotsApp.get(botKey);
+      try { process.kill(bot.pid, "SIGTERM"); } catch(e) {}
+      global._activeBotsApp.delete(botKey);
+      log(`[al-app] 终止Bot: ${botKey}`);
+    }
+    jsonResp(res, { ok: true });
     return;
   }
 
