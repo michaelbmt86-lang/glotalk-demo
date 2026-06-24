@@ -182,6 +182,18 @@ const server = http.createServer(async (req, res) => {
     jsonResp(res, { agentId, name: ag.name, active: ag.active, invites: myInvites });
     return;
   }
+
+  // ── 短链接 /al/g/:code ──
+  if (req.method === 'GET' && url.pathname.startsWith('/al/g/')) {
+    const code = url.pathname.slice(6).toUpperCase();
+    const lang = url.searchParams.get('lang') || '';
+    const theirLang = url.searchParams.get('theirLang') || '';
+    const langParam = lang ? '&lang=' + lang : '';
+    const theirParam = theirLang ? '&theirLang=' + theirLang : '';
+    res.writeHead(302, {'Location': 'https://glotalk.tech/al/web/glotalk-al.html?code=' + code + langParam + theirParam, 'Access-Control-Allow-Origin': '*'});
+    res.end(); return;
+  }
+
   // ── 健康检查 ──
   if (req.method === 'GET' && url.pathname === '/al/health') {
     jsonResp(res, { status: 'ok', service: 'GloTalk Alibaba Server', port: PORT });

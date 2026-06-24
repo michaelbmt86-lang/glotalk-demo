@@ -365,24 +365,25 @@ async function joinRoom(){
       $('participantsBar').textContent = '对方已离开';
     });
 
+    // 只订阅给我听的Bot音轨，对方原声完全不订阅
+    room.on(LivekitClient.RoomEvent.TrackPublished, (pub, participant)=>{
+      if(pub.kind === LivekitClient.Track.Kind.Audio){
+        const isBot = participant.identity.startsWith('bot-');
+        const isForMe = participant.identity.endsWith('-' + myLang);
+        if(isBot && isForMe){
+          pub.setSubscribed(true);
+        }
+      }
+    });
     room.on(LivekitClient.RoomEvent.TrackSubscribed, (track, pub, participant)=>{
-      // 官方文档：LiveKit自动播放所有音轨
-      // 我们只需要屏蔽不需要的音轨：
-      // 1. 对方原声 → 屏蔽（只听翻译）
-      // 2. 翻译成对方语言的Bot → 屏蔽（那是给对方听的）
-      // 3. 翻译成我的语言的Bot → 保留（LiveKit自动播放）
       if(track.kind === LivekitClient.Track.Kind.Audio){
         const isBot = participant.identity.startsWith('bot-');
         const isForMe = participant.identity.endsWith('-' + myLang);
         if(isBot && isForMe){
-          // 对方Bot翻译音轨 → 播放
           const ms = new MediaStream([track.mediaStreamTrack]);
           const audio = new Audio();
           audio.srcObject = ms;
           audio.play().catch(()=>{});
-        } else {
-          // 对方原声 或 不是给我听的Bot → 屏蔽
-          track.setVolume(0);
         }
       }
     });
@@ -403,7 +404,7 @@ async function joinRoom(){
       $('verifyBtn').textContent='验证邀请码';
     });
 
-    await room.connect(LIVEKIT_URL, tokenData.token);
+    await room.connect(LIVEKIT_URL, tokenData.token, {autoSubscribe: false});
     await room.localParticipant.setMicrophoneEnabled(true);
 
     // 4. 启动翻译 Bot
