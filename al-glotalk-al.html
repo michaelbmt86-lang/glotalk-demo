@@ -365,25 +365,19 @@ async function joinRoom(){
       $('participantsBar').textContent = '对方已离开';
     });
 
-    // 只订阅给我听的Bot音轨，对方原声完全不订阅
-    room.on(LivekitClient.RoomEvent.TrackPublished, (pub, participant)=>{
-      if(pub.kind === LivekitClient.Track.Kind.Audio){
-        const isBot = participant.identity.startsWith('bot-');
-        const isForMe = participant.identity.endsWith('-' + myLang);
-        if(isBot && isForMe){
-          pub.setSubscribed(true);
-        }
-      }
-    });
     room.on(LivekitClient.RoomEvent.TrackSubscribed, (track, pub, participant)=>{
       if(track.kind === LivekitClient.Track.Kind.Audio){
         const isBot = participant.identity.startsWith('bot-');
         const isForMe = participant.identity.endsWith('-' + myLang);
         if(isBot && isForMe){
+          // 对方Bot翻译音轨 → 手动播放
           const ms = new MediaStream([track.mediaStreamTrack]);
           const audio = new Audio();
           audio.srcObject = ms;
           audio.play().catch(()=>{});
+        } else {
+          // 对方原声或不需要的Bot → 立刻静音
+          track.mediaStreamTrack.enabled = false;
         }
       }
     });
@@ -404,7 +398,7 @@ async function joinRoom(){
       $('verifyBtn').textContent='验证邀请码';
     });
 
-    await room.connect(LIVEKIT_URL, tokenData.token, {autoSubscribe: false});
+    await room.connect(LIVEKIT_URL, tokenData.token);
     await room.localParticipant.setMicrophoneEnabled(true);
 
     // 4. 启动翻译 Bot
