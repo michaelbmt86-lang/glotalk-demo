@@ -43,7 +43,7 @@ class _InvitePageState extends State<InvitePage> {
     setState(() { _loading = true; _error = ''; });
     try {
       final res = await http.post(
-        Uri.parse('$kServerUrl/invite-al/verify'),
+        Uri.parse('$kServerUrl/al-app/invite/verify'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'code': _controller.text.trim()}),
       );
@@ -235,7 +235,7 @@ class _CallPageState extends State<CallPage> {
       final identity = 'user-${DateTime.now().millisecondsSinceEpoch}';
       _myIdentity = identity;
 
-      final tokenUri = Uri.parse('$kServerUrl/livekit-token').replace(
+      final tokenUri = Uri.parse('$kServerUrl/al-app/token').replace(
         queryParameters: {
           'room': widget.roomId,
           'identity': identity,
@@ -289,7 +289,7 @@ class _CallPageState extends State<CallPage> {
       await room.localParticipant?.setMicrophoneEnabled(true);
 
       // 启动Bot
-      final botUri = Uri.parse('$kServerUrl/start-bot').replace(
+      final botUri = Uri.parse('$kServerUrl/al-app/start-bot').replace(
         queryParameters: {
           'room': widget.roomId,
           'identity': identity,
@@ -312,7 +312,7 @@ class _CallPageState extends State<CallPage> {
 
   Future<void> _stopBot() async {
     try {
-      final stopUri = Uri.parse('$kServerUrl/stop-bot').replace(
+      final stopUri = Uri.parse('$kServerUrl/al-app/stop-bot').replace(
         queryParameters: {
           'room': widget.roomId,
           'source': widget.myLang,
