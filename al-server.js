@@ -127,6 +127,61 @@ const server = http.createServer(async (req, res) => {
     res.end(); return;
   }
 
+
+  if (req.method === 'GET' && url.pathname === '/al/admin/data') {
+    const pass = url.searchParams.get('admin') || '';
+    if (pass !== ADMIN_PASS) { jsonResp(res, {error: 'Unauthorized'}, 403); return; }
+    jsonResp(res, { invites: Object.entries(invites).map(([code, inv]) => ({code, ...inv})), agents });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/al/admin/agent/create') {
+    const pass = url.searchParams.get('admin') || '';
+    if (pass !== ADMIN_PASS) { jsonResp(res, {error: 'Unauthorized'}, 403); return; }
+    let body = ''; req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { name, monthlyBudgetRMB = 200 } = JSON.parse(body || '{}');
+        const agentId = generateAgentId();
+        const monthlyBudgetUSD = parseFloat((monthlyBudgetRMB / 7).toFixed(2));
+        agents[agentId] = { name, monthlyBudgetRMB, monthlyBudgetUSD, active: true, createdAt: Date.now(), inviteCount: 0 };
+        saveJSON(AGENTS_FILE, agents);
+        jsonResp(res, { agentId, name, monthlyBudgetRMB, monthlyBudgetUSD });
+      } catch(e) { jsonResp(res, {error: e.message}, 500); }
+    }); return;
+  }
+  if (req.method === 'POST' && url.pathname === '/al/admin/agent/toggle') {
+    const pass = url.searchParams.get('admin') || '';
+    if (pass !== ADMIN_PASS) { jsonResp(res, {error: 'Unauthorized'}, 403); return; }
+    let body = ''; req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { agentId, action } = JSON.parse(body || '{}');
+        agents[agentId].active = (action === 'enable');
+        saveJSON(AGENTS_FILE, agents);
+        jsonResp(res, { ok: true });
+      } catch(e) { jsonResp(res, {error: e.message}, 500); }
+    }); return;
+  }
+  if (req.method === 'POST' && url.pathname === '/al/admin/invite/revoke') {
+    const pass = url.searchParams.get('admin') || '';
+    if (pass !== ADMIN_PASS) { jsonResp(res, {error: 'Unauthorized'}, 403); return; }
+    let body = ''; req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { code } = JSON.parse(body || '{}');
+        delete invites[code]; saveJSON(INVITES_FILE, invites);
+        jsonResp(res, { ok: true });
+      } catch(e) { jsonResp(res, {error: e.message}, 500); }
+    }); return;
+  }
+  if (req.method === 'GET' && url.pathname === '/al/agent/status') {
+    const agentId = url.searchParams.get('id');
+    const ag = agents[agentId];
+    if (ag == null) { jsonResp(res, {error: 'invalid'}, 403); return; }
+    const myInvites = Object.entries(invites).filter(([, inv]) => inv.agentId === agentId).map(([code, inv]) => ({code, name: inv.name, status: Date.now() > inv.expiresAt ? 'expired' : 'active', duration: inv.duration}));
+    jsonResp(res, { agentId, name: ag.name, active: ag.active, invites: myInvites });
+    return;
+  }
   // ── 健康检查 ──
   if (req.method === 'GET' && url.pathname === '/al/health') {
     jsonResp(res, { status: 'ok', service: 'GloTalk Alibaba Server', port: PORT });
