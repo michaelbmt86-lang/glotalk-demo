@@ -1079,33 +1079,79 @@ const server = http.createServer(async (req, res) => {
     if (!room || !identity || !source || !target) {
       jsonResp(res, { ok: false, error: 'missing params' }, 400); return;
     }
-    const botKey = `${room}:${source}`;
-    if (!global._activeBotsWeb) global._activeBotsWeb = new Map();
-    if (global._activeBotsWeb.has(botKey)) {
-      const oldBot = global._activeBotsWeb.get(botKey);
-      try { process.kill(oldBot.pid, 'SIGTERM'); } catch(e) {}
-      global._activeBotsWeb.delete(botKey);
-      log(`[al-web] 终止旧Bot: ${botKey}`);
+    if (!global._roomLocksWeb) global._roomLocksWeb = new Map();
+    const lockKey = `lock:${room}`;
+    if (global._roomLocksWeb.has(lockKey)) {
+      log(`[al-web] 房间锁忽略重复请求: ${room}`);
+      jsonResp(res, { ok: true, waiting: true });
+      return;
     }
-    const { spawn } = require('child_process');
-    const bot = spawn('python3', [
-      '/var/www/glotalk/translation_bot.py',
-      room, source, target, identity
-    ], { env: { ...process.env }, detached: true, stdio: 'ignore' });
-    bot.on('exit', () => {
-      if (global._activeBotsWeb.get(botKey) === bot) {
-        global._activeBotsWeb.delete(botKey);
+    global._roomLocksWeb.set(lockKey, true);
+    setTimeout(() => global._roomLocksWeb.delete(lockKey), 1000);
+    try {
+      const { RoomServiceClient } = require('livekit-server-sdk');
+      const LK_KEY = process.env.LIVEKIT_API_KEY || "";
+      const LK_SECRET = process.env.LIVEKIT_API_SECRET || "";
+      const LK_HOST = (process.env.LIVEKIT_URL || "wss://glotalk-nppyx7kk.livekit.cloud").replace('wss://', 'https://');
+      const svc = new RoomServiceClient(LK_HOST, LK_KEY, LK_SECRET);
+      const participants = await svc.listParticipants(room);
+      const realUsers = participants.filter(p => !p.identity.startsWith('bot-'));
+      if (realUsers.length > 2) {
+        jsonResp(res, { ok: false, error: '房间已满，最多2人通话' }, 400); return;
       }
-      log(`[al-web] Bot退出: ${botKey}`);
-    });
-    global._activeBotsWeb.set(botKey, bot);
-    bot.unref();
-    log(`[al-web] 启动Bot: room=${room} ${source}→${target} for ${identity}`);
-    jsonResp(res, { ok: true });
+      if (realUsers.length <= 1) {
+        log(`[al-web] 等待第二人加入: room=${room}`);
+        jsonResp(res, { ok: true, waiting: true }); return;
+      }
+      const user1 = realUsers[0];
+      const user2 = realUsers[1];
+      const lang1 = (user1.attributes && user1.attributes.lang) || source;
+      const lang2 = (user2.attributes && user2.attributes.lang) || target;
+      if (lang1 === lang2) {
+        log(`[al-web] 两端语言相同(${lang1})，不启动Bot`);
+        jsonResp(res, { ok: false, error: '两端语言相同，无需翻译' }, 400); return;
+      }
+      if (!global._activeBotsWeb) global._activeBotsWeb = new Map();
+      const { spawn } = require('child_process');
+      function spawnBotWeb(srcLang, tgtLang, userIdentity) {
+        const botKey = `${room}:${srcLang}`;
+        if (global._activeBotsWeb.has(botKey)) {
+          const oldBot = global._activeBotsWeb.get(botKey);
+          try { process.kill(oldBot.pid, 'SIGTERM'); } catch(e) {}
+          global._activeBotsWeb.delete(botKey);
+          log(`[al-web] 终止旧Bot: ${botKey}`);
+        }
+        const bot = spawn('python3', [
+          '/var/www/glotalk/translation_bot.py',
+          room, srcLang, tgtLang, userIdentity
+        ], { env: { ...process.env }, detached: true, stdio: 'ignore' });
+        bot.on('exit', () => {
+          if (global._activeBotsWeb.get(botKey) === bot) {
+            global._activeBotsWeb.delete(botKey);
+          }
+          log(`[al-web] Bot退出: ${botKey}`);
+          const otherKey = `${room}:${tgtLang}`;
+          if (global._activeBotsWeb && global._activeBotsWeb.has(otherKey)) {
+            const otherBot = global._activeBotsWeb.get(otherKey);
+            try { process.kill(otherBot.pid, 'SIGTERM'); } catch(e) {}
+            global._activeBotsWeb.delete(otherKey);
+            log(`[al-web] 连带停止Bot: ${otherKey}`);
+          }
+        });
+        global._activeBotsWeb.set(botKey, bot);
+        bot.unref();
+        log(`[al-web] 启动Bot: room=${room} ${srcLang}→${tgtLang} for ${userIdentity}`);
+      }
+      spawnBotWeb(lang1, lang2, user1.identity);
+      spawnBotWeb(lang2, lang1, user2.identity);
+      jsonResp(res, { ok: true, waiting: false });
+    } catch(e) {
+      log(`[al-web] 错误: ${e.message}`);
+      jsonResp(res, { ok: false, error: e.message }, 500);
+    }
     return;
   }
-
-  if (req.method === "GET" && url.pathname === "/al-web/stop-bot") {
+    if (req.method === "GET" && url.pathname === "/al-web/stop-bot") {
     const { room, source } = url.searchParams ? Object.fromEntries(url.searchParams) : {};
     if (!room || !source) { jsonResp(res, { ok: false, error: "missing params" }, 400); return; }
     const botKey = `${room}:${source}`;
