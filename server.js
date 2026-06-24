@@ -898,7 +898,7 @@ const server = http.createServer(async (req, res) => {
 
   // ── 以下需要ACCESS_TOKEN ──────────────────────────────
   // 放行路线A和路线B的API接口（不需要用户token）
-  if (url.pathname === "/api/translation-token" || url.pathname.startsWith("/api/gemini/") || url.pathname === "/alibaba-token" || url.pathname === "/alibaba-ws" || url.pathname === "/livekit-token" || url.pathname === "/start-bot" || url.pathname === "/stop-bot" || url.pathname.startsWith("/al-web/") || url.pathname.startsWith("/al-app/") || url.pathname.startsWith("/agent-al/") || url.pathname.startsWith("/invite-al/") || url.pathname.startsWith("/admin-al") || url.pathname.startsWith("/g/")) {
+  if (url.pathname === "/api/translation-token" || url.pathname.startsWith("/api/gemini/") || url.pathname === "/alibaba-token" || url.pathname === "/alibaba-ws" || url.pathname === "/livekit-token" || url.pathname === "/start-bot" || url.pathname === "/stop-bot" || url.pathname.startsWith("/al-web/") || url.pathname.startsWith("/al-app/") || url.pathname.startsWith("/al-test/") || url.pathname.startsWith("/agent-al/") || url.pathname.startsWith("/invite-al/") || url.pathname.startsWith("/admin-al") || url.pathname.startsWith("/g/")) {
     // 继续往下走，不验证
   } else if (!verifyToken(req)) {
     log(`⚠️ 未授权: ${getIP(req)} ${url.pathname}`);
@@ -1037,6 +1037,81 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+
+
+  // ══════════════════════════════════════════════════════════
+  // AL-TEST：完全独立的测试室接口（不影响web和app）
+  // ══════════════════════════════════════════════════════════
+
+  if (req.method === "GET" && url.pathname === "/al-test/token") {
+    const q = url.searchParams;
+    const room = q.get("room") || "test-room";
+    const identity = q.get("identity") || ("test-" + Date.now());
+    const lang = q.get("lang") || "zh";
+    const { AccessToken } = require("livekit-server-sdk");
+    const LK_KEY = process.env.LIVEKIT_API_KEY || "";
+    const LK_SECRET = process.env.LIVEKIT_API_SECRET || "";
+    const LK_URL = process.env.LIVEKIT_URL || "wss://glotalk-nppyx7kk.livekit.cloud";
+    if (!LK_KEY || !LK_SECRET) { jsonResp(res, {error:"LiveKit not configured"}, 500); return; }
+    const at = new AccessToken(LK_KEY, LK_SECRET, { identity, ttl: 7200, attributes: { lang } });
+    at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true, roomCreate: true });
+    const token = await at.toJwt();
+    jsonResp(res, { token, url: LK_URL, room, identity, lang });
+    log("[al-test] LiveKit token: " + identity + " room:" + room + " lang:" + lang);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/al-test/start-bot") {
+    const { room, identity, source, target } = url.searchParams ? Object.fromEntries(url.searchParams) : {};
+    if (!room || !identity || !source || !target) {
+      jsonResp(res, { ok: false, error: 'missing params' }, 400); return;
+    }
+    const botKey = `${room}:${source}`;
+    if (!global._activeBotsTest) global._activeBotsTest = new Map();
+    if (global._activeBotsTest.has(botKey)) {
+      const oldBot = global._activeBotsTest.get(botKey);
+      try { process.kill(oldBot.pid, 'SIGTERM'); } catch(e) {}
+      global._activeBotsTest.delete(botKey);
+      log(`[al-test] 终止旧Bot: ${botKey}`);
+    }
+    const { spawn } = require('child_process');
+    const bot = spawn('python3', [
+      '/var/www/glotalk/translation_bot_test.py',
+      room, source, target, identity
+    ], { env: { ...process.env }, detached: true, stdio: 'ignore' });
+    bot.on('exit', () => {
+      if (global._activeBotsTest.get(botKey) === bot) {
+        global._activeBotsTest.delete(botKey);
+      }
+      log(`[al-test] Bot退出: ${botKey}`);
+      const otherKey = `${room}:${target}`;
+      if (global._activeBotsTest && global._activeBotsTest.has(otherKey)) {
+        const otherBot = global._activeBotsTest.get(otherKey);
+        try { process.kill(otherBot.pid, 'SIGTERM'); } catch(e) {}
+        global._activeBotsTest.delete(otherKey);
+        log(`[al-test] 连带停止Bot: ${otherKey}`);
+      }
+    });
+    global._activeBotsTest.set(botKey, bot);
+    bot.unref();
+    log(`[al-test] 启动Bot: room=${room} ${source}→${target} for ${identity}`);
+    jsonResp(res, { ok: true });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/al-test/stop-bot") {
+    const { room, source } = url.searchParams ? Object.fromEntries(url.searchParams) : {};
+    if (!room || !source) { jsonResp(res, { ok: false, error: "missing params" }, 400); return; }
+    const botKey = `${room}:${source}`;
+    if (global._activeBotsTest && global._activeBotsTest.has(botKey)) {
+      const bot = global._activeBotsTest.get(botKey);
+      try { process.kill(bot.pid, "SIGTERM"); } catch(e) {}
+      global._activeBotsTest.delete(botKey);
+      log(`[al-test] 终止Bot: ${botKey}`);
+    }
+    jsonResp(res, { ok: true });
+    return;
+  }
 
   // ══════════════════════════════════════════════════════════
   // AL-WEB：alibaba 网页版专用接口
