@@ -67,22 +67,22 @@ flutter:
     # ── STT 模型：SenseVoice int8（中英日韩粤，~28MB）─────────
     # 下载：https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models
     # 文件：sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17-int8.tar.bz2
-    - assets/models/sense-voice/model.int8.onnx
-    - assets/models/sense-voice/tokens.txt
+    # - assets/models/sense-voice/model.int8.onnx
+    # - assets/models/sense-voice/tokens.txt
 
     # ── 翻译模型：Opus-MT zh→en（~250MB）────────────────────
     # 下载：https://huggingface.co/onnx-community/opus-mt-zh-en
     # 文件：encoder_model_int8.onnx + decoder_model_merged_int8.onnx
-    - assets/models/opus-mt-zh-en/encoder_model_int8.onnx
-    - assets/models/opus-mt-zh-en/decoder_model_merged_int8.onnx
-    - assets/models/opus-mt-zh-en/vocab.json
-    - assets/models/opus-mt-zh-en/source.spm
-    - assets/models/opus-mt-zh-en/target.spm
+    # - assets/models/opus-mt-zh-en/encoder_model_int8.onnx
+    # - assets/models/opus-mt-zh-en/decoder_model_merged_int8.onnx
+    # - assets/models/opus-mt-zh-en/vocab.json
+    # - assets/models/opus-mt-zh-en/source.spm
+    # - assets/models/opus-mt-zh-en/target.spm
 
     # ── TTS 模型：VITS Piper English（~60MB）────────────────
     # 下载：https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models
     # 文件：vits-piper-en_US-libritts_r-medium.tar.bz2
-    - assets/models/vits-piper-en/en_US-libritts_r-medium.onnx
-    - assets/models/vits-piper-en/en_US-libritts_r-medium.onnx.json
-    - assets/models/vits-piper-en/tokens.txt
-    - assets/models/vits-piper-en/espeak-ng-data/
+    # - assets/models/vits-piper-en/en_US-libritts_r-medium.onnx
+    # - assets/models/vits-piper-en/en_US-libritts_r-medium.onnx.json
+    # - assets/models/vits-piper-en/tokens.txt
+    # - assets/models/vits-piper-en/espeak-ng-data/
