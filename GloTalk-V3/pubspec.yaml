@@ -50,7 +50,7 @@ dependencies:
   flutter_onnxruntime: ^1.8.0   # 翻译 ONNX，MIT；需 >=1.5.1 for 16KB
 
   # ── 音频采集 ──────────────────────────────────────────────
-  record: ^5.2.0                # 麦克风 PCM 流（streaming_asr.dart 同款）
+  record: ^6.0.0                # 麦克风 PCM 流（streaming_asr.dart 同款）
 
   # ── 网络与传输 ────────────────────────────────────────────
   livekit_client: ^2.8.1        # WebRTC 房间
