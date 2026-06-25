@@ -355,7 +355,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
     });
 
     try {
-      await _playPcm(audio.samples, audio.sampleRate);
+      await _playPcm(audio!.samples, audio.sampleRate);
     } catch (e) {
       // 播放失败不阻断结果显示
       debugPrint('[TTS play] $e');
@@ -501,7 +501,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
     });
 
     try {
-      await _playPcm(audio.samples, audio.sampleRate);
+      await _playPcm(audio!.samples, audio.sampleRate);
     } catch (e) {
       debugPrint('[TTS play] $e');
     }
