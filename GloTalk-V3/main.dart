@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
-import 'verify_screen.dart';
+import 'screens/verify_screen.dart';
 
 // ─────────────────────────────────────────────
 // 入口
@@ -134,7 +134,7 @@ class _AppInitWrapperState extends State<AppInitWrapper> {
 
     if (_ready) {
       // 直接跳到翻译管线验证页
-      return const VerifyScreen();
+      return VerifyScreen();
     }
 
     // 启动 Splash
