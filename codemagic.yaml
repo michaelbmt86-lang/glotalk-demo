@@ -7,135 +7,100 @@
 workflows:
   glotalk-v3-android-debug:
     name: GloTalk V3 Android Debug
-    max_build_duration: 60        # 分钟，超时自动取消
+    max_build_duration: 60
 
-    # ── 环境 ──────────────────────────────────────────────────────
     environment:
-      flutter: stable             # Flutter stable channel
-      java: 17                    # AGP 8.x 要求 JDK 17
+      flutter: stable
+      java: 17
 
-    # ── 缓存（加速后续构建）──────────────────────────────────────
     cache:
       cache_paths:
         - ~/.gradle/caches
         - ~/.gradle/wrapper
         - ~/.pub-cache
 
-    # ── 脚本 ──────────────────────────────────────────────────────
     scripts:
-      # Step 1: 整理目录结构
-      # ----------------------------------------------------------------
-      # 背景：GloTalk-V3/ 下 Dart 文件平铺在根目录，
-      #       Flutter 要求放在 lib/、lib/screens/、lib/services/ 下
-      # 参考：Codemagic 官方文档 — 所有脚本从 $CM_BUILD_DIR 执行
-      #       CM_BUILD_DIR = clone 根目录
-      # ----------------------------------------------------------------
       - name: 整理 Flutter 目录结构
         script: |
-          set -e    # 任意步骤失败立即退出，不要继续跑坏掉的结构
-
+          set -e
           PROJECT="$CM_BUILD_DIR/GloTalk-V3"
           echo "▶ 项目目录: $PROJECT"
           ls -la "$PROJECT/"
-
-          # 建立目标目录（-p 确保父目录一起建）
           mkdir -p "$PROJECT/lib/screens"
           mkdir -p "$PROJECT/lib/services"
           mkdir -p "$PROJECT/android/app"
 
-          # ── lib/main.dart ──
           if [ -f "$PROJECT/main.dart" ]; then
             mv "$PROJECT/main.dart" "$PROJECT/lib/main.dart"
             echo "✅ main.dart → lib/main.dart"
-          else
-            echo "⚠️  main.dart 不在根目录，检查是否已在 lib/"
           fi
 
-          # ── lib/screens/verify_screen.dart ──
           if [ -f "$PROJECT/verify_screen.dart" ]; then
             mv "$PROJECT/verify_screen.dart" "$PROJECT/lib/screens/verify_screen.dart"
             echo "✅ verify_screen.dart → lib/screens/"
           fi
 
-          # ── lib/services/ 下的三个服务文件 ──
-          for svc in stt_service.dart mt_service.dart tts_service.dart; do
+          for svc in stt_service.dart translator_service.dart tts_service.dart; do
             if [ -f "$PROJECT/$svc" ]; then
               mv "$PROJECT/$svc" "$PROJECT/lib/services/$svc"
               echo "✅ $svc → lib/services/"
             else
-              echo "⚠️  $svc 未找到（如果还没生成可忽略）"
+              echo "⚠️  $svc 未找到"
             fi
           done
 
-          # ── android/app/proguard-rules.pro ──
           if [ -f "$PROJECT/proguard-rules.pro" ]; then
             mv "$PROJECT/proguard-rules.pro" "$PROJECT/android/app/proguard-rules.pro"
             echo "✅ proguard-rules.pro → android/app/"
           fi
 
-          echo ""
           echo "▶ 整理后的 lib/ 结构："
           find "$PROJECT/lib" -type f | sort
 
-      # Step 2: 验证 pubspec.yaml 存在
       - name: 验证项目结构
         script: |
           set -e
           PROJECT="$CM_BUILD_DIR/GloTalk-V3"
-
           if [ ! -f "$PROJECT/pubspec.yaml" ]; then
-            echo "❌ 未找到 pubspec.yaml，请确认 GloTalk-V3/ 目录正确"
+            echo "❌ 未找到 pubspec.yaml"
             exit 1
           fi
-
           echo "✅ pubspec.yaml 存在"
           cat "$PROJECT/pubspec.yaml"
 
-      # Step 3: flutter pub get
       - name: 安装 Flutter 依赖
         script: |
           set -e
           cd "$CM_BUILD_DIR/GloTalk-V3"
           flutter pub get
 
-      # Step 4: 修复 Gradle wrapper（与 alibaba-v1 已验证方案一致）
-      # 参考：codemagic.yaml in flutter_app/ — 已验证第16次编译成功
       - name: 修复 Gradle Wrapper
         script: |
           set -e
           PROJECT="$CM_BUILD_DIR/GloTalk-V3"
-
           if [ ! -f "$PROJECT/android/gradlew" ]; then
-            echo "⚠️  gradlew 不存在，跳过 wrapper 修复"
+            echo "⚠️  gradlew 不存在，跳过"
           else
             cd "$PROJECT/android"
             chmod +x gradlew
-
-            # 下载官方 gradle-wrapper.jar（避免 Codemagic 机器缺失此文件）
             mkdir -p gradle/wrapper
             curl -fsSL \
               "https://github.com/gradle/gradle/raw/v8.11.1/gradle/wrapper/gradle-wrapper.jar" \
               -o gradle/wrapper/gradle-wrapper.jar
-
             ./gradlew wrapper --gradle-version 8.11.1
             echo "✅ Gradle wrapper 修复完成"
           fi
 
-      # Step 5: 编译 Android debug APK
       - name: 编译 Android Debug APK
         script: |
           set -e
           cd "$CM_BUILD_DIR/GloTalk-V3"
-          flutter build apk --debug \
-            --verbose
+          flutter build apk --debug --verbose
 
-    # ── 产物 ──────────────────────────────────────────────────────
-    # 参考文档：子目录项目用 subfolder_name/build/**/outputs/apk/**/*.apk
     artifacts:
       - GloTalk-V3/build/**/outputs/apk/**/*.apk
       - GloTalk-V3/build/**/outputs/apk/**/output-metadata.json
 
-    # ── 邮件通知（可选）────────────────────────────────────────────
     publishing:
       email:
         recipients:
