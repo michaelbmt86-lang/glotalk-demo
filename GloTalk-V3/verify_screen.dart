@@ -6,8 +6,11 @@
 //   STT/TTS：k2-fsa/sherpa-onnx 官方 Flutter 示例
 //            flutter-examples/streaming_asr/lib/streaming_asr.dart
 //            flutter-examples/tts/ — OfflineTtsVitsModelConfig
-//   翻译推理：flutter_onnxruntime pub.dev 官方 API
-//            OnnxRuntime() → createSessionFromFile() → session.run()
+//   翻译推理：flutter_onnxruntime pub.dev 官方 API（1.6.4 实测）
+//            OnnxRuntime() → createSession(modelPath) → session.run()
+//            OrtSessionOptions(interOpNumThreads: 2)  ← 构造函数参数，无 setter
+//   TTS 返回类型：sherpa.GeneratedAudio（非 OfflineTtsGeneratedAudio）
+//   OfflineTtsConfig 参数：maxNumSenetences（官方拼写含 typo，多一个 e）
 //   设备端架构：Apple iOS 26 Live Translation 验证的"发送方本地处理"模式（V16 决策）
 //
 // 三个模型目录（由 main.dart 检查是否存在，本页面负责加载）：
@@ -204,8 +207,9 @@ class _VerifyScreenState extends State<VerifyScreen> {
   }
 
   /// MT — flutter_onnxruntime + Opus-MT ONNX
-  /// 参考：flutter_onnxruntime pub.dev 官方 API
-  ///        OnnxRuntime() → createSessionFromFile() → session.run()
+  /// 参考：flutter_onnxruntime pub.dev 官方 API（1.6.4）
+  ///        OnnxRuntime() → createSession(modelPath) → session.run()
+  ///        OrtSessionOptions 用构造函数参数，无 setter 方法
   Future<void> _loadMt(String base) async {
     try {
       final mtDir = '$base/$_kMtDir';
@@ -220,16 +224,16 @@ class _VerifyScreenState extends State<VerifyScreen> {
 
       _ort = OnnxRuntime();
 
-      // encoder
-      _encoderSession = await _ort!.createSessionFromFile(
+      // encoder — createSession(modelPath) 是正确方法名
+      _encoderSession = await _ort!.createSession(
         encoderPath,
-        options: OrtSessionOptions()..setInterOpNumThreads(2),
+        options: OrtSessionOptions(interOpNumThreads: 2),
       );
 
       // decoder（merged，含 past_key_values 缓存）
-      _decoderSession = await _ort!.createSessionFromFile(
+      _decoderSession = await _ort!.createSession(
         decoderPath,
-        options: OrtSessionOptions()..setInterOpNumThreads(2),
+        options: OrtSessionOptions(interOpNumThreads: 2),
       );
 
       _updateModelState('MT', true, 'Opus-MT int8 ✅');
@@ -263,9 +267,11 @@ class _VerifyScreenState extends State<VerifyScreen> {
         provider: 'cpu',
       );
 
+      // 注意：官方参数名拼写是 maxNumSenetences（含 typo，多一个 e），
+      // 见 pub.dev/documentation/sherpa_onnx/.../OfflineTtsConfig-class.html
       final config = sherpa.OfflineTtsConfig(
         model: modelConfig,
-        maxNumSentences: 1,
+        maxNumSenetences: 1,
       );
 
       _tts = sherpa.OfflineTts(config);
@@ -319,7 +325,8 @@ class _VerifyScreenState extends State<VerifyScreen> {
     });
 
     final ttsStart = sw.elapsedMilliseconds;
-    sherpa.OfflineTtsGeneratedAudio? audio;
+    // GeneratedAudio 是 sherpa_onnx 1.13.2 的正确返回类型（非 OfflineTtsGeneratedAudio）
+    sherpa.GeneratedAudio? audio;
     try {
       // tts.generate() 在 compute isolate 中运行，避免 UI 卡顿
       // 参考：sherpa-onnx flutter tts 官方示例的 compute() 用法
@@ -468,7 +475,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
     });
 
     final ttsStart = sw.elapsedMilliseconds;
-    sherpa.OfflineTtsGeneratedAudio? audio;
+    sherpa.GeneratedAudio? audio;
     try {
       audio = await compute(_generateTts, _TtsParams(
         tts: _tts!,
@@ -1085,7 +1092,9 @@ class _TtsParams {
   });
 }
 
-sherpa.OfflineTtsGeneratedAudio _generateTts(_TtsParams p) {
+// sherpa_onnx 1.13.2 正确返回类型：GeneratedAudio（非 OfflineTtsGeneratedAudio）
+// 见 pub.dev/documentation/sherpa_onnx/.../OfflineTts-class.html
+sherpa.GeneratedAudio _generateTts(_TtsParams p) {
   // 官方 TTS API：tts.generate(text, sid, speed) → audio.samples + audio.sampleRate
   return p.tts.generate(text: p.text, sid: p.sid, speed: p.speed);
 }
