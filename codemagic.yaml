@@ -31,63 +31,59 @@ workflows:
           mkdir -p "$PROJECT/lib/services"
           mkdir -p "$PROJECT/android/app"
 
-          if [ -f "$PROJECT/main.dart" ]; then
-            mv "$PROJECT/main.dart" "$PROJECT/lib/main.dart"
-            echo "✅ main.dart → lib/main.dart"
-          fi
-
-          if [ -f "$PROJECT/verify_screen.dart" ]; then
-            mv "$PROJECT/verify_screen.dart" "$PROJECT/lib/screens/verify_screen.dart"
-            echo "✅ verify_screen.dart → lib/screens/"
-          fi
+          [ -f "$PROJECT/main.dart" ] && mv "$PROJECT/main.dart" "$PROJECT/lib/main.dart" && echo "✅ main.dart"
+          [ -f "$PROJECT/verify_screen.dart" ] && mv "$PROJECT/verify_screen.dart" "$PROJECT/lib/screens/verify_screen.dart" && echo "✅ verify_screen.dart"
 
           for svc in stt_service.dart translator_service.dart tts_service.dart; do
-            if [ -f "$PROJECT/$svc" ]; then
-              mv "$PROJECT/$svc" "$PROJECT/lib/services/$svc"
-              echo "✅ $svc → lib/services/"
-            else
-              echo "⚠️  $svc 未找到"
-            fi
+            [ -f "$PROJECT/$svc" ] && mv "$PROJECT/$svc" "$PROJECT/lib/services/$svc" && echo "✅ $svc"
           done
 
-          if [ -f "$PROJECT/proguard-rules.pro" ]; then
-            mv "$PROJECT/proguard-rules.pro" "$PROJECT/android/app/proguard-rules.pro"
-            echo "✅ proguard-rules.pro → android/app/"
-          fi
+          [ -f "$PROJECT/proguard-rules.pro" ] && mv "$PROJECT/proguard-rules.pro" "$PROJECT/android/app/proguard-rules.pro" && echo "✅ proguard-rules.pro"
 
-          echo "▶ 整理后结构："
           find "$PROJECT/lib" -type f | sort
 
-      - name: 验证项目结构
+      - name: 修复 AGP 和 Gradle 版本
         script: |
           set -e
           PROJECT="$CM_BUILD_DIR/GloTalk-V3"
-          if [ ! -f "$PROJECT/pubspec.yaml" ]; then
-            echo "❌ 未找到 pubspec.yaml"
-            exit 1
-          fi
-          echo "✅ pubspec.yaml 存在"
+
+          # 更新 build.gradle 使用已验证的 AGP 版本
+          cat > "$PROJECT/android/build.gradle" << 'EOF'
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.3.2'
+                  classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22"
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          EOF
+
+          # 更新 gradle-wrapper.properties 使用 8.11.1
+          mkdir -p "$PROJECT/android/gradle/wrapper"
+          cat > "$PROJECT/android/gradle/wrapper/gradle-wrapper.properties" << 'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-bin.zip
+          EOF
+
+          echo "✅ AGP 和 Gradle 版本已修复"
 
       - name: 安装 Flutter 依赖
         script: |
           set -e
           cd "$CM_BUILD_DIR/GloTalk-V3"
           flutter pub get
-
-      - name: 修复 Gradle Wrapper
-        script: |
-          set -e
-          PROJECT="$CM_BUILD_DIR/GloTalk-V3"
-          if [ -f "$PROJECT/android/gradlew" ]; then
-            cd "$PROJECT/android"
-            chmod +x gradlew
-            mkdir -p gradle/wrapper
-            curl -fsSL \
-              "https://github.com/gradle/gradle/raw/v8.11.1/gradle/wrapper/gradle-wrapper.jar" \
-              -o gradle/wrapper/gradle-wrapper.jar
-            ./gradlew wrapper --gradle-version 8.11.1
-            echo "✅ Gradle wrapper 修复完成"
-          fi
 
       - name: 编译 Android Debug APK
         script: |
