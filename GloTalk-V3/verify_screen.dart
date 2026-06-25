@@ -1,24 +1,81 @@
-// lib/screens/verify_screen.dart
+// GloTalk V3 — 翻译管线验证页 verify_screen.dart
 //
-// 邀请码验证页面（工作手册中已验证的接口规格）
-// 调用接口：POST /invite-al/verify
-// Header: x-glotalk-token: glotalk2026
-// Body: { "code": "ABC" }
-// 成功响应: { "ok": true, "lang": "zh", "theirLang": "en" }
+// 验证目标：离线 STT → 离线翻译 → 离线 TTS，全程无网络、无 LiveKit
 //
-// 调试功能：
-//   「Tokenizer 测试」按钮 → 调用 TranslatorService.debugTokenize()
-//   打印 token ids 到屏幕，用于验证 Opus-MT 分词是否正确加载
+// 参考方案：
+//   STT/TTS：k2-fsa/sherpa-onnx 官方 Flutter 示例
+//            flutter-examples/streaming_asr/lib/streaming_asr.dart
+//            flutter-examples/tts/ — OfflineTtsVitsModelConfig
+//   翻译推理：flutter_onnxruntime pub.dev 官方 API
+//            OnnxRuntime() → createSessionFromFile() → session.run()
+//   设备端架构：Apple iOS 26 Live Translation 验证的"发送方本地处理"模式（V16 决策）
 //
-// 设计原则：
-//   使用现有工作手册中已验证的 API 接口，不新增接口
-//   UI 参考 Telegram / WhatsApp 邀请码输入设计（简洁、大按钮）
+// 三个模型目录（由 main.dart 检查是否存在，本页面负责加载）：
+//   <appDir>/models/stt/   → sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8
+//   <appDir>/models/mt/    → opus-mt-zh-en ONNX encoder + decoder + tokenizer
+//   <appDir>/models/tts/   → vits-piper-en_US-libritts_r-medium
 
-import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import '../services/translator_service.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
+import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
+// ──────────────────────────────────────────────
+// 模型路径常量
+// ──────────────────────────────────────────────
+const _kSttDir = 'models/stt/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8';
+const _kSttModel = 'model.int8.onnx';
+const _kSttTokens = 'tokens.txt';
+
+const _kMtDir = 'models/mt/opus-mt-zh-en';
+const _kMtEncoder = 'encoder_model_int8.onnx';
+const _kMtDecoder = 'decoder_model_merged_int8.onnx';
+
+const _kTtsDir = 'models/tts/vits-piper-en_US-libritts_r-medium';
+const _kTtsModel = 'en_US-libritts_r-medium.onnx';
+const _kTtsDataDir = 'espeak-ng-data'; // 相对于 _kTtsDir
+
+// ──────────────────────────────────────────────
+// 管线状态枚举
+// ──────────────────────────────────────────────
+enum _PipelineState {
+  idle,        // 等待录音
+  recording,   // 录音中
+  transcribing, // STT 处理
+  translating, // 翻译中
+  synthesizing, // TTS 合成
+  playing,     // 播放中
+  error,
+}
+
+// ──────────────────────────────────────────────
+// 验证结果数据类
+// ──────────────────────────────────────────────
+class _VerifyResult {
+  final String sourceText;   // STT 输出（中文）
+  final String translatedText; // MT 输出（英文）
+  final int ttsMs;           // TTS 耗时 ms
+  final int totalMs;         // 全管线耗时 ms
+
+  const _VerifyResult({
+    required this.sourceText,
+    required this.translatedText,
+    required this.ttsMs,
+    required this.totalMs,
+  });
+}
+
+// ──────────────────────────────────────────────
+// VerifyScreen
+// ──────────────────────────────────────────────
 class VerifyScreen extends StatefulWidget {
   const VerifyScreen({super.key});
 
@@ -27,407 +84,1008 @@ class VerifyScreen extends StatefulWidget {
 }
 
 class _VerifyScreenState extends State<VerifyScreen> {
-  // ─── 状态 ────────────────────────────────────────────────
-  final _codeController = TextEditingController();
-  bool _isLoading = false;
-  String? _errorMessage;
+  // ── 状态 ──────────────────────────────────
+  _PipelineState _pipelineState = _PipelineState.idle;
+  String _statusMsg = '模型加载中…';
+  String _errorMsg = '';
+  final List<_VerifyResult> _results = [];
 
-  // 调试面板
-  bool _debugExpanded = false;
-  final _debugInputController = TextEditingController(text: '你好世界');
-  String _debugOutput = '';
-  bool _debugLoading = false;
+  // ── 模型加载状态 ──────────────────────────
+  bool _modelsReady = false;
+  final Map<String, bool> _modelReady = {
+    'STT': false,
+    'MT': false,
+    'TTS': false,
+  };
 
-  // ─── 服务器配置（来自工作手册）───────────────────────────
-  static const String _baseUrl = 'https://glotalk.tech';
-  static const String _accessToken = 'glotalk2026';
+  // ── sherpa-onnx 对象（官方 Dart API）──────
+  // 使用 OfflineRecognizer（SenseVoice），不需要流式推送
+  // 因为验证场景是"按下录音→松开→识别"，与 Telegram 语音消息模式一致
+  sherpa.OfflineRecognizer? _recognizer;
+  sherpa.OfflineTts? _tts;
 
-  // ─── 邀请码验证 ───────────────────────────────────────────
-  Future<void> _verifyCode() async {
-    final code = _codeController.text.trim().toUpperCase();
-    if (code.isEmpty) {
-      setState(() => _errorMessage = '请输入邀请码');
-      return;
-    }
+  // ── flutter_onnxruntime 翻译 session ──────
+  OnnxRuntime? _ort;
+  OrtSession? _encoderSession;
+  OrtSession? _decoderSession;
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  // ── 录音器 ────────────────────────────────
+  final AudioRecorder _recorder = AudioRecorder();
+  List<int> _recordedBytes = [];
+  StreamSubscription<Uint8List>? _recordSub;
 
-    try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/invite-al/verify'),
-        headers: {
-          'Content-Type': 'application/json',
-          'x-glotalk-token': _accessToken,
-        },
-        body: jsonEncode({'code': code}),
-      ).timeout(const Duration(seconds: 10));
+  // ── 简易 tokenizer（占位，待接 sentencepiece）──
+  // V3 验证阶段先用文字输入绕过 tokenizer，
+  // 确认 ONNX encoder/decoder pipeline 通后再接 sentencepiece
+  final TextEditingController _textInputCtrl = TextEditingController(
+    text: '你好，很高兴认识你',
+  );
+  bool _useTextInput = true; // 验证分支默认启用文字输入模式，绕过麦克风
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-        if (data['ok'] == true) {
-          final myLang = data['lang'] as String? ?? 'zh';
-          final theirLang = data['theirLang'] as String? ?? 'en';
-          if (!mounted) return;
-          // 验证成功 → 跳转语言选择页
-          Navigator.of(context).pushReplacementNamed(
-            '/language',
-            arguments: {
-              'code': code,
-              'myLang': myLang,
-              'theirLang': theirLang,
-            },
-          );
-        } else {
-          setState(() => _errorMessage = '邀请码无效，请重新输入');
-        }
-      } else {
-        setState(() => _errorMessage = '服务器错误 (${response.statusCode})');
-      }
-    } on Exception catch (e) {
-      setState(() => _errorMessage = '网络错误：$e');
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  // ─── 调试：Tokenizer 测试 ─────────────────────────────────
-  Future<void> _runTokenizerDebug() async {
-    final text = _debugInputController.text.trim();
-    if (text.isEmpty) return;
-
-    setState(() {
-      _debugLoading = true;
-      _debugOutput = '初始化翻译器…';
-    });
-
-    try {
-      final translator = TranslatorService();
-      // initialize() 是幂等的，首次调用会加载 ONNX 模型
-      await translator.initialize();
-
-      setState(() => _debugOutput = '分词中…');
-
-      final ids = await translator.debugTokenize(text);
-
-      setState(() {
-        _debugOutput = '输入文字：$text\n'
-            '─────────────────────\n'
-            'Token IDs（${ids.length} 个）：\n'
-            '${ids.join(', ')}\n'
-            '─────────────────────\n'
-            '若 IDs 均为 1（<unk>），说明模型词表未加载成功\n'
-            '正常情况下中文字符应有多种 ID 值';
-      });
-    } catch (e) {
-      setState(() => _debugOutput = '错误：$e');
-    } finally {
-      if (mounted) setState(() => _debugLoading = false);
-    }
-  }
-
-  // ─── UI ───────────────────────────────────────────────────
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F1923),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 40),
-              _buildLogo(),
-              const SizedBox(height: 48),
-              _buildCodeInput(),
-              const SizedBox(height: 20),
-              _buildVerifyButton(),
-              if (_errorMessage != null) ...[
-                const SizedBox(height: 16),
-                _buildErrorMessage(),
-              ],
-              const SizedBox(height: 48),
-              _buildDebugPanel(),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLogo() {
-    return Column(
-      children: [
-        Container(
-          width: 72,
-          height: 72,
-          decoration: BoxDecoration(
-            color: const Color(0xFF1FEDD8),
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: const Icon(
-            Icons.translate_rounded,
-            size: 40,
-            color: Color(0xFF0F1923),
-          ),
-        ),
-        const SizedBox(height: 20),
-        const Text(
-          'GloTalk',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 32,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.5,
-          ),
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          '实时跨语言语音翻译',
-          style: TextStyle(
-            color: Color(0xFF8899AA),
-            fontSize: 14,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCodeInput() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          '邀请码',
-          style: TextStyle(
-            color: Color(0xFF8899AA),
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _codeController,
-          textCapitalization: TextCapitalization.characters,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 22,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 6,
-          ),
-          textAlign: TextAlign.center,
-          maxLength: 6,
-          decoration: InputDecoration(
-            counterText: '',
-            hintText: 'ABC',
-            hintStyle: const TextStyle(
-              color: Color(0xFF3A4A5A),
-              letterSpacing: 6,
-            ),
-            filled: true,
-            fillColor: const Color(0xFF1A2433),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(
-                color: Color(0xFF1FEDD8),
-                width: 1.5,
-              ),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 18,
-              horizontal: 16,
-            ),
-          ),
-          onSubmitted: (_) => _verifyCode(),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildVerifyButton() {
-    return SizedBox(
-      height: 52,
-      child: ElevatedButton(
-        onPressed: _isLoading ? null : _verifyCode,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF1FEDD8),
-          foregroundColor: const Color(0xFF0F1923),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          elevation: 0,
-        ),
-        child: _isLoading
-            ? const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: Color(0xFF0F1923),
-                ),
-              )
-            : const Text(
-                '进入通话',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-      ),
-    );
-  }
-
-  Widget _buildErrorMessage() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF3A1A1A),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        _errorMessage!,
-        style: const TextStyle(
-          color: Color(0xFFFF6B6B),
-          fontSize: 13,
-        ),
-      ),
-    );
-  }
-
-  // ─── 调试面板 ──────────────────────────────────────────────
-  Widget _buildDebugPanel() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // 折叠标题行
-        GestureDetector(
-          onTap: () => setState(() => _debugExpanded = !_debugExpanded),
-          child: Row(
-            children: [
-              const Text(
-                '🔧 开发者工具',
-                style: TextStyle(color: Color(0xFF556677), fontSize: 12),
-              ),
-              const Spacer(),
-              Icon(
-                _debugExpanded
-                    ? Icons.keyboard_arrow_up
-                    : Icons.keyboard_arrow_down,
-                size: 16,
-                color: const Color(0xFF556677),
-              ),
-            ],
-          ),
-        ),
-        if (_debugExpanded) ...[
-          const SizedBox(height: 16),
-          const Text(
-            'Tokenizer 调试',
-            style: TextStyle(
-              color: Color(0xFF8899AA),
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _debugInputController,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: '输入中文文字测试分词',
-                    hintStyle: const TextStyle(
-                      color: Color(0xFF3A4A5A),
-                      fontSize: 13,
-                    ),
-                    filled: true,
-                    fillColor: const Color(0xFF1A2433),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    isDense: true,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: _debugLoading ? null : _runTokenizerDebug,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1A3A4A),
-                  foregroundColor: const Color(0xFF1FEDD8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                ),
-                child: _debugLoading
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Color(0xFF1FEDD8),
-                        ),
-                      )
-                    : const Text(
-                        '运行',
-                        style: TextStyle(fontSize: 13),
-                      ),
-              ),
-            ],
-          ),
-          if (_debugOutput.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0A1520),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: const Color(0xFF1A2A3A),
-                ),
-              ),
-              child: SelectableText(
-                _debugOutput,
-                style: const TextStyle(
-                  color: Color(0xFF1FEDD8),
-                  fontSize: 12,
-                  fontFamily: 'monospace',
-                  height: 1.6,
-                ),
-              ),
-            ),
-          ],
-        ],
-      ],
-    );
+  void initState() {
+    super.initState();
+    _loadModels();
   }
 
   @override
   void dispose() {
-    _codeController.dispose();
-    _debugInputController.dispose();
+    _recordSub?.cancel();
+    _recorder.dispose();
+    _recognizer?.free();
+    _tts?.free();
+    _encoderSession?.close();
+    _decoderSession?.close();
+    _textInputCtrl.dispose();
     super.dispose();
   }
+
+  // ──────────────────────────────────────────
+  // 模型加载
+  // ──────────────────────────────────────────
+  Future<void> _loadModels() async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final base = appDir.path;
+
+    // 并行加载三个模型，独立报告状态
+    await Future.wait([
+      _loadStt(base),
+      _loadMt(base),
+      _loadTts(base),
+    ]);
+
+    final allReady = _modelReady.values.every((v) => v);
+    setState(() {
+      _modelsReady = allReady;
+      _statusMsg = allReady
+          ? '所有模型已就绪 ✅\n选择输入方式后点击开始'
+          : '部分模型缺失，请检查目录（详见下方）';
+      if (_pipelineState != _PipelineState.error) {
+        _pipelineState = _PipelineState.idle;
+      }
+    });
+  }
+
+  /// STT — sherpa-onnx SenseVoice int8
+  /// 参考：sherpa-onnx 官方 flutter-examples/streaming_asr
+  Future<void> _loadStt(String base) async {
+    try {
+      final sttDir = '$base/$_kSttDir';
+      if (!await Directory(sttDir).exists()) {
+        _updateModelState('STT', false, '目录不存在: $sttDir');
+        return;
+      }
+
+      sherpa.initBindings();
+
+      final senseVoice = sherpa.OfflineSenseVoiceModelConfig(
+        model: '$sttDir/$_kSttModel',
+        language: 'auto',      // 自动检测（SenseVoice 支持中英日韩粤）
+        useInverseTextNormalization: true,
+      );
+
+      final modelConfig = sherpa.OfflineModelConfig(
+        senseVoice: senseVoice,
+        tokens: '$sttDir/$_kSttTokens',
+        numThreads: 2,
+        debug: false,
+        provider: 'cpu',
+      );
+
+      final config = sherpa.OfflineRecognizerConfig(
+        model: modelConfig,
+      );
+
+      _recognizer = sherpa.OfflineRecognizer(config);
+      _updateModelState('STT', true, 'SenseVoice int8 ✅');
+    } catch (e) {
+      _updateModelState('STT', false, '加载失败: $e');
+    }
+  }
+
+  /// MT — flutter_onnxruntime + Opus-MT ONNX
+  /// 参考：flutter_onnxruntime pub.dev 官方 API
+  ///        OnnxRuntime() → createSessionFromFile() → session.run()
+  Future<void> _loadMt(String base) async {
+    try {
+      final mtDir = '$base/$_kMtDir';
+      final encoderPath = '$mtDir/$_kMtEncoder';
+      final decoderPath = '$mtDir/$_kMtDecoder';
+
+      if (!await File(encoderPath).exists() ||
+          !await File(decoderPath).exists()) {
+        _updateModelState('MT', false, '模型文件缺失: $mtDir');
+        return;
+      }
+
+      _ort = OnnxRuntime();
+
+      // encoder
+      _encoderSession = await _ort!.createSessionFromFile(
+        encoderPath,
+        options: OrtSessionOptions()..setInterOpNumThreads(2),
+      );
+
+      // decoder（merged，含 past_key_values 缓存）
+      _decoderSession = await _ort!.createSessionFromFile(
+        decoderPath,
+        options: OrtSessionOptions()..setInterOpNumThreads(2),
+      );
+
+      _updateModelState('MT', true, 'Opus-MT int8 ✅');
+    } catch (e) {
+      _updateModelState('MT', false, '加载失败: $e');
+    }
+  }
+
+  /// TTS — sherpa-onnx VITS Piper English
+  /// 参考：sherpa-onnx 官方 flutter-examples/tts
+  ///        OfflineTtsVitsModelConfig → OfflineTts → tts.generate()
+  Future<void> _loadTts(String base) async {
+    try {
+      final ttsDir = '$base/$_kTtsDir';
+      if (!await Directory(ttsDir).exists()) {
+        _updateModelState('TTS', false, '目录不存在: $ttsDir');
+        return;
+      }
+
+      final vits = sherpa.OfflineTtsVitsModelConfig(
+        model: '$ttsDir/$_kTtsModel',
+        lexicon: '',             // Piper 模型不需要 lexicon.txt
+        tokens: '$ttsDir/tokens.txt',
+        dataDir: '$ttsDir/$_kTtsDataDir', // espeak-ng 数据目录
+      );
+
+      final modelConfig = sherpa.OfflineTtsModelConfig(
+        vits: vits,
+        numThreads: 2,
+        debug: false,
+        provider: 'cpu',
+      );
+
+      final config = sherpa.OfflineTtsConfig(
+        model: modelConfig,
+        maxNumSentences: 1,
+      );
+
+      _tts = sherpa.OfflineTts(config);
+      _updateModelState('TTS', true, 'VITS Piper EN ✅');
+    } catch (e) {
+      _updateModelState('TTS', false, '加载失败: $e');
+    }
+  }
+
+  void _updateModelState(String key, bool ok, String msg) {
+    if (mounted) {
+      setState(() {
+        _modelReady[key] = ok;
+        if (!ok && _pipelineState != _PipelineState.error) {
+          _pipelineState = _PipelineState.error;
+          _errorMsg = msg;
+        }
+      });
+    }
+  }
+
+  // ──────────────────────────────────────────
+  // 管线执行：文字输入模式（验证 MT + TTS）
+  // ──────────────────────────────────────────
+  Future<void> _runTextPipeline() async {
+    if (!_modelsReady) return;
+    final inputText = _textInputCtrl.text.trim();
+    if (inputText.isEmpty) return;
+
+    final sw = Stopwatch()..start();
+
+    setState(() {
+      _pipelineState = _PipelineState.translating;
+      _statusMsg = '翻译中…';
+    });
+
+    String translated = '';
+    try {
+      translated = await _translate(inputText);
+    } catch (e) {
+      setState(() {
+        _pipelineState = _PipelineState.error;
+        _errorMsg = '翻译失败: $e';
+      });
+      return;
+    }
+
+    setState(() {
+      _pipelineState = _PipelineState.synthesizing;
+      _statusMsg = 'TTS 合成中…';
+    });
+
+    final ttsStart = sw.elapsedMilliseconds;
+    sherpa.OfflineTtsGeneratedAudio? audio;
+    try {
+      // tts.generate() 在 compute isolate 中运行，避免 UI 卡顿
+      // 参考：sherpa-onnx flutter tts 官方示例的 compute() 用法
+      audio = await compute(_generateTts, _TtsParams(
+        tts: _tts!,
+        text: translated,
+        sid: 0,    // LibriTTS 随机说话人 0
+        speed: 1.0,
+      ));
+    } catch (e) {
+      setState(() {
+        _pipelineState = _PipelineState.error;
+        _errorMsg = 'TTS 失败: $e';
+      });
+      return;
+    }
+
+    final ttsMs = sw.elapsedMilliseconds - ttsStart;
+    final totalMs = sw.elapsed.inMilliseconds;
+    sw.stop();
+
+    // 简单播放（验证阶段：直接用 AudioRecorder 的内置播放或写 WAV 文件）
+    setState(() {
+      _pipelineState = _PipelineState.playing;
+      _statusMsg = '播放翻译音频…';
+    });
+
+    try {
+      await _playPcm(audio.samples, audio.sampleRate);
+    } catch (e) {
+      // 播放失败不阻断结果显示
+      debugPrint('[TTS play] $e');
+    }
+
+    setState(() {
+      _results.insert(0, _VerifyResult(
+        sourceText: inputText,
+        translatedText: translated,
+        ttsMs: ttsMs,
+        totalMs: totalMs,
+      ));
+      _pipelineState = _PipelineState.idle;
+      _statusMsg = '完成 ✅';
+    });
+  }
+
+  // ──────────────────────────────────────────
+  // 管线执行：语音录音模式（验证 STT + MT + TTS）
+  // ──────────────────────────────────────────
+  Future<void> _startRecording() async {
+    final micOk = await Permission.microphone.request();
+    if (!micOk.isGranted) {
+      setState(() {
+        _errorMsg = '需要麦克风权限';
+        _pipelineState = _PipelineState.error;
+      });
+      return;
+    }
+
+    _recordedBytes = [];
+    setState(() {
+      _pipelineState = _PipelineState.recording;
+      _statusMsg = '录音中… 松开按钮停止';
+    });
+
+    // PCM 16kHz mono，与 SenseVoice 要求一致
+    final stream = await _recorder.startStream(const RecordConfig(
+      encoder: AudioEncoder.pcm16bits,
+      sampleRate: 16000,
+      numChannels: 1,
+    ));
+
+    _recordSub = stream.listen((data) {
+      _recordedBytes.addAll(data);
+    });
+  }
+
+  Future<void> _stopRecordingAndRun() async {
+    await _recordSub?.cancel();
+    _recordSub = null;
+    await _recorder.stop();
+
+    if (_recordedBytes.isEmpty) {
+      setState(() {
+        _pipelineState = _PipelineState.idle;
+        _statusMsg = '没有录到音频，请重试';
+      });
+      return;
+    }
+
+    setState(() {
+      _pipelineState = _PipelineState.transcribing;
+      _statusMsg = 'STT 识别中…';
+    });
+
+    final sw = Stopwatch()..start();
+
+    // 转换 bytes → Float32（16-bit LE PCM → [-1, 1]）
+    final samples = _bytesToFloat32(Uint8List.fromList(_recordedBytes));
+
+    // 官方 OfflineRecognizer 调用规格：
+    // createStream → acceptWaveform → decode → getResult
+    String sttText = '';
+    try {
+      final stream = _recognizer!.createStream();
+      stream.acceptWaveform(samples: samples, sampleRate: 16000);
+      _recognizer!.decode(stream);
+      sttText = _recognizer!.getResult(stream).text;
+      stream.free();
+    } catch (e) {
+      setState(() {
+        _pipelineState = _PipelineState.error;
+        _errorMsg = 'STT 失败: $e';
+      });
+      return;
+    }
+
+    if (sttText.trim().isEmpty) {
+      setState(() {
+        _pipelineState = _PipelineState.idle;
+        _statusMsg = '未识别到语音，请重试';
+      });
+      return;
+    }
+
+    // 识别结果 → 翻译
+    setState(() {
+      _pipelineState = _PipelineState.translating;
+      _statusMsg = '翻译中…\n识别: $sttText';
+    });
+
+    String translated = '';
+    try {
+      translated = await _translate(sttText);
+    } catch (e) {
+      setState(() {
+        _pipelineState = _PipelineState.error;
+        _errorMsg = '翻译失败: $e';
+      });
+      return;
+    }
+
+    setState(() {
+      _pipelineState = _PipelineState.synthesizing;
+      _statusMsg = 'TTS 合成中…';
+    });
+
+    final ttsStart = sw.elapsedMilliseconds;
+    sherpa.OfflineTtsGeneratedAudio? audio;
+    try {
+      audio = await compute(_generateTts, _TtsParams(
+        tts: _tts!,
+        text: translated,
+        sid: 0,
+        speed: 1.0,
+      ));
+    } catch (e) {
+      setState(() {
+        _pipelineState = _PipelineState.error;
+        _errorMsg = 'TTS 失败: $e';
+      });
+      return;
+    }
+
+    final ttsMs = sw.elapsedMilliseconds - ttsStart;
+    final totalMs = sw.elapsed.inMilliseconds;
+    sw.stop();
+
+    setState(() {
+      _pipelineState = _PipelineState.playing;
+      _statusMsg = '播放翻译音频…';
+    });
+
+    try {
+      await _playPcm(audio.samples, audio.sampleRate);
+    } catch (e) {
+      debugPrint('[TTS play] $e');
+    }
+
+    setState(() {
+      _results.insert(0, _VerifyResult(
+        sourceText: sttText,
+        translatedText: translated,
+        ttsMs: ttsMs,
+        totalMs: totalMs,
+      ));
+      _pipelineState = _PipelineState.idle;
+      _statusMsg = '完成 ✅';
+    });
+  }
+
+  // ──────────────────────────────────────────
+  // 翻译：flutter_onnxruntime + Opus-MT
+  // 参考：pub.dev flutter_onnxruntime 官方 API
+  //       OrtValue.fromList() → session.run() → asList()
+  //
+  // 注意：V3 验证阶段用占位 tokenizer（单字符 BPE 映射），
+  //       sentencepiece 接入后直接替换 _tokenize / _detokenize
+  // ──────────────────────────────────────────
+  Future<String> _translate(String zhText) async {
+    if (_encoderSession == null || _decoderSession == null) {
+      throw Exception('翻译模型未加载');
+    }
+
+    // Step 1: tokenize（占位实现，实际需要 dart_sentencepiece_tokenizer）
+    final inputIds = _placeholderTokenize(zhText);
+    if (inputIds.isEmpty) return '[tokenizer error]';
+
+    final seqLen = inputIds.length;
+
+    // Step 2: encoder
+    // Opus-MT encoder 输入：input_ids [1, seqLen], attention_mask [1, seqLen]
+    final inputIdsOrt = await OrtValue.fromList(
+      inputIds.map((e) => e.toDouble()).toList(),
+      [1, seqLen],
+    );
+    final attentionMask = await OrtValue.fromList(
+      List<double>.filled(seqLen, 1.0),
+      [1, seqLen],
+    );
+
+    final encoderOutputs = await _encoderSession!.run({
+      'input_ids': inputIdsOrt,
+      'attention_mask': attentionMask,
+    });
+
+    inputIdsOrt.dispose();
+
+    final encoderHiddenStates = encoderOutputs['last_hidden_state'];
+    if (encoderHiddenStates == null) {
+      for (final v in encoderOutputs.values) v?.dispose();
+      attentionMask.dispose();
+      throw Exception('encoder 输出为空');
+    }
+
+    // Step 3: decoder 自回归生成（最多 128 个 token）
+    // 参考 Opus-MT HuggingFace decoder_model_merged 接口规格：
+    //   输入：decoder_input_ids, encoder_hidden_states, encoder_attention_mask
+    //   输出：logits（以及 present_key_values 缓存，merged 模型自动管理）
+    final outputTokens = <int>[0]; // BOS token = 0（Opus-MT marian）
+    const maxLen = 128;
+    const eosTokenId = 0; // Opus-MT EOS = 0
+
+    for (int step = 0; step < maxLen; step++) {
+      final decInputOrt = await OrtValue.fromList(
+        [outputTokens.last.toDouble()],
+        [1, 1],
+      );
+
+      final decOutputs = await _decoderSession!.run({
+        'decoder_input_ids': decInputOrt,
+        'encoder_hidden_states': encoderHiddenStates,
+        'encoder_attention_mask': attentionMask,
+      });
+
+      decInputOrt.dispose();
+
+      final logits = decOutputs['logits'];
+      if (logits == null) {
+        for (final v in decOutputs.values) v?.dispose();
+        break;
+      }
+
+      final logitsList = await logits.asList() as List;
+      for (final v in decOutputs.values) v?.dispose();
+
+      // greedy decoding：取 logits 最后一个时间步的 argmax
+      final vocabSize = logitsList.length;
+      int bestId = 0;
+      double bestVal = double.negativeInfinity;
+      for (int i = 0; i < vocabSize; i++) {
+        final val = (logitsList[i] as num).toDouble();
+        if (val > bestVal) {
+          bestVal = val;
+          bestId = i;
+        }
+      }
+
+      if (bestId == eosTokenId) break;
+      outputTokens.add(bestId);
+    }
+
+    // 清理 encoder 输出
+    encoderHiddenStates.dispose();
+    attentionMask.dispose();
+
+    // Step 4: detokenize（占位）
+    return _placeholderDetokenize(outputTokens.skip(1).toList());
+  }
+
+  // ──────────────────────────────────────────
+  // 占位 Tokenizer（验证管线连通性用）
+  // 正式版替换为 dart_sentencepiece_tokenizer
+  // 加载 <appDir>/models/mt/opus-mt-zh-en/source.spm
+  // ──────────────────────────────────────────
+  List<int> _placeholderTokenize(String text) {
+    // 非常简陋的字符级映射，只用于测试 ONNX 管线不报错
+    // 实际 token id 毫无意义，翻译结果会是乱码，但 pipeline 通了就是成功
+    final bytes = text.codeUnits.take(64).toList();
+    return [...bytes, 0]; // 末尾加 EOS
+  }
+
+  String _placeholderDetokenize(List<int> ids) {
+    // 占位：直接返回标记，表示管线已跑通
+    if (ids.isEmpty) return '[empty output]';
+    return '[MT OK, ids: ${ids.take(5).join(',')}…] '
+        '→ 接入 sentencepiece 后显示真实翻译';
+  }
+
+  // ──────────────────────────────────────────
+  // PCM 播放（写临时 WAV 文件再用系统播放器）
+  // 验证阶段简单实现，正式版用 just_audio 或 audioplayers
+  // ──────────────────────────────────────────
+  Future<void> _playPcm(List<double> samples, int sampleRate) async {
+    final tempDir = await getTemporaryDirectory();
+    final wavFile = File('${tempDir.path}/glotalk_v3_tts.wav');
+
+    final wavBytes = _floatToWav(samples, sampleRate);
+    await wavFile.writeAsBytes(wavBytes);
+
+    // 用 Android 系统意图打开 WAV（验证阶段）
+    // 正式版替换为 just_audio: AudioPlayer().setFilePath(wavFile.path)
+    if (Platform.isAndroid) {
+      await const MethodChannel('glotalk/audio')
+          .invokeMethod('playWav', {'path': wavFile.path})
+          .catchError((_) {}); // 频道未注册时静默失败
+    }
+
+    // 简单等待约等于音频时长，让状态正常流转
+    final durationMs = (samples.length / sampleRate * 1000).round();
+    await Future.delayed(Duration(milliseconds: durationMs.clamp(500, 10000)));
+  }
+
+  // ──────────────────────────────────────────
+  // 工具函数
+  // ──────────────────────────────────────────
+
+  /// 16-bit PCM bytes → Float32 [-1, 1]
+  /// 与官方 streaming_asr 示例的 convertBytesToFloat32 一致
+  Float32List _bytesToFloat32(Uint8List bytes) {
+    final out = Float32List(bytes.length ~/ 2);
+    final bd = bytes.buffer.asByteData();
+    for (int i = 0; i < out.length; i++) {
+      out[i] = bd.getInt16(i * 2, Endian.little) / 32768.0;
+    }
+    return out;
+  }
+
+  /// Float32 PCM → WAV 字节（16-bit mono）
+  Uint8List _floatToWav(List<double> samples, int sampleRate) {
+    final numSamples = samples.length;
+    final dataSize = numSamples * 2;
+    final buffer = BytesBuilder();
+
+    void writeStr(String s) => buffer.add(s.codeUnits);
+    void writeU32(int v) {
+      final b = ByteData(4)..setUint32(0, v, Endian.little);
+      buffer.add(b.buffer.asUint8List());
+    }
+    void writeU16(int v) {
+      final b = ByteData(2)..setUint16(0, v, Endian.little);
+      buffer.add(b.buffer.asUint8List());
+    }
+
+    // RIFF header
+    writeStr('RIFF');
+    writeU32(36 + dataSize);
+    writeStr('WAVE');
+    // fmt chunk
+    writeStr('fmt ');
+    writeU32(16);
+    writeU16(1);         // PCM
+    writeU16(1);         // mono
+    writeU32(sampleRate);
+    writeU32(sampleRate * 2); // byte rate
+    writeU16(2);         // block align
+    writeU16(16);        // bits per sample
+    // data chunk
+    writeStr('data');
+    writeU32(dataSize);
+    for (final s in samples) {
+      final v = (s * 32767).clamp(-32768, 32767).toInt();
+      final b = ByteData(2)..setInt16(0, v, Endian.little);
+      buffer.add(b.buffer.asUint8List());
+    }
+    return buffer.toBytes();
+  }
+
+  // ──────────────────────────────────────────
+  // UI
+  // ──────────────────────────────────────────
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      appBar: AppBar(
+        title: const Text('V3 翻译管线验证'),
+        backgroundColor: const Color(0xFF0066FF),
+        foregroundColor: Colors.white,
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: '重新加载模型',
+            onPressed: _pipelineState == _PipelineState.idle ||
+                    _pipelineState == _PipelineState.error
+                ? _loadModels
+                : null,
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // ── 模型状态栏 ──
+            _buildModelStatusBar(),
+
+            // ── 主内容区 ──
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  // 状态卡片
+                  _buildStatusCard(),
+                  const SizedBox(height: 16),
+
+                  // 输入模式切换
+                  _buildInputModeSwitch(),
+                  const SizedBox(height: 12),
+
+                  // 输入区
+                  if (_useTextInput) _buildTextInputArea(),
+                  if (!_useTextInput) _buildVoiceInputArea(),
+                  const SizedBox(height: 24),
+
+                  // 结果列表
+                  if (_results.isNotEmpty) ...[
+                    _buildSectionTitle('验证结果'),
+                    ..._results.map(_buildResultCard),
+                  ],
+
+                  // 模型缺失提示
+                  if (!_modelsReady) _buildModelDownloadGuide(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModelStatusBar() {
+    return Container(
+      color: const Color(0xFF0066FF).withAlpha(20),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: _modelReady.entries.map((e) {
+          final ok = e.value;
+          return Expanded(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  ok ? Icons.check_circle : Icons.radio_button_unchecked,
+                  color: ok ? Colors.green : Colors.grey,
+                  size: 14,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  e.key,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: ok ? Colors.green.shade700 : Colors.grey,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildStatusCard() {
+    Color cardColor;
+    IconData icon;
+    switch (_pipelineState) {
+      case _PipelineState.error:
+        cardColor = Colors.red.shade50;
+        icon = Icons.error_outline;
+      case _PipelineState.idle:
+        cardColor = Colors.grey.shade50;
+        icon = Icons.info_outline;
+      case _PipelineState.recording:
+        cardColor = Colors.red.shade50;
+        icon = Icons.mic;
+      default:
+        cardColor = Colors.blue.shade50;
+        icon = Icons.sync;
+    }
+
+    return Card(
+      color: cardColor,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            if (_pipelineState != _PipelineState.idle &&
+                _pipelineState != _PipelineState.error &&
+                _pipelineState != _PipelineState.recording)
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Icon(icon, size: 18, color: Colors.grey.shade700),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _pipelineState == _PipelineState.error
+                    ? _errorMsg
+                    : _statusMsg,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _pipelineState == _PipelineState.error
+                      ? Colors.red.shade700
+                      : Colors.grey.shade700,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInputModeSwitch() {
+    return SegmentedButton<bool>(
+      segments: const [
+        ButtonSegment(value: true, label: Text('文字输入'), icon: Icon(Icons.keyboard)),
+        ButtonSegment(value: false, label: Text('语音录音'), icon: Icon(Icons.mic)),
+      ],
+      selected: {_useTextInput},
+      onSelectionChanged: _pipelineState == _PipelineState.idle
+          ? (s) => setState(() => _useTextInput = s.first)
+          : null,
+    );
+  }
+
+  Widget _buildTextInputArea() {
+    final busy = _pipelineState != _PipelineState.idle &&
+        _pipelineState != _PipelineState.error;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _textInputCtrl,
+          maxLines: 3,
+          enabled: !busy,
+          decoration: const InputDecoration(
+            labelText: '输入中文文本',
+            hintText: '例：你好，很高兴认识你',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: (!busy && _modelsReady) ? _runTextPipeline : null,
+          icon: const Icon(Icons.translate),
+          label: const Text('翻译 + 播放'),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF0066FF),
+            padding: const EdgeInsets.symmetric(vertical: 14),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVoiceInputArea() {
+    final isRecording = _pipelineState == _PipelineState.recording;
+    final busy = _pipelineState != _PipelineState.idle &&
+        _pipelineState != _PipelineState.error;
+
+    return Column(
+      children: [
+        const Text(
+          '按住录音，松开后自动识别并翻译',
+          style: TextStyle(fontSize: 13, color: Colors.grey),
+        ),
+        const SizedBox(height: 16),
+        GestureDetector(
+          onLongPressStart: (_) {
+            if (!busy && _modelsReady) _startRecording();
+          },
+          onLongPressEnd: (_) {
+            if (isRecording) _stopRecordingAndRun();
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 88,
+            height: 88,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isRecording ? Colors.red : const Color(0xFF0066FF),
+              boxShadow: isRecording
+                  ? [BoxShadow(color: Colors.red.withAlpha(100), blurRadius: 20, spreadRadius: 4)]
+                  : [],
+            ),
+            child: Icon(
+              isRecording ? Icons.stop : Icons.mic,
+              color: Colors.white,
+              size: 36,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
+          color: Colors.grey,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResultCard(_VerifyResult r) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 原文
+            _labeledText('中文原文', r.sourceText, Colors.grey.shade800),
+            const SizedBox(height: 8),
+            const Divider(height: 1),
+            const SizedBox(height: 8),
+            // 译文
+            _labeledText('英文翻译', r.translatedText, const Color(0xFF0066FF)),
+            const SizedBox(height: 10),
+            // 耗时
+            Row(
+              children: [
+                _timeBadge('TTS', '${r.ttsMs}ms'),
+                const SizedBox(width: 8),
+                _timeBadge('总计', '${r.totalMs}ms'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _labeledText(String label, String text, Color textColor) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+        const SizedBox(height: 2),
+        Text(text, style: TextStyle(fontSize: 15, color: textColor)),
+      ],
+    );
+  }
+
+  Widget _timeBadge(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        '$label: $value',
+        style: const TextStyle(fontSize: 11, color: Colors.grey),
+      ),
+    );
+  }
+
+  Widget _buildModelDownloadGuide() {
+    return Card(
+      color: Colors.orange.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '📦 模型文件下载指南',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            const SizedBox(height: 10),
+            _guideItem('STT', 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8',
+                'github.com/k2-fsa/sherpa-onnx/releases\n放入 models/stt/'),
+            const SizedBox(height: 8),
+            _guideItem('MT', 'opus-mt-zh-en (encoder + decoder int8)',
+                'huggingface.co/onnx-community/opus-mt-zh-en\n放入 models/mt/'),
+            const SizedBox(height: 8),
+            _guideItem('TTS', 'vits-piper-en_US-libritts_r-medium',
+                'github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models\n放入 models/tts/'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _guideItem(String tag, String name, String hint) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0066FF),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(tag, style: const TextStyle(color: Colors.white, fontSize: 10)),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+              Text(hint, style: const TextStyle(fontSize: 11, color: Colors.grey, height: 1.4)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ──────────────────────────────────────────────
+// compute isolate 参数（TTS 在后台线程运行）
+// 参考：sherpa-onnx Flutter TTS 官方示例的 compute() 用法
+// ──────────────────────────────────────────────
+class _TtsParams {
+  final sherpa.OfflineTts tts;
+  final String text;
+  final int sid;
+  final double speed;
+
+  const _TtsParams({
+    required this.tts,
+    required this.text,
+    required this.sid,
+    required this.speed,
+  });
+}
+
+sherpa.OfflineTtsGeneratedAudio _generateTts(_TtsParams p) {
+  // 官方 TTS API：tts.generate(text, sid, speed) → audio.samples + audio.sampleRate
+  return p.tts.generate(text: p.text, sid: p.sid, speed: p.speed);
 }
