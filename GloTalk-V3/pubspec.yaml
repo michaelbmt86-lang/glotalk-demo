@@ -1,0 +1,88 @@
+name: glotalk
+description: GloTalk V3 — 设备端离线翻译引擎 (sherpa-onnx + Opus-MT ONNX)
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+# ─────────────────────────────────────────────────────────────
+# 依赖说明（每条都有明确来源）
+#
+# sherpa_onnx ^1.13.2
+#   来源：pub.dev/packages/sherpa_onnx（2026-05-14 发布，官方最新版）
+#   用途：STT（SenseVoice int8）+ TTS（VITS Piper）
+#   协议：Apache 2.0
+#
+# flutter_onnxruntime ^1.8.0
+#   来源：pub.dev/packages/flutter_onnxruntime（2026-06-08 发布，masic.ai）
+#   注意：>=1.5.1 才符合 Google Play 16KB 页面兼容要求
+#   用途：加载 Opus-MT ONNX encoder/decoder 做中英翻译
+#   协议：MIT
+#
+# record ^5.2.0
+#   来源：pub.dev/packages/record（官方 streaming_asr.dart 使用的麦克风包）
+#   用途：麦克风 PCM 流采集，16kHz，供 sherpa_onnx 消费
+#
+# permission_handler ^12.0.1
+#   来源：工作手册中已验证版本
+#   用途：运行时麦克风权限请求
+#
+# path_provider ^2.1.5
+#   来源：工作手册中已验证版本
+#   用途：获取 assets 解压路径（Android 沙箱）
+#
+# livekit_client ^2.8.1
+#   来源：工作手册中已验证版本
+#   用途：WebRTC 房间连接，发送翻译音频轨，接收对方原声
+#
+# http ^1.6.0
+#   来源：工作手册中已验证版本
+#   用途：调用服务器 /livekit-token /start-bot /invite-al/verify
+# ─────────────────────────────────────────────────────────────
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ── 核心 AI 引擎 ──────────────────────────────────────────
+  sherpa_onnx: ^1.13.2          # STT + TTS，Apache 2.0
+  flutter_onnxruntime: ^1.8.0   # 翻译 ONNX，MIT；需 >=1.5.1 for 16KB
+
+  # ── 音频采集 ──────────────────────────────────────────────
+  record: ^5.2.0                # 麦克风 PCM 流（streaming_asr.dart 同款）
+
+  # ── 网络与传输 ────────────────────────────────────────────
+  livekit_client: ^2.8.1        # WebRTC 房间
+  http: ^1.6.0                  # REST 调用
+
+  # ── 系统工具 ──────────────────────────────────────────────
+  permission_handler: ^12.0.1   # 运行时权限
+  path_provider: ^2.1.5         # 文件路径
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    # ── STT 模型：SenseVoice int8（中英日韩粤，~28MB）─────────
+    # 下载：https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models
+    # 文件：sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17-int8.tar.bz2
+    - assets/models/sense-voice/model.int8.onnx
+    - assets/models/sense-voice/tokens.txt
+
+    # ── 翻译模型：Opus-MT zh→en（~250MB）────────────────────
+    # 下载：https://huggingface.co/onnx-community/opus-mt-zh-en
+    # 文件：encoder_model_int8.onnx + decoder_model_merged_int8.onnx
+    - assets/models/opus-mt-zh-en/encoder_model_int8.onnx
+    - assets/models/opus-mt-zh-en/decoder_model_merged_int8.onnx
+    - assets/models/opus-mt-zh-en/vocab.json
+    - assets/models/opus-mt-zh-en/source.spm
+    - assets/models/opus-mt-zh-en/target.spm
+
+    # ── TTS 模型：VITS Piper English（~60MB）────────────────
+    # 下载：https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models
+    # 文件：vits-piper-en_US-libritts_r-medium.tar.bz2
+    - assets/models/vits-piper-en/en_US-libritts_r-medium.onnx
+    - assets/models/vits-piper-en/en_US-libritts_r-medium.onnx.json
+    - assets/models/vits-piper-en/tokens.txt
+    - assets/models/vits-piper-en/espeak-ng-data/
