@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 import 'screens/verify_screen.dart';
 
@@ -15,6 +16,10 @@ import 'screens/verify_screen.dart';
 // ─────────────────────────────────────────────
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // sherpa_onnx JNI 必须在最早期初始化
+  // 参考：k2-fsa/sherpa-onnx 官方 Flutter 示例 main.dart
+  sherpa.initBindings();
 
   // 锁定竖屏，与 alibaba-v1 保持一致
   await SystemChrome.setPreferredOrientations([
@@ -35,10 +40,10 @@ class GloTalkV3App extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'GloTalk V3 验证',
-      debugShowCheckedModeBanner: true, // 保留 debug 标识，方便区分验证分支
+      debugShowCheckedModeBanner: true,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF0066FF), // GloTalk 品牌蓝
+          seedColor: const Color(0xFF0066FF),
           brightness: Brightness.light,
         ),
         useMaterial3: true,
@@ -52,7 +57,6 @@ class GloTalkV3App extends StatelessWidget {
         useMaterial3: true,
       ),
       themeMode: ThemeMode.system,
-      // 直接进验证页，跳过邀请码 / LiveKit 登录
       home: const AppInitWrapper(),
     );
   }
@@ -60,7 +64,6 @@ class GloTalkV3App extends StatelessWidget {
 
 // ─────────────────────────────────────────────
 // 初始化包装器
-// 负责：检查模型目录是否存在 → 显示启动状态 → 进入 VerifyScreen
 // ─────────────────────────────────────────────
 class AppInitWrapper extends StatefulWidget {
   const AppInitWrapper({super.key});
@@ -74,13 +77,10 @@ class _AppInitWrapperState extends State<AppInitWrapper> {
   bool _ready = false;
   String? _errorMsg;
 
-  // 模型目录结构（对应 V16 技术栈表）
-  // 实际模型文件由 verify_screen.dart 负责加载，
-  // 这里只检查目录是否可写，确保设备环境正常。
   static const _expectedSubDirs = [
-    'models/stt',   // sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8
-    'models/mt',    // opus-mt-zh-en ONNX encoder + decoder + tokenizer
-    'models/tts',   // vits-piper-en_US-libritts_r-medium
+    'models/stt',
+    'models/mt',
+    'models/tts',
   ];
 
   @override
@@ -92,9 +92,7 @@ class _AppInitWrapperState extends State<AppInitWrapper> {
   Future<void> _init() async {
     try {
       setState(() => _status = '检查存储权限…');
-
       final appDir = await getApplicationDocumentsDirectory();
-
       setState(() => _status = '检查模型目录…');
 
       final missingDirs = <String>[];
@@ -106,8 +104,6 @@ class _AppInitWrapperState extends State<AppInitWrapper> {
       }
 
       if (missingDirs.isNotEmpty) {
-        // 目录不存在是正常情况（首次运行），
-        // VerifyScreen 会负责引导用户下载模型
         setState(() {
           _status = '检测到 ${missingDirs.length} 个模型目录尚未建立\n'
               '进入验证页后可下载模型';
@@ -133,11 +129,9 @@ class _AppInitWrapperState extends State<AppInitWrapper> {
     }
 
     if (_ready) {
-      // 直接跳到翻译管线验证页
       return VerifyScreen();
     }
 
-    // 启动 Splash
     return Scaffold(
       backgroundColor: const Color(0xFF0066FF),
       body: SafeArea(
@@ -145,7 +139,6 @@ class _AppInitWrapperState extends State<AppInitWrapper> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Logo 占位（正式版替换为 SVG）
               Container(
                 width: 80,
                 height: 80,
@@ -213,7 +206,7 @@ class _AppInitWrapperState extends State<AppInitWrapper> {
 }
 
 // ─────────────────────────────────────────────
-// 错误页（初始化失败时显示）
+// 错误页
 // ─────────────────────────────────────────────
 class _ErrorPage extends StatelessWidget {
   final String message;
@@ -244,7 +237,6 @@ class _ErrorPage extends StatelessWidget {
                 const SizedBox(height: 32),
                 FilledButton.icon(
                   onPressed: () {
-                    // 重启 App
                     SystemNavigator.pop();
                   },
                   icon: const Icon(Icons.refresh),
