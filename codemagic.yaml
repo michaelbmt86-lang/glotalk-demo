@@ -42,32 +42,12 @@ workflows:
 
           find "$PROJECT/lib" -type f | sort
 
-      - name: 修复 AGP 和 Gradle 版本
+      - name: 修复 AGP Gradle 及 so 冲突
         script: |
           set -e
           PROJECT="$CM_BUILD_DIR/GloTalk-V3"
 
-          # 更新 build.gradle 使用已验证的 AGP 版本
-          cat > "$PROJECT/android/build.gradle" << 'EOF'
-          buildscript {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-              dependencies {
-                  classpath 'com.android.tools.build:gradle:8.3.2'
-                  classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22"
-              }
-          }
-          allprojects {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          EOF
-
-          # 更新 gradle-wrapper.properties 使用 8.11.1
+          # Gradle wrapper → 9.1.0
           mkdir -p "$PROJECT/android/gradle/wrapper"
           cat > "$PROJECT/android/gradle/wrapper/gradle-wrapper.properties" << 'EOF'
           distributionBase=GRADLE_USER_HOME
@@ -77,7 +57,26 @@ workflows:
           distributionUrl=https\://services.gradle.org/distributions/gradle-9.1.0-bin.zip
           EOF
 
-          echo "✅ AGP 和 Gradle 版本已修复"
+          # 在 app/build.gradle.kts 末尾追加 packagingOptions
+          # 解决 sherpa_onnx 与 flutter_onnxruntime 同时携带 libonnxruntime.so 的冲突
+          APP_GRADLE="$PROJECT/android/app/build.gradle.kts"
+          if [ -f "$APP_GRADLE" ]; then
+            cat >> "$APP_GRADLE" << 'EOF'
+
+          android {
+              packaging {
+                  jniLibs {
+                      pickFirsts += setOf("lib/arm64-v8a/libonnxruntime.so", "lib/armeabi-v7a/libonnxruntime.so", "lib/x86_64/libonnxruntime.so", "lib/x86/libonnxruntime.so")
+                  }
+              }
+          }
+          EOF
+            echo "✅ packagingOptions 已追加"
+          else
+            echo "⚠️ app/build.gradle.kts 不存在"
+          fi
+
+          echo "✅ 修复完成"
 
       - name: 安装 Flutter 依赖
         script: |
