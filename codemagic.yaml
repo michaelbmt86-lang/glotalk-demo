@@ -14,52 +14,11 @@ workflows:
         - ~/.pub-cache
 
     scripts:
-      - name: 创建 Flutter 项目骨架
+      - name: 安装 Flutter 依赖
         script: |
           set -e
-          cd "$CM_BUILD_DIR"
-          flutter create --org tech.glotalk --project-name glotalk_v3_cross GloTalk-V3-cross-scaffold
-          cp -r GloTalk-V3-cross-scaffold/android "$CM_BUILD_DIR/GloTalk-V3-cross/android"
-          cp -r GloTalk-V3-cross-scaffold/lib "$CM_BUILD_DIR/GloTalk-V3-cross/lib_scaffold"
-          echo "✅ Flutter 项目骨架已生成"
-
-      - name: 修复 AGP Gradle 及 so 冲突
-        script: |
-          set -e
-          PROJECT="$CM_BUILD_DIR/GloTalk-V3-cross"
-
-          mkdir -p "$PROJECT/android/gradle/wrapper"
-          cat > "$PROJECT/android/gradle/wrapper/gradle-wrapper.properties" << 'EOF'
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-9.1.0-bin.zip
-          EOF
-
-          APP_GRADLE="$PROJECT/android/app/build.gradle.kts"
-          if [ -f "$APP_GRADLE" ]; then
-            cat >> "$APP_GRADLE" << 'EOF'
-
-android {
-    packaging {
-        jniLibs {
-            pickFirsts += setOf("lib/arm64-v8a/libonnxruntime.so", "lib/armeabi-v7a/libonnxruntime.so", "lib/x86_64/libonnxruntime.so", "lib/x86/libonnxruntime.so")
-        }
-    }
-}
-EOF
-            echo "✅ packagingOptions 已追加"
-          fi
-
-      - name: 安装 Flutter 依赖并生成插件注册
-        script: |
-          set -e
-          PROJECT="$CM_BUILD_DIR/GloTalk-V3-cross"
-          cd "$PROJECT"
+          cd "$CM_BUILD_DIR/GloTalk-V3-cross"
           flutter pub get
-          # 强制生成 GeneratedPluginRegistrant，确保所有插件正确注册
-          flutter pub get --enforce-lockfile 2>/dev/null || flutter pub get
 
       - name: 编译 Android Debug APK
         script: |
