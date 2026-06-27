@@ -1,6 +1,6 @@
 workflows:
-  glotalk-v3-android-debug:
-    name: GloTalk V3 Android Debug
+  glotalk-v3-cross-android-debug:
+    name: GloTalk V3 Cross Android Debug
     max_build_duration: 60
 
     environment:
@@ -18,36 +18,22 @@ workflows:
         script: |
           set -e
           cd "$CM_BUILD_DIR"
-          flutter create --org tech.glotalk --project-name glotalk GloTalk-V3-scaffold
-          cp -r GloTalk-V3-scaffold/android "$CM_BUILD_DIR/GloTalk-V3/android"
-          cp -r GloTalk-V3-scaffold/lib "$CM_BUILD_DIR/GloTalk-V3/lib"
+          flutter create --org tech.glotalk --project-name glotalk_v3_cross GloTalk-V3-cross-scaffold
+          cp -r GloTalk-V3-cross-scaffold/android "$CM_BUILD_DIR/GloTalk-V3-cross/android"
           echo "✅ Flutter 项目骨架已生成"
 
       - name: 整理 Flutter 目录结构
         script: |
           set -e
-          PROJECT="$CM_BUILD_DIR/GloTalk-V3"
-          mkdir -p "$PROJECT/lib/screens"
-          mkdir -p "$PROJECT/lib/services"
-          mkdir -p "$PROJECT/android/app"
-
-          [ -f "$PROJECT/main.dart" ] && mv "$PROJECT/main.dart" "$PROJECT/lib/main.dart" && echo "✅ main.dart"
-          [ -f "$PROJECT/verify_screen.dart" ] && mv "$PROJECT/verify_screen.dart" "$PROJECT/lib/screens/verify_screen.dart" && echo "✅ verify_screen.dart"
-
-          for svc in stt_service.dart translator_service.dart tts_service.dart; do
-            [ -f "$PROJECT/$svc" ] && mv "$PROJECT/$svc" "$PROJECT/lib/services/$svc" && echo "✅ $svc"
-          done
-
-          [ -f "$PROJECT/proguard-rules.pro" ] && mv "$PROJECT/proguard-rules.pro" "$PROJECT/android/app/proguard-rules.pro" && echo "✅ proguard-rules.pro"
-
-          find "$PROJECT/lib" -type f | sort
+          PROJECT="$CM_BUILD_DIR/GloTalk-V3-cross"
+          echo "▶ 当前结构："
+          find "$PROJECT" -type f | sort
 
       - name: 修复 AGP Gradle 及 so 冲突
         script: |
           set -e
-          PROJECT="$CM_BUILD_DIR/GloTalk-V3"
+          PROJECT="$CM_BUILD_DIR/GloTalk-V3-cross"
 
-          # Gradle wrapper → 9.1.0
           mkdir -p "$PROJECT/android/gradle/wrapper"
           cat > "$PROJECT/android/gradle/wrapper/gradle-wrapper.properties" << 'EOF'
           distributionBase=GRADLE_USER_HOME
@@ -57,8 +43,6 @@ workflows:
           distributionUrl=https\://services.gradle.org/distributions/gradle-9.1.0-bin.zip
           EOF
 
-          # 在 app/build.gradle.kts 末尾追加 packagingOptions
-          # 解决 sherpa_onnx 与 flutter_onnxruntime 同时携带 libonnxruntime.so 的冲突
           APP_GRADLE="$PROJECT/android/app/build.gradle.kts"
           if [ -f "$APP_GRADLE" ]; then
             cat >> "$APP_GRADLE" << 'EOF'
@@ -72,27 +56,22 @@ workflows:
           }
           EOF
             echo "✅ packagingOptions 已追加"
-          else
-            echo "⚠️ app/build.gradle.kts 不存在"
           fi
-
-          echo "✅ 修复完成"
 
       - name: 安装 Flutter 依赖
         script: |
           set -e
-          cd "$CM_BUILD_DIR/GloTalk-V3"
+          cd "$CM_BUILD_DIR/GloTalk-V3-cross"
           flutter pub get
 
       - name: 编译 Android Debug APK
         script: |
           set -e
-          cd "$CM_BUILD_DIR/GloTalk-V3"
+          cd "$CM_BUILD_DIR/GloTalk-V3-cross"
           flutter build apk --debug --verbose
 
     artifacts:
-      - GloTalk-V3/build/**/outputs/apk/**/*.apk
-      - GloTalk-V3/build/**/outputs/apk/**/output-metadata.json
+      - GloTalk-V3-cross/build/**/outputs/apk/**/*.apk
 
     publishing:
       email:
