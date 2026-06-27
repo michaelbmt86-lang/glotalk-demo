@@ -11,19 +11,18 @@
 //   官方 SenseVoice Dart API 文档
 //   https://k2-fsa.github.io/sherpa/onnx/sense-voice/dart-api.html
 //
-// 模式：非流式（OfflineRecognizer + SenseVoice），每次 VAD 切割后送整段 PCM
-// 采样率：16000 Hz，单声道，16-bit PCM → Float32
-//
-// 使用 record 包采集麦克风，存入 Float32 缓冲区，
-// 检测到静音（能量低于阈值）后触发识别，通过回调输出文字。
+// 修正记录：
+//   2026-06-27：initBindings() 移至 initialize() 第一行
+//   参考：官方 streaming_asr.dart 示例调用位置
+//   https://github.com/k2-fsa/sherpa-onnx/blob/master/flutter-examples/streaming_asr/lib/streaming_asr.dart
 
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
-import 'dart:io';
 
 /// STT 回调：每次识别完成时调用，传入识别文字和是否为最终结果
 typedef SttCallback = void Function(String text, bool isFinal);
@@ -52,9 +51,13 @@ class SttService {
   SttCallback? _onResult;
 
   // ─── 初始化 ────────────────────────────────────────────────
-  /// [modelDir] 为 assets 中模型目录（会被复制到应用文档目录）
   Future<void> initialize() async {
     if (_initialized) return;
+
+    // ★ 必须在任何 sherpa_onnx 调用之前执行
+    // 参考：官方 streaming_asr.dart 示例
+    // https://github.com/k2-fsa/sherpa-onnx/blob/master/flutter-examples/streaming_asr/lib/streaming_asr.dart
+    sherpa.initBindings();
 
     // 将 assets 中的模型文件复制到磁盘
     // sherpa_onnx 需要文件系统路径（不支持直接读 asset 字节）
@@ -104,7 +107,6 @@ class SttService {
     _audioBuffer.clear();
     _silenceCount = 0;
 
-    // record 包：以 PCM 16-bit 16kHz 流的方式采集
     final stream = await _recorder.startStream(
       const RecordConfig(
         encoder: AudioEncoder.pcm16bits,
@@ -123,7 +125,6 @@ class SttService {
     _audioSub = null;
     await _recorder.stop();
 
-    // 将剩余缓冲区送识别
     if (_audioBuffer.isNotEmpty) {
       _recognize(List.from(_audioBuffer));
       _audioBuffer.clear();
@@ -132,12 +133,9 @@ class SttService {
 
   // ─── 处理每个 PCM 块 ──────────────────────────────────────
   void _onAudioChunk(Uint8List bytes) {
-    // PCM 16-bit little-endian → Float32 归一化到 [-1, 1]
     final samples = _pcm16ToFloat32(bytes);
-
     _audioBuffer.addAll(samples);
 
-    // 简易 VAD：计算当前块 RMS
     double rms = 0;
     for (final s in samples) {
       rms += s * s;
@@ -150,7 +148,6 @@ class SttService {
       _silenceCount = 0;
     }
 
-    // 连续静音超过阈值 → 触发识别
     if (_silenceCount >= _silenceFrames && _audioBuffer.length > _sampleRate ~/ 4) {
       final chunk = List<double>.from(_audioBuffer);
       _audioBuffer.clear();
@@ -158,7 +155,6 @@ class SttService {
       _recognize(chunk);
     }
 
-    // 防止缓冲区过长（最多 10 秒）
     if (_audioBuffer.length > _sampleRate * 10) {
       final chunk = List<double>.from(_audioBuffer);
       _audioBuffer.clear();
@@ -188,12 +184,10 @@ class SttService {
   // ─── PCM 16-bit → Float32 ─────────────────────────────────
   List<double> _pcm16ToFloat32(Uint8List bytes) {
     final samples = <double>[];
-    // 每两个字节构成一个 int16 样本（little-endian）
     for (int i = 0; i + 1 < bytes.length; i += 2) {
       final lo = bytes[i];
       final hi = bytes[i + 1];
       int sample = lo | (hi << 8);
-      // 符号扩展（int16）
       if (sample >= 0x8000) sample -= 0x10000;
       samples.add(sample / 32768.0);
     }
