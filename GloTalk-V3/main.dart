@@ -7,7 +7,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
+
 
 import 'screens/verify_screen.dart';
 
@@ -19,7 +19,7 @@ void main() async {
 
   // sherpa_onnx JNI 必须在最早期初始化
   // 参考：k2-fsa/sherpa-onnx 官方 Flutter 示例 main.dart
-  sherpa.initBindings();
+  
 
   // 锁定竖屏，与 alibaba-v1 保持一致
   await SystemChrome.setPreferredOrientations([
