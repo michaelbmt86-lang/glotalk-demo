@@ -47,7 +47,7 @@ class SttService {
     final senseVoiceConfig = sherpa_onnx.OfflineSenseVoiceModelConfig(
       model: modelPath,
       language: '',                      // ✅ 修正 #2a：空字符串 = auto
-      useInverseTextNormalization: 1,    // ✅ 修正 #2b：int 类型，1=开启
+      useInverseTextNormalization: true,    // ✅ 修正 #2b：int 类型，true=开启
     );
 
     final modelConfig = sherpa_onnx.OfflineModelConfig(
