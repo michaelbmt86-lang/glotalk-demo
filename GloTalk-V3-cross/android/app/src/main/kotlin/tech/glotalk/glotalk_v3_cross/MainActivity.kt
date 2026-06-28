@@ -1,11 +1,11 @@
 package tech.glotalk.glotalk_v3_cross
 
+import ai.onnxruntime.OrtEnvironment
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugins.GeneratedPluginRegistrant
 
-// 来源：https://docs.flutter.dev/platform-integration/platform-channels
 class MainActivity : FlutterActivity() {
 
     private val CHANNEL = "tech.glotalk/inference"
@@ -17,14 +17,10 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "ping" -> {
-                        // 验证 MethodChannel 通信是否正常
-                        result.success("pong")
-                    }
+                    "ping" -> result.success("pong")
                     "testOnnxRuntime" -> {
-                        // 验证 OnnxRuntime 是否正确加载
                         try {
-                            val env = ai.onnxruntime.OrtEnvironment.getEnvironment()
+                            val env = OrtEnvironment.getEnvironment()
                             result.success("OnnxRuntime OK: ${env.javaClass.simpleName}")
                         } catch (e: Exception) {
                             result.error("ORT_ERROR", e.message, null)
