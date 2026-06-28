@@ -14,6 +14,26 @@ workflows:
         - ~/.pub-cache
 
     scripts:
+      - name: 修复 Gradle 版本
+        script: |
+          set -e
+          PROJECT="$CM_BUILD_DIR/GloTalk-V3-cross"
+          sed -i 's/gradle-.*-bin.zip/gradle-9.1.0-bin.zip/' \
+            "$PROJECT/android/gradle/wrapper/gradle-wrapper.properties"
+          echo "✅ Gradle 9.1.0"
+
+      - name: 修复 so 冲突
+        script: |
+          set -e
+          PROJECT="$CM_BUILD_DIR/GloTalk-V3-cross"
+          python3 -c "
+          f = '$PROJECT/android/app/build.gradle.kts'
+          content = open(f).read()
+          patch = '\nandroid {\n    packaging {\n        jniLibs {\n            pickFirsts += setOf(\"lib/arm64-v8a/libonnxruntime.so\", \"lib/armeabi-v7a/libonnxruntime.so\", \"lib/x86_64/libonnxruntime.so\", \"lib/x86/libonnxruntime.so\")\n        }\n    }\n}\n'
+          open(f, 'w').write(content + patch)
+          print('so 冲突修复完成')
+          "
+
       - name: 安装 Flutter 依赖
         script: |
           set -e
