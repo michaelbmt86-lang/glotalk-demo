@@ -18,48 +18,45 @@ workflows:
         script: |
           set -e
           cd "$CM_BUILD_DIR"
-          # 用 flutter create 生成完整骨架（包含正确的插件注册机制）
           flutter create --org tech.glotalk --project-name glotalk_v3_cross _scaffold
-          # 用我们的文件覆盖骨架
           cp "$CM_BUILD_DIR/GloTalk-V3-cross/pubspec.yaml" _scaffold/pubspec.yaml
           cp -r "$CM_BUILD_DIR/GloTalk-V3-cross/lib/." _scaffold/lib/
-          # 保留骨架的 android/ 目录（包含正确的插件注册）
-          # 只覆盖我们自定义的部分
           cp "$CM_BUILD_DIR/GloTalk-V3-cross/android/app/src/main/AndroidManifest.xml" \
              _scaffold/android/app/src/main/AndroidManifest.xml
-          # 追加 so 冲突解决到 build.gradle.kts
-          cat >> _scaffold/android/app/build.gradle.kts << 'EOF'
-
-android {
-    packaging {
-        jniLibs {
-            pickFirsts += setOf(
-                "lib/arm64-v8a/libonnxruntime.so",
-                "lib/armeabi-v7a/libonnxruntime.so",
-                "lib/x86_64/libonnxruntime.so",
-                "lib/x86/libonnxruntime.so"
-            )
-        }
-    }
-}
-EOF
-          # 用完整骨架替换我们的项目目录
+          python3 -c "
+          content = open('_scaffold/android/app/build.gradle.kts').read()
+          patch = '''
+          android {
+              packaging {
+                  jniLibs {
+                      pickFirsts += setOf(
+                          \"lib/arm64-v8a/libonnxruntime.so\",
+                          \"lib/armeabi-v7a/libonnxruntime.so\",
+                          \"lib/x86_64/libonnxruntime.so\",
+                          \"lib/x86/libonnxruntime.so\"
+                      )
+                  }
+              }
+          }
+          '''
+          open('_scaffold/android/app/build.gradle.kts', 'w').write(content + patch)
+          "
           rm -rf "$CM_BUILD_DIR/GloTalk-V3-cross/android"
           cp -r _scaffold/android "$CM_BUILD_DIR/GloTalk-V3-cross/android"
-          echo "✅ 完整骨架已生成，插件注册机制正确"
+          echo "✅ 完整骨架已生成"
 
       - name: 修复 Gradle 版本
         script: |
           set -e
           PROJECT="$CM_BUILD_DIR/GloTalk-V3-cross"
           mkdir -p "$PROJECT/android/gradle/wrapper"
-          cat > "$PROJECT/android/gradle/wrapper/gradle-wrapper.properties" << 'EOF'
+          cat > "$PROJECT/android/gradle/wrapper/gradle-wrapper.properties" << 'GRADLEOF'
           distributionBase=GRADLE_USER_HOME
           distributionPath=wrapper/dists
           zipStoreBase=GRADLE_USER_HOME
           zipStorePath=wrapper/dists
           distributionUrl=https\://services.gradle.org/distributions/gradle-9.1.0-bin.zip
-          EOF
+          GRADLEOF
 
       - name: 安装 Flutter 依赖
         script: |
