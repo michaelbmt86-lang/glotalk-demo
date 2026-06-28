@@ -14,6 +14,22 @@ workflows:
         - ~/.pub-cache
 
     scripts:
+      - name: 复制默认图标资源
+        script: |
+          set -e
+          PROJECT="$CM_BUILD_DIR/GloTalk-V3-cross"
+          FLUTTER_DEFAULT="$HOME/programs/flutter/packages/flutter_tools/templates/app_shared/android.tmpl/app/src/main/res"
+          if [ -d "$FLUTTER_DEFAULT" ]; then
+            cp -r "$FLUTTER_DEFAULT/." "$PROJECT/android/app/src/main/res/"
+            echo "✅ 默认图标资源已复制"
+          else
+            cd "$CM_BUILD_DIR"
+            flutter create --org tech.glotalk --project-name glotalk_v3_cross _tmp_scaffold
+            cp -r _tmp_scaffold/android/app/src/main/res/. "$PROJECT/android/app/src/main/res/"
+            rm -rf _tmp_scaffold
+            echo "✅ 图标资源从 scaffold 复制完成"
+          fi
+
       - name: 安装 Flutter 依赖
         script: |
           set -e
