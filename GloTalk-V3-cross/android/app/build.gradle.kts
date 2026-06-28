@@ -13,6 +13,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
     defaultConfig {
         applicationId = "tech.glotalk.glotalk_v3_cross"
         minSdk = flutter.minSdkVersion
@@ -30,22 +34,14 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
-            pickFirsts += setOf(
-                "lib/arm64-v8a/libonnxruntime.so",
-                "lib/armeabi-v7a/libonnxruntime.so",
-                "lib/x86_64/libonnxruntime.so",
-                "lib/x86/libonnxruntime.so"
-            )
         }
-    }
-}
-
-kotlin {
-    compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")
 }
