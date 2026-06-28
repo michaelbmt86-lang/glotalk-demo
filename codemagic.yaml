@@ -19,33 +19,7 @@ workflows:
           set -e
           PROPS="$CM_BUILD_DIR/GloTalk-V3-cross/android/gradle/wrapper/gradle-wrapper.properties"
           printf 'distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\ndistributionUrl=https\://services.gradle.org/distributions/gradle-9.1.0-bin.zip\n' > "$PROPS"
-          echo "✅ Gradle 9.1.0 设置完成"
-          cat "$PROPS"
-
-      - name: 修复 so 冲突
-        script: |
-          set -e
-          python3 << 'PYEOF'
-          import os
-          f = os.environ['CM_BUILD_DIR'] + '/GloTalk-V3-cross/android/app/build.gradle.kts'
-          content = open(f).read()
-          patch = """
-android {
-    packaging {
-        jniLibs {
-            pickFirsts += setOf(
-                "lib/arm64-v8a/libonnxruntime.so",
-                "lib/armeabi-v7a/libonnxruntime.so",
-                "lib/x86_64/libonnxruntime.so",
-                "lib/x86/libonnxruntime.so"
-            )
-        }
-    }
-}
-"""
-          open(f, 'w').write(content + patch)
-          print('✅ so 冲突修复完成')
-          PYEOF
+          echo "✅ Gradle 9.1.0"
 
       - name: 安装 Flutter 依赖
         script: |
@@ -59,7 +33,6 @@ android {
           set -e
           cd "$CM_BUILD_DIR/GloTalk-V3-cross"
           flutter analyze --no-fatal-infos
-          echo "✅ 静态分析通过"
 
       - name: 编译 Android Debug APK
         script: |
