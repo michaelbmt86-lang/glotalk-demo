@@ -1,6 +1,6 @@
 workflows:
-  glotalk-v3-cross-android-debug:
-    name: GloTalk V3 Cross Android Debug
+  glotalk-v3-android-debug:
+    name: GloTalk V3 Android Debug
     max_build_duration: 60
 
     environment:
@@ -17,31 +17,31 @@ workflows:
       - name: 修复 Gradle 版本
         script: |
           set -e
-          PROPS="$CM_BUILD_DIR/GloTalk-V3-cross/android/gradle/wrapper/gradle-wrapper.properties"
+          PROPS="$CM_BUILD_DIR/GloTalk-V3/android/gradle/wrapper/gradle-wrapper.properties"
           printf 'distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\ndistributionUrl=https\://services.gradle.org/distributions/gradle-9.1.0-bin.zip\n' > "$PROPS"
           echo "✅ Gradle 9.1.0"
 
       - name: 安装 Flutter 依赖
         script: |
           set -e
-          cd "$CM_BUILD_DIR/GloTalk-V3-cross"
+          cd "$CM_BUILD_DIR/GloTalk-V3"
           flutter clean
           flutter pub get
 
       - name: 静态分析
         script: |
           set -e
-          cd "$CM_BUILD_DIR/GloTalk-V3-cross"
+          cd "$CM_BUILD_DIR/GloTalk-V3"
           flutter analyze --no-fatal-infos
 
       - name: 编译 Android Debug APK
         script: |
           set -e
-          cd "$CM_BUILD_DIR/GloTalk-V3-cross"
+          cd "$CM_BUILD_DIR/GloTalk-V3"
           flutter build apk --debug --verbose
 
     artifacts:
-      - GloTalk-V3-cross/build/**/outputs/apk/**/*.apk
+      - GloTalk-V3/build/**/outputs/apk/**/*.apk
 
     publishing:
       email:
