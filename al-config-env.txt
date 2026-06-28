@@ -1,8 +1,0 @@
-# Alibaba LiveTranslate 专属配置
-DASHSCOPE_API_KEY=sk-ws-H.RPLDMXL.9cN2.MEQCICeFeKlH7DoC1l9vEQ5TIn8LENawrK_CrDBXkH0PcZu9AiA7yduF13of5sP4XQ587zucoFAdXGafiriiS4hHhAbVXA
-ALIBABA_WS_URL=wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3.5-livetranslate-flash-realtime
-LIVEKIT_API_KEY=APIjE29k6cmBgda
-LIVEKIT_API_SECRET=7eWFApcoDoDF4HXIPqx5qzz7aQ1GWDSiE5ynBjvUf4Z
-LIVEKIT_URL=wss://glotalk-nppyx7kk.livekit.cloud
-ADMIN_AL_PASS=gloAdminAL2026
-ACCESS_TOKEN=glotalk2026
