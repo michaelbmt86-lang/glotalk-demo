@@ -60,7 +60,7 @@ flutter:
   # TTS:  vits-piper-en_US-libritts_r-medium/ (含 espeak-ng-data/)
   # VAD:  silero_vad.onnx
   assets:
-    - assets/models/stt/
-    - assets/models/translate/
-    - assets/models/tts/
-    - assets/models/vad/
+  # - assets/models/stt/
+  # - assets/models/translate/
+  # - assets/models/tts/
+  # - assets/models/vad/
