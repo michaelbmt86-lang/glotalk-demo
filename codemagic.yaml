@@ -14,26 +14,58 @@ workflows:
         - ~/.pub-cache
 
     scripts:
-      - name: 复制默认图标资源
+      - name: 创建完整 Flutter 项目骨架
+        script: |
+          set -e
+          cd "$CM_BUILD_DIR"
+          # 用 flutter create 生成完整骨架（包含正确的插件注册机制）
+          flutter create --org tech.glotalk --project-name glotalk_v3_cross _scaffold
+          # 用我们的文件覆盖骨架
+          cp "$CM_BUILD_DIR/GloTalk-V3-cross/pubspec.yaml" _scaffold/pubspec.yaml
+          cp -r "$CM_BUILD_DIR/GloTalk-V3-cross/lib/." _scaffold/lib/
+          # 保留骨架的 android/ 目录（包含正确的插件注册）
+          # 只覆盖我们自定义的部分
+          cp "$CM_BUILD_DIR/GloTalk-V3-cross/android/app/src/main/AndroidManifest.xml" \
+             _scaffold/android/app/src/main/AndroidManifest.xml
+          # 追加 so 冲突解决到 build.gradle.kts
+          cat >> _scaffold/android/app/build.gradle.kts << 'EOF'
+
+android {
+    packaging {
+        jniLibs {
+            pickFirsts += setOf(
+                "lib/arm64-v8a/libonnxruntime.so",
+                "lib/armeabi-v7a/libonnxruntime.so",
+                "lib/x86_64/libonnxruntime.so",
+                "lib/x86/libonnxruntime.so"
+            )
+        }
+    }
+}
+EOF
+          # 用完整骨架替换我们的项目目录
+          rm -rf "$CM_BUILD_DIR/GloTalk-V3-cross/android"
+          cp -r _scaffold/android "$CM_BUILD_DIR/GloTalk-V3-cross/android"
+          echo "✅ 完整骨架已生成，插件注册机制正确"
+
+      - name: 修复 Gradle 版本
         script: |
           set -e
           PROJECT="$CM_BUILD_DIR/GloTalk-V3-cross"
-          FLUTTER_DEFAULT="$HOME/programs/flutter/packages/flutter_tools/templates/app_shared/android.tmpl/app/src/main/res"
-          if [ -d "$FLUTTER_DEFAULT" ]; then
-            cp -r "$FLUTTER_DEFAULT/." "$PROJECT/android/app/src/main/res/"
-            echo "✅ 默认图标资源已复制"
-          else
-            cd "$CM_BUILD_DIR"
-            flutter create --org tech.glotalk --project-name glotalk_v3_cross _tmp_scaffold
-            cp -r _tmp_scaffold/android/app/src/main/res/. "$PROJECT/android/app/src/main/res/"
-            rm -rf _tmp_scaffold
-            echo "✅ 图标资源从 scaffold 复制完成"
-          fi
+          mkdir -p "$PROJECT/android/gradle/wrapper"
+          cat > "$PROJECT/android/gradle/wrapper/gradle-wrapper.properties" << 'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-9.1.0-bin.zip
+          EOF
 
       - name: 安装 Flutter 依赖
         script: |
           set -e
           cd "$CM_BUILD_DIR/GloTalk-V3-cross"
+          flutter clean
           flutter pub get
 
       - name: 编译 Android Debug APK
