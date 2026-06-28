@@ -43,3 +43,15 @@ kotlin {
 flutter {
     source = "../.."
 }
+android {
+    packaging {
+        jniLibs {
+            pickFirsts += setOf(
+                "lib/arm64-v8a/libonnxruntime.so",
+                "lib/armeabi-v7a/libonnxruntime.so",
+                "lib/x86_64/libonnxruntime.so",
+                "lib/x86/libonnxruntime.so"
+            )
+        }
+    }
+}
