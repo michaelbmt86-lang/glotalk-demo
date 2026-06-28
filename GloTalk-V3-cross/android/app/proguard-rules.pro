@@ -1,5 +1,5 @@
+# OnnxRuntime — 来源：https://onnxruntime.ai/docs/build/android.html
 -keep class ai.onnxruntime.** { *; }
--keep class com.k2fsa.sherpa.onnx.** { *; }
 -keepclassmembers class * {
     native <methods>;
 }
