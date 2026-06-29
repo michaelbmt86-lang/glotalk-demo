@@ -9,6 +9,15 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
     defaultConfig {
         applicationId = "tech.glotalk.glotalk_v3"
         minSdk = flutter.minSdkVersion
@@ -29,8 +38,5 @@ flutter {
 }
 
 dependencies {
-    // OnnxRuntime Android — Maven Central，MIT 许可
-    // 查证结论：必须用 implementation（不能用 runtimeOnly）
-    // package 名 ai.onnxruntime（非 com.microsoft.onnxruntime）
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")
 }
