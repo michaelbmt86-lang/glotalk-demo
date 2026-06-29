@@ -1,214 +1,358 @@
-// =============================================================================
-// 文件路径：GloTalk-V3/android/app/src/main/kotlin/tech/glotalk/glotalk_v3/MainActivity.kt
-// package：tech.glotalk.glotalk_v3
-// 任务编号：B-001 | 依据：智能体 A 查证报告 A-001 | 日期：2026-06-29
-// =============================================================================
-//
-// 本文件职责：
-//   - 注册所有 MethodChannel 和 EventChannel
-//   - 管理 AudioService 的 EventSink 生命周期（onListen / onCancel）
-//   - 向 Flutter 推送 STT / NMT 结果
-//
-// Channel 名称常量表（来源：GloTalk V3 工作手册 第七章 7.1）：
-//   tech.glotalk/control        MethodChannel  初始化、开始/停止录音
-//   tech.glotalk/audio_stream   EventChannel   PCM 音频数据流（ByteArray）
-//   tech.glotalk/stt_result     EventChannel   STT 实时文本流
-//   tech.glotalk/nmt_result     EventChannel   NMT 翻译文本流
-//
-// 铁律：两端 channel 名称字符串必须完全一致，大小写敏感
-// 来源：GloTalk V3 工作手册 第七章 7.1
-// =============================================================================
+// GloTalk-V3/android/app/src/main/kotlin/tech/glotalk/glotalk_v3/MainActivity.kt
+// 智能体 B 代码编辑 | 依据：查证报告 A-003 | 任务：B-003
 
 package tech.glotalk.glotalk_v3
 
-// 来源：https://api.flutter.dev/javadoc/io/flutter/embedding/android/FlutterActivity.html
+// Flutter 嵌入层 — https://api.flutter.dev/javadoc/io/flutter/embedding/android/FlutterActivity.html
 import io.flutter.embedding.android.FlutterActivity
-// 来源：https://api.flutter.dev/javadoc/io/flutter/embedding/engine/FlutterEngine.html
+// Flutter 引擎 — https://api.flutter.dev/javadoc/io/flutter/embedding/engine/FlutterEngine.html
 import io.flutter.embedding.engine.FlutterEngine
-// 来源：https://api.flutter.dev/javadoc/io/flutter/plugin/common/EventChannel.html
-import io.flutter.plugin.common.EventChannel
-// 来源：https://api.flutter.dev/javadoc/io/flutter/plugin/common/MethodChannel.html
+// MethodChannel — https://docs.flutter.dev/platform-integration/platform-channels
 import io.flutter.plugin.common.MethodChannel
+// EventChannel — https://docs.flutter.dev/platform-integration/platform-channels
+import io.flutter.plugin.common.EventChannel
+
+// AudioRecord — https://developer.android.com/reference/android/media/AudioRecord
+import android.media.AudioRecord
+// AudioFormat — https://developer.android.com/reference/android/media/AudioFormat
+import android.media.AudioFormat
+// MediaRecorder.AudioSource — https://developer.android.com/reference/android/media/MediaRecorder.AudioSource
+import android.media.MediaRecorder
+
+// TextToSpeech — https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeech
+import android.speech.tts.TextToSpeech
+// Locale — 标准 Java，用于设置 TTS 语言
+import java.util.Locale
+// Handler / Looper — https://developer.android.com/reference/android/os/Handler
+import android.os.Handler
+import android.os.Looper
+
+// OrtEnvironment — https://onnxruntime.ai/docs/get-started/with-java.html
+import ai.onnxruntime.OrtEnvironment
 
 class MainActivity : FlutterActivity() {
 
-    // =========================================================================
-    // Channel 名称常量
-    // 来源：GloTalk V3 工作手册 第七章 7.1 — Channel 名称常量表
-    // 铁律：必须与 Dart 侧字符串完全一致，大小写敏感
-    // =========================================================================
-    private val CONTROL_CHANNEL      = "tech.glotalk/control"
+    // ─────────────────────────────────────────────────────────────────────────
+    // Channel 名称常量（查证报告 A-003 第四章，铁律：两端字符串完全一致）
+    // 来源：https://docs.flutter.dev/platform-integration/platform-channels
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // C1 — MethodChannel：ping、testOnnxRuntime
+    private val INFERENCE_CHANNEL = "tech.glotalk/inference"
+
+    // C2 — MethodChannel：initModels、startRecording、stopRecording、speakText
+    private val CONTROL_CHANNEL = "tech.glotalk/control"
+
+    // C3 — EventChannel：PCM List<int> 音频帧流
     private val AUDIO_STREAM_CHANNEL = "tech.glotalk/audio_stream"
-    private val STT_CHANNEL          = "tech.glotalk/stt_result"
-    private val NMT_CHANNEL          = "tech.glotalk/nmt_result"
 
-    // =========================================================================
-    // AudioService 实例
-    // AudioService 负责 AudioRecord 采集 + ByteArray 转换 + mainHandler 推送
-    // =========================================================================
-    private val audioService = AudioService()
+    // C4 — EventChannel：STT 文字流 + VAD 前缀标记 ([VAD:SPEECH] / [VAD:SILENCE])
+    private val STT_RESULT_CHANNEL = "tech.glotalk/stt_result"
 
-    // =========================================================================
-    // EventSink 引用（STT / NMT 结果推送用）
-    // 由各自 StreamHandler 的 onListen / onCancel 管理
-    // =========================================================================
+    // C5 — EventChannel：NMT 翻译文字流
+    private val NMT_RESULT_CHANNEL = "tech.glotalk/nmt_result"
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // EventSink 引用（查证报告 A-003 第三章 §3.2）
+    // EventSink.success() 必须在主线程调用
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // C3 — 音频流 EventSink
+    private var audioEventSink: EventChannel.EventSink? = null
+
+    // C4 — STT 结果 EventSink（同时传递 VAD 状态前缀）
     private var sttEventSink: EventChannel.EventSink? = null
+
+    // C5 — NMT 结果 EventSink
     private var nmtEventSink: EventChannel.EventSink? = null
 
-    // =========================================================================
-    // configureFlutterEngine
-    //
-    // 来源：https://api.flutter.dev/javadoc/io/flutter/embedding/android/FlutterActivity.html
-    // 工作手册禁止项 ❌7：省略 super.configureFlutterEngine() 会导致插件注册失败
-    // =========================================================================
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+    // ─────────────────────────────────────────────────────────────────────────
+    // TextToSpeech — https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeech
+    // ─────────────────────────────────────────────────────────────────────────
 
-        // 必须调用 super，否则 Flutter 插件系统不会初始化
-        // 来源：GloTalk V3 工作手册 第十章 禁止项 ❌7
+    private var tts: TextToSpeech? = null
+    private var ttsReady: Boolean = false
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // AudioRecord — https://developer.android.com/reference/android/media/AudioRecord
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Whisper 要求 16kHz 单声道 PCM_16BIT
+    // 来源：https://github.com/microsoft/onnxruntime-inference-examples/tree/main/mobile/examples/speech_recognition/android
+    private val SAMPLE_RATE = 16000
+    private val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
+    private val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+
+    private var audioRecord: AudioRecord? = null
+    private var isRecording: Boolean = false
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // configureFlutterEngine
+    // 来源：https://docs.flutter.dev/platform-integration/platform-channels
+    // 铁律：第一行必须调用 super.configureFlutterEngine(flutterEngine)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        // 必须第一行调用 super，否则插件注册失败
+        // 来源：https://docs.flutter.dev/platform-integration/platform-channels#step-3-add-an-android-platform-specific-implementation
         super.configureFlutterEngine(flutterEngine)
 
-        setupControlChannel(flutterEngine)
-        setupAudioStreamChannel(flutterEngine)
-        setupSttChannel(flutterEngine)
-        setupNmtChannel(flutterEngine)
-    }
-
-    // =========================================================================
-    // MethodChannel：tech.glotalk/control
-    // 来源：GloTalk V3 工作手册 第七章 7.2
-    // 来源：https://api.flutter.dev/javadoc/io/flutter/plugin/common/MethodChannel.html
-    // =========================================================================
-    private fun setupControlChannel(flutterEngine: FlutterEngine) {
-        MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            CONTROL_CHANNEL   // "tech.glotalk/control"
-        ).setMethodCallHandler { call, result ->
-            when (call.method) {
-
-                "initModels" -> {
-                    val srcLang = call.argument<String>("srcLang") ?: "en"
-                    val tgtLang = call.argument<String>("tgtLang") ?: "zh"
-                    // TODO：传递给 WhisperInference / OpusMTInference 初始化
-                    android.util.Log.i("MainActivity", "initModels: $srcLang → $tgtLang")
-                    result.success(true)
-                }
-
-                "startRecording" -> {
-                    val started = audioService.startRecording()
-                    if (started) {
-                        result.success(true)
-                    } else {
-                        // AudioRecord 初始化失败（D1 / D2 检查未通过）
-                        result.error(
-                            "AUDIO_INIT_FAILED",
-                            "AudioRecord 初始化失败，请检查麦克风权限或硬件支持",
-                            null
-                        )
-                    }
-                }
-
-                "stopRecording" -> {
-                    audioService.stopRecording()
-                    result.success(true)
-                }
-
-                else -> result.notImplemented()
-            }
+        // ── TTS 初始化（查证报告 A-003 第五章 §8.2）
+        // 来源：https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeech
+        tts = TextToSpeech(this) { status ->
+            ttsReady = (status == TextToSpeech.SUCCESS)
         }
+
+        val messenger = flutterEngine.dartExecutor.binaryMessenger
+
+        // ─────────────────────────────────────────────────────────────────────
+        // C1 — MethodChannel：tech.glotalk/inference
+        // 来源：https://docs.flutter.dev/platform-integration/platform-channels
+        // ─────────────────────────────────────────────────────────────────────
+        MethodChannel(messenger, INFERENCE_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+
+                    // 测试1：连通性测试
+                    // 查证报告 A-003 第二章 §2.3
+                    "ping" -> {
+                        result.success("pong")
+                    }
+
+                    // 测试2：OnnxRuntime 加载验证
+                    // 来源：https://onnxruntime.ai/docs/get-started/with-java.html
+                    "testOnnxRuntime" -> {
+                        try {
+                            // OrtEnvironment.getEnvironment() 是全局单例
+                            // 来源：https://onnxruntime.ai/docs/get-started/with-java.html
+                            val env = OrtEnvironment.getEnvironment()
+                            // 成功获取环境即表示 OnnxRuntime native 层加载正常
+                            result.success("OnnxRuntime OK: ${env.version}")
+                        } catch (e: Exception) {
+                            result.success("OnnxRuntime ERROR: ${e.message}")
+                        }
+                    }
+
+                    else -> result.notImplemented()
+                }
+            }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // C2 — MethodChannel：tech.glotalk/control
+        // 来源：https://docs.flutter.dev/platform-integration/platform-channels
+        // ─────────────────────────────────────────────────────────────────────
+        MethodChannel(messenger, CONTROL_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+
+                    // initModels：初始化 VAD/STT/NMT 模型（桩位）
+                    // 查证报告 A-003 第八章 §8.4
+                    "initModels" -> {
+                        // call.argument 用法：https://api.flutter.dev/javadoc/io/flutter/plugin/common/MethodCall.html
+                        val srcLang = call.argument<String>("srcLang") ?: "en"
+                        val tgtLang = call.argument<String>("tgtLang") ?: "zh"
+                        // TODO: 初始化 WhisperInference(srcLang)
+                        // TODO: 初始化 OpusMTInference(srcLang, tgtLang)
+                        // TODO: 初始化 SileroVAD
+                        android.util.Log.d("GloTalk", "initModels: $srcLang → $tgtLang")
+                        result.success(true)
+                    }
+
+                    // startRecording：启动麦克风采集
+                    // 来源：https://developer.android.com/reference/android/media/AudioRecord
+                    "startRecording" -> {
+                        startAudioCapture()
+                        result.success(true)
+                    }
+
+                    // stopRecording：停止麦克风采集
+                    // 来源：https://developer.android.com/reference/android/media/AudioRecord
+                    "stopRecording" -> {
+                        stopAudioCapture()
+                        result.success(true)
+                    }
+
+                    // speakText：TTS 播放翻译结果（测试7）
+                    // 来源：https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeech
+                    // 查证报告 A-003 第五章 §5.2 & §5.4
+                    "speakText" -> {
+                        val text = call.argument<String>("text") ?: ""
+                        val lang = call.argument<String>("lang") ?: "zh"
+                        if (ttsReady && text.isNotEmpty()) {
+                            // setLanguage — https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeech#setLanguage(java.util.Locale)
+                            tts?.language = when (lang) {
+                                "zh" -> Locale.CHINESE
+                                "en" -> Locale.ENGLISH
+                                "ja" -> Locale.JAPANESE
+                                else -> Locale(lang)
+                            }
+                            // speak 四参数版本（API 21+，minSdk 24 满足）
+                            // 来源：https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeech#speak(kotlin.String,kotlin.Int,android.os.Bundle,kotlin.String)
+                            // QUEUE_FLUSH：清空队列，立即朗读（实时翻译场景）
+                            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+                        }
+                        result.success(true)
+                    }
+
+                    // stopTts：停止当前 TTS 朗读
+                    // 来源：https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeech#stop()
+                    "stopTts" -> {
+                        tts?.stop()
+                        result.success(true)
+                    }
+
+                    else -> result.notImplemented()
+                }
+            }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // C3 — EventChannel：tech.glotalk/audio_stream（PCM 音频帧流）
+        // 来源：https://docs.flutter.dev/platform-integration/platform-channels
+        // ─────────────────────────────────────────────────────────────────────
+        EventChannel(messenger, AUDIO_STREAM_CHANNEL)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                // onListen：Dart 侧调用 receiveBroadcastStream().listen() 时触发
+                // 来源：https://api.flutter.dev/javadoc/io/flutter/plugin/common/EventChannel.StreamHandler.html
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    audioEventSink = events
+                }
+                // onCancel：Dart 侧取消订阅时触发
+                override fun onCancel(arguments: Any?) {
+                    audioEventSink = null
+                }
+            })
+
+        // ─────────────────────────────────────────────────────────────────────
+        // C4 — EventChannel：tech.glotalk/stt_result（STT 文字流 + VAD 前缀）
+        // 来源：https://docs.flutter.dev/platform-integration/platform-channels
+        // 查证报告 A-003 第六章 §6.2 测试4 说明
+        // ─────────────────────────────────────────────────────────────────────
+        EventChannel(messenger, STT_RESULT_CHANNEL)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    sttEventSink = events
+                }
+                override fun onCancel(arguments: Any?) {
+                    sttEventSink = null
+                }
+            })
+
+        // ─────────────────────────────────────────────────────────────────────
+        // C5 — EventChannel：tech.glotalk/nmt_result（NMT 翻译文字流）
+        // 来源：https://docs.flutter.dev/platform-integration/platform-channels
+        // ─────────────────────────────────────────────────────────────────────
+        EventChannel(messenger, NMT_RESULT_CHANNEL)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    nmtEventSink = events
+                }
+                override fun onCancel(arguments: Any?) {
+                    nmtEventSink = null
+                }
+            })
     }
 
-    // =========================================================================
-    // EventChannel：tech.glotalk/audio_stream — PCM 音频数据流
-    //
-    // 来源：https://api.flutter.dev/javadoc/io/flutter/plugin/common/EventChannel.html
-    // 来源：https://github.com/flutter/flutter/issues/34993（EventSink 线程规则）
-    //
-    // 职责：
-    //   onListen → 将 EventSink 注入 AudioService，AudioService 内部已通过
-    //              mainHandler 确保在主线程调用（D4 修正）
-    //   onCancel → 将 AudioService.eventSink 置 null，停止推送
-    // =========================================================================
-    private fun setupAudioStreamChannel(flutterEngine: FlutterEngine) {
-        EventChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            AUDIO_STREAM_CHANNEL  // "tech.glotalk/audio_stream"
-        ).setStreamHandler(object : EventChannel.StreamHandler {
-
-            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                // 将 EventSink 注入 AudioService
-                // AudioService 内部通过 mainHandler.post {} 保证主线程调用（D4 修正）
-                // 来源：https://github.com/flutter/flutter/issues/34993
-                audioService.eventSink = events
-                android.util.Log.i("MainActivity", "audio_stream：Flutter 已订阅，EventSink 已注入")
-            }
-
-            override fun onCancel(arguments: Any?) {
-                // Flutter 取消订阅时，将 EventSink 置 null 停止推送
-                audioService.eventSink = null
-                android.util.Log.i("MainActivity", "audio_stream：Flutter 已取消订阅，EventSink 已置 null")
-            }
-        })
+    // ─────────────────────────────────────────────────────────────────────────
+    // onDestroy：释放 TTS 资源，防止内存泄漏
+    // 来源：https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeech#shutdown()
+    // 查证报告 A-003 第五章 §5.3
+    // ─────────────────────────────────────────────────────────────────────────
+    override fun onDestroy() {
+        tts?.shutdown()
+        tts = null
+        stopAudioCapture()
+        super.onDestroy()
     }
 
-    // =========================================================================
-    // EventChannel：tech.glotalk/stt_result — STT 实时识别文本流
-    // 来源：GloTalk V3 工作手册 第七章 7.2
-    // 来源：https://api.flutter.dev/javadoc/io/flutter/plugin/common/EventChannel.html
-    // =========================================================================
-    private fun setupSttChannel(flutterEngine: FlutterEngine) {
-        EventChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            STT_CHANNEL  // "tech.glotalk/stt_result"
-        ).setStreamHandler(object : EventChannel.StreamHandler {
-            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                sttEventSink = events
+    // ─────────────────────────────────────────────────────────────────────────
+    // AudioRecord 辅助方法
+    // 来源：https://developer.android.com/reference/android/media/AudioRecord
+    // 工作手册第五章 §5.2
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private fun startAudioCapture() {
+        if (isRecording) return
+
+        // getMinBufferSize — https://developer.android.com/reference/android/media/AudioRecord#getMinBufferSize(int,int,int)
+        val bufferSize = AudioRecord.getMinBufferSize(
+            SAMPLE_RATE,
+            CHANNEL_CONFIG,
+            AUDIO_FORMAT
+        )
+
+        // AudioRecord 构造函数
+        // 来源：https://developer.android.com/reference/android/media/AudioRecord#AudioRecord(int,int,int,int,int)
+        audioRecord = AudioRecord(
+            MediaRecorder.AudioSource.MIC,
+            SAMPLE_RATE,
+            CHANNEL_CONFIG,
+            AUDIO_FORMAT,
+            bufferSize
+        )
+
+        // startRecording — https://developer.android.com/reference/android/media/AudioRecord#startRecording()
+        audioRecord?.startRecording()
+        isRecording = true
+
+        // 在后台线程持续读取 PCM 数据，推送到 Flutter
+        Thread {
+            val buffer = ShortArray(bufferSize / 2)
+            while (isRecording) {
+                val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
+                if (read > 0) {
+                    // 转换为 List<int> 推送（工作手册 §5.3，查证报告 A-003 §3.4）
+                    val pcmList = buffer.take(read).map { it.toInt() }
+
+                    // EventSink.success() 必须在主线程调用
+                    // 来源：https://docs.flutter.dev/platform-integration/platform-channels#channels-and-platform-threading
+                    // 查证报告 A-003 第三章 §3.3
+                    Handler(Looper.getMainLooper()).post {
+                        audioEventSink?.success(pcmList)
+                    }
+
+                    // TODO: 将 pcmList 传入 SileroVAD 推理
+                    // TODO: 根据 VAD 结果决定是否送入 Whisper STT
+                    // TODO: STT 结果送入 Opus-MT NMT
+                }
             }
-            override fun onCancel(arguments: Any?) {
-                sttEventSink = null
-            }
-        })
+        }.start()
     }
 
-    // =========================================================================
-    // EventChannel：tech.glotalk/nmt_result — NMT 翻译文本流
-    // 来源：GloTalk V3 工作手册 第七章 7.2
-    // 来源：https://api.flutter.dev/javadoc/io/flutter/plugin/common/EventChannel.html
-    // =========================================================================
-    private fun setupNmtChannel(flutterEngine: FlutterEngine) {
-        EventChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            NMT_CHANNEL  // "tech.glotalk/nmt_result"
-        ).setStreamHandler(object : EventChannel.StreamHandler {
-            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                nmtEventSink = events
-            }
-            override fun onCancel(arguments: Any?) {
-                nmtEventSink = null
-            }
-        })
+    private fun stopAudioCapture() {
+        isRecording = false
+        // stop — https://developer.android.com/reference/android/media/AudioRecord#stop()
+        audioRecord?.stop()
+        // release — https://developer.android.com/reference/android/media/AudioRecord#release()
+        audioRecord?.release()
+        audioRecord = null
     }
 
-    // =========================================================================
-    // 公开方法：从 Pipeline（Whisper / OpusMT）推送结果到 Flutter
-    //
-    // 来源：GloTalk V3 工作手册 第七章 7.2
-    // 规则：EventSink.success() 必须在主线程调用
-    // 来源：https://github.com/flutter/flutter/issues/34993
-    // 使用 runOnUiThread（Activity 内可用，等效于 Handler(Looper.getMainLooper()).post{}）
-    // 来源：https://developer.android.com/reference/android/app/Activity#runOnUiThread(java.lang.Runnable)
-    // =========================================================================
+    // ─────────────────────────────────────────────────────────────────────────
+    // 推送辅助方法（供后续 STT/NMT 推理模块调用）
+    // 查证报告 A-003 第八章 §8.1
+    // EventSink.success() 必须在主线程：https://docs.flutter.dev/platform-integration/platform-channels
+    // ─────────────────────────────────────────────────────────────────────────
 
-    /** 将 Whisper STT 识别结果推送至 Flutter stt_result 流 */
+    // 推送 STT 识别文本（测试5）
     fun pushSttResult(text: String) {
         runOnUiThread {
             sttEventSink?.success(text)
         }
     }
 
-    /** 将 Opus-MT NMT 翻译结果推送至 Flutter nmt_result 流 */
+    // 推送 NMT 翻译文本（测试6）
     fun pushNmtResult(text: String) {
         runOnUiThread {
             nmtEventSink?.success(text)
+        }
+    }
+
+    // 推送 VAD 状态（测试4）
+    // 查证报告 A-003 第六章 §6.2 测试4：通过 C4 (stt_result) 传递，用 [VAD:] 前缀区分
+    fun pushVadStatus(isSpeech: Boolean) {
+        val marker = if (isSpeech) "[VAD:SPEECH]" else "[VAD:SILENCE]"
+        runOnUiThread {
+            sttEventSink?.success(marker)
         }
     }
 }
