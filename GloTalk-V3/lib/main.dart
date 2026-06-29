@@ -1,47 +1,51 @@
 // GloTalk-V3/lib/main.dart
-// 任务编号：B-002
-// 依据：智能体 A 查证报告 A-002（AgentA_查证报告_麦克风测试UI_20260629.md）
-// 编写人：智能体 B（GloTalk 代码编辑）
-// 日期：2026-06-29
+// 智能体 B 代码编辑 | 依据：查证报告 A-003 | 任务：B-003
 
-import 'dart:async';
-// dart:async — 来源：Dart 官方标准库，提供 StreamSubscription<T>
-// https://api.dart.dev/stable/dart-async/StreamSubscription-class.html
-
+// Flutter SDK — https://api.flutter.dev/flutter/material/material-library.html
 import 'package:flutter/material.dart';
-// Flutter Material UI — 来源：Flutter 官方 SDK
-// https://api.flutter.dev/flutter/material/material-library.html
-
+// Platform channels — https://docs.flutter.dev/platform-integration/platform-channels
 import 'package:flutter/services.dart';
-// MethodChannel / EventChannel — 来源：Flutter 官方 services 库
-// https://api.flutter.dev/flutter/services/MethodChannel-class.html
-// https://api.flutter.dev/flutter/services/EventChannel-class.html
-
+// StreamSubscription — https://api.dart.dev/stable/dart-async/StreamSubscription-class.html
+import 'dart:async';
+// permission_handler — https://pub.dev/packages/permission_handler
 import 'package:permission_handler/permission_handler.dart';
-// permission_handler 12.0.1 — 来源：pub.dev 官方文档
-// https://pub.dev/packages/permission_handler
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Channel 名称常量
-// 查证来源：智能体 A 报告查证项 2（MethodChannel）、查证项 1（EventChannel）
-// 铁律：两端字符串必须完全一致，大小写敏感
-// ─────────────────────────────────────────────────────────────────────────────
-const String _kControlChannel   = 'tech.glotalk/control';
-const String _kAudioChannel     = 'tech.glotalk/audio_stream';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 入口
-// 查证来源：GloTalk 工作手册 7.4 节 + Flutter 官方 async main 规范
-// https://docs.flutter.dev/platform-integration/platform-channels
-// WidgetsFlutterBinding.ensureInitialized() 必须在 async main 最前
+// main()
+// 铁律：必须 async，第一行必须 WidgetsFlutterBinding.ensureInitialized()
+// 来源：https://docs.flutter.dev/platform-integration/platform-channels#step-2-create-the-flutter-platform-client
+// 查证报告 A-003 第六章 §6.1
 // ─────────────────────────────────────────────────────────────────────────────
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized(); // ← 必须，async main 前置（工作手册 7.4 / 禁止项 ❌8）
+  // ensureInitialized() — 必须在 async main 中 runApp 之前调用
+  // 来源：https://api.flutter.dev/flutter/widgets/WidgetsFlutterBinding/ensureInitialized.html
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const GloTalkApp());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 根 Widget
+// Channel 常量（与 MainActivity.kt 完全一致，查证报告 A-003 第四章）
+// 铁律：字符串完全一致，大小写敏感
+// 来源：https://docs.flutter.dev/platform-integration/platform-channels
+// ─────────────────────────────────────────────────────────────────────────────
+
+// C1 — MethodChannel：ping、testOnnxRuntime
+const _inferenceChannel = MethodChannel('tech.glotalk/inference');
+
+// C2 — MethodChannel：initModels、startRecording、stopRecording、speakText
+const _controlChannel = MethodChannel('tech.glotalk/control');
+
+// C3 — EventChannel：PCM List<int> 音频帧流
+const _audioStreamChannel = EventChannel('tech.glotalk/audio_stream');
+
+// C4 — EventChannel：STT 文字流 + VAD 前缀标记
+const _sttResultChannel = EventChannel('tech.glotalk/stt_result');
+
+// C5 — EventChannel：NMT 翻译文字流
+const _nmtResultChannel = EventChannel('tech.glotalk/nmt_result');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GloTalkApp — 根 Widget
 // ─────────────────────────────────────────────────────────────────────────────
 class GloTalkApp extends StatelessWidget {
   const GloTalkApp({super.key});
@@ -49,373 +53,463 @@ class GloTalkApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'GloTalk V3 — 麦克风测试',
+      title: 'GloTalk V3 测试台',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
-      home: const TestHomePage(),
+      home: const GloTalkTestPage(),
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 测试主页
+// GloTalkTestPage — StatefulWidget，管理七个测试区块的状态
+// 查证报告 A-003 第六章 §6.1
 // ─────────────────────────────────────────────────────────────────────────────
-class TestHomePage extends StatefulWidget {
-  const TestHomePage({super.key});
+class GloTalkTestPage extends StatefulWidget {
+  const GloTalkTestPage({super.key});
 
   @override
-  State<TestHomePage> createState() => _TestHomePageState();
+  State<GloTalkTestPage> createState() => _GloTalkTestPageState();
 }
 
-class _TestHomePageState extends State<TestHomePage> {
+class _GloTalkTestPageState extends State<GloTalkTestPage> {
 
-  // ── Channel 实例 ────────────────────────────────────────────────────────────
-  // MethodChannel — 查证来源：智能体 A 报告查证项 2
-  // https://api.flutter.dev/flutter/services/MethodChannel-class.html
-  static const MethodChannel _controlChannel = MethodChannel(_kControlChannel);
+  // ─── 测试1：ping/pong 状态变量（查证报告 A-003 §6.2 测试1）
+  String _pingResult = '等待测试...';
 
-  // EventChannel — 查证来源：智能体 A 报告查证项 1
-  // https://api.flutter.dev/flutter/services/EventChannel-class.html
-  static const EventChannel _audioChannel = EventChannel(_kAudioChannel);
+  // ─── 测试2：OnnxRuntime 状态变量（查证报告 A-003 §6.2 测试2）
+  String _onnxResult = '等待测试...';
 
-  // ── 测试1：Ping-Pong 状态 ────────────────────────────────────────────────────
-  String _pingResult = '（未测试）';
+  // ─── 测试3：PCM 采集状态变量（查证报告 A-003 §6.2 测试3）
+  int _totalPcmSamples = 0;
+  bool _isRecordingAudio = false;
 
-  // ── 测试2：OnnxRuntime 加载状态 ─────────────────────────────────────────────
-  String _onnxResult = '（未测试）';
+  // ─── 测试4：VAD 状态变量（查证报告 A-003 §6.2 测试4）
+  String _vadStatus = '未开始';
 
-  // ── 测试3：麦克风区域状态 ────────────────────────────────────────────────────
+  // ─── 测试5：STT 识别结果（查证报告 A-003 §6.2 测试5）
+  String _sttText = '等待识别...';
 
-  // 权限状态文字 — 查证来源：智能体 A 报告查证项 3（permission_handler 12.0.1）
-  String _permissionStatus = '（未请求）';
+  // ─── 测试6：NMT 翻译结果（查证报告 A-003 §6.2 测试6）
+  String _nmtText = '等待翻译...';
 
-  // 录音状态
-  bool _isRecording = false;
-
-  // PCM 字节数累计 — 查证来源：智能体 A 报告数据类型链路总结
-  // Kotlin 推送 List<Int>，Dart 收到 List<dynamic>，.length = short 帧数
-  int _pcmSamplesReceived = 0;
-
-  // StreamSubscription — 查证来源：智能体 A 报告查证项 4
-  // https://api.dart.dev/stable/dart-async/StreamSubscription-class.html
-  StreamSubscription<List<dynamic>>? _audioSub;
+  // ─── StreamSubscription 生命周期管理（查证报告 A-003 第七章）
+  // 来源：https://api.dart.dev/stable/dart-async/StreamSubscription-class.html
+  StreamSubscription<List<int>>? _audioSubscription;   // C3 音频流订阅
+  StreamSubscription<String>? _sttSubscription;        // C4 STT 结果订阅
+  StreamSubscription<String>? _nmtSubscription;        // C5 NMT 结果订阅
 
   // ─────────────────────────────────────────────────────────────────────────
-  // dispose：必须取消 StreamSubscription，防止内存泄漏
-  // 查证来源：智能体 A 报告查证项 5
-  // https://api.flutter.dev/flutter/widgets/State/dispose.html
+  // initState：请求麦克风权限，初始化 STT/NMT 订阅
+  // 查证报告 A-003 §6.1：权限在 initState 中申请
   // ─────────────────────────────────────────────────────────────────────────
   @override
-  void dispose() {
-    _audioSub?.cancel();  // ← 取消订阅（查证项 5：防止 "setState called after dispose"）
-    _audioSub = null;     // ← 置 null（查证项 4）
-    super.dispose();      // ← 必须调用，且放最后（查证项 5：Flutter 框架要求）
+  void initState() {
+    super.initState();
+    _requestMicPermission();
+    _subscribeToSttChannel();
+    _subscribeToNmtChannel();
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 测试1：MethodChannel ping → pong
-  // 查证来源：智能体 A 报告查证项 2
-  // invokeMethod 签名：Future<T?> invokeMethod<T>(String method, [dynamic arguments])
+  // dispose：取消所有 StreamSubscription
+  // 来源：https://api.dart.dev/stable/dart-async/StreamSubscription/cancel.html
+  // 查证报告 A-003 第七章 §7.2
+  // ─────────────────────────────────────────────────────────────────────────
+  @override
+  void dispose() {
+    _audioSubscription?.cancel();
+    _audioSubscription = null;
+    _sttSubscription?.cancel();
+    _sttSubscription = null;
+    _nmtSubscription?.cancel();
+    _nmtSubscription = null;
+    super.dispose();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 麦克风权限请求
+  // 来源：https://pub.dev/packages/permission_handler
+  // 工作手册第五章 §5.5
+  // ─────────────────────────────────────────────────────────────────────────
+  Future<void> _requestMicPermission() async {
+    // Permission.microphone.request() — https://pub.dev/documentation/permission_handler/latest/permission_handler/Permission/microphone.html
+    final status = await Permission.microphone.request();
+    if (!status.isGranted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('⚠️ 需要麦克风权限才能测试录音功能')),
+        );
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // C4 订阅：STT 结果 + VAD 状态前缀处理
+  // 来源：https://api.flutter.dev/flutter/services/EventChannel-class.html
+  // 查证报告 A-003 §6.2 测试4 & 测试5
+  // ─────────────────────────────────────────────────────────────────────────
+  void _subscribeToSttChannel() {
+    // receiveBroadcastStream — https://api.flutter.dev/flutter/services/EventChannel/receiveBroadcastStream.html
+    _sttSubscription = _sttResultChannel
+        .receiveBroadcastStream()
+        .cast<String>()  // 类型转换 — 查证报告 A-003 §3.1
+        .listen(
+          (data) {
+            // VAD 前缀判断：[VAD:SPEECH] 或 [VAD:SILENCE]
+            // 查证报告 A-003 §6.2 测试4 & 第十章 §10.1 第5条
+            if (data.startsWith('[VAD:')) {
+              setState(() {
+                _vadStatus = data == '[VAD:SPEECH]' ? '🎤 语音检测中' : '🔇 静音';
+              });
+            } else {
+              // 普通 STT 识别文本
+              setState(() {
+                _sttText = data;
+              });
+            }
+          },
+          onError: (error) {
+            setState(() {
+              _sttText = 'STT 错误: $error';
+            });
+          },
+        );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // C5 订阅：NMT 翻译结果
+  // 来源：https://api.flutter.dev/flutter/services/EventChannel-class.html
+  // 查证报告 A-003 §6.2 测试6
+  // ─────────────────────────────────────────────────────────────────────────
+  void _subscribeToNmtChannel() {
+    _nmtSubscription = _nmtResultChannel
+        .receiveBroadcastStream()
+        .cast<String>()
+        .listen(
+          (data) {
+            setState(() {
+              _nmtText = data;
+            });
+          },
+          onError: (error) {
+            setState(() {
+              _nmtText = 'NMT 错误: $error';
+            });
+          },
+        );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 测试1：ping → pong
+  // 来源：https://api.flutter.dev/flutter/services/MethodChannel/invokeMethod.html
+  // 查证报告 A-003 §2.3
   // ─────────────────────────────────────────────────────────────────────────
   Future<void> _testPing() async {
     try {
-      // 无参数调用写法 — 查证项 2 正确写法
-      final result = await _controlChannel.invokeMethod<String>('ping');
+      // invokeMethod — https://api.flutter.dev/flutter/services/MethodChannel/invokeMethod.html
+      final result = await _inferenceChannel.invokeMethod<String>('ping');
       setState(() {
-        _pingResult = result ?? '（空响应）';
+        _pingResult = result ?? '(无返回值)';
       });
     } on PlatformException catch (e) {
-      // PlatformException — 查证来源：查证项 2（必须用 try-catch 捕获）
       setState(() {
-        _pingResult = '错误：${e.message}';
+        _pingResult = '错误: ${e.message}';
       });
     }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
   // 测试2：OnnxRuntime 加载验证
-  // 查证来源：智能体 A 报告查证项 2
+  // 来源：https://onnxruntime.ai/docs/get-started/with-java.html
+  // 查证报告 A-003 §2.3
   // ─────────────────────────────────────────────────────────────────────────
-  Future<void> _testOnnx() async {
+  Future<void> _testOnnxRuntime() async {
     try {
-      final result = await _controlChannel.invokeMethod<String>('testOnnxRuntime');
+      final result =
+          await _inferenceChannel.invokeMethod<String>('testOnnxRuntime');
       setState(() {
-        _onnxResult = result ?? '（空响应）';
+        _onnxResult = result ?? '(无返回值)';
       });
     } on PlatformException catch (e) {
       setState(() {
-        _onnxResult = '错误：${e.message}';
+        _onnxResult = '错误: ${e.message}';
       });
     }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 测试3-A：请求麦克风权限
-  // 查证来源：智能体 A 报告查证项 3（permission_handler 12.0.1）
-  // pub.dev: https://pub.dev/packages/permission_handler
+  // 测试3：开始录音 + 订阅 C3 音频流
+  // 来源：https://docs.flutter.dev/platform-integration/platform-channels
+  // 查证报告 A-003 §6.2 测试3
   // ─────────────────────────────────────────────────────────────────────────
-  Future<void> _requestMicPermission() async {
-    // 写法 A — 最简洁（查证项 3 推荐用于 GloTalk）
-    // Permission.microphone 是正确常量（非 Permission.audio）— 查证项 3
-    final status = await Permission.microphone.request();
+  Future<void> _startRecording() async {
+    // 1. 调用 control MethodChannel startRecording
+    try {
+      await _controlChannel.invokeMethod<bool>('startRecording');
+    } on PlatformException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('startRecording 错误: ${e.message}')),
+      );
+      return;
+    }
 
-    String statusText;
-    if (status.isGranted) {
-      statusText = '✅ 已授权 (granted)';
-    } else if (status.isPermanentlyDenied) {
-      // 永久拒绝后引导设置 — 查证项 3 写法 C
-      statusText = '❌ 永久拒绝，请前往设置开启';
-      await openAppSettings(); // permission_handler 提供的工具函数
-    } else if (status.isDenied) {
-      statusText = '⚠️ 已拒绝 (denied)';
-    } else if (status.isRestricted) {
-      statusText = '🚫 受限 (restricted)';
-    } else {
-      // 覆盖其余 PermissionStatus 值（limited, provisional 等）— 查证项 3
-      statusText = '？ 未知状态：$status';
+    // 2. 订阅 C3 audio_stream EventChannel
+    // 来源：https://api.flutter.dev/flutter/services/EventChannel/receiveBroadcastStream.html
+    setState(() {
+      _isRecordingAudio = true;
+      _totalPcmSamples = 0;
+    });
+
+    _audioSubscription = _audioStreamChannel
+        .receiveBroadcastStream()
+        .cast<List<int>>()  // 查证报告 A-003 §3.4：Dart 侧接收 List<int>
+        .listen(
+          (pcmChunk) {
+            setState(() {
+              // 累加收到的样本数（查证报告 A-003 §6.2 测试3）
+              _totalPcmSamples += pcmChunk.length;
+            });
+          },
+          onError: (error) {
+            setState(() {
+              _isRecordingAudio = false;
+            });
+          },
+        );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 测试3：停止录音
+  // 查证报告 A-003 §6.2 测试3
+  // ─────────────────────────────────────────────────────────────────────────
+  Future<void> _stopRecording() async {
+    // 1. 取消 C3 订阅（查证报告 A-003 第七章 §7.2）
+    await _audioSubscription?.cancel();
+    _audioSubscription = null;
+
+    // 2. 调用 control MethodChannel stopRecording
+    try {
+      await _controlChannel.invokeMethod<bool>('stopRecording');
+    } on PlatformException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('stopRecording 错误: ${e.message}')),
+      );
     }
 
     setState(() {
-      _permissionStatus = statusText;
+      _isRecordingAudio = false;
+      _vadStatus = '已停止';
     });
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 测试3-B：开始录音
-  // 查证来源：智能体 A 报告查证项 2（invokeMethod）+ 查证项 1（EventChannel）
+  // 测试7：TTS 播放翻译结果
+  // 来源：https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeech
+  // 查证报告 A-003 §6.2 测试7
   // ─────────────────────────────────────────────────────────────────────────
-  Future<void> _startRecording() async {
-    // 先取消已有订阅，防止重复订阅
-    await _audioSub?.cancel();
-    _audioSub = null;
-
+  Future<void> _speakTranslation() async {
     try {
-      // MethodChannel 通知 Kotlin 开始录音
-      // 无返回值写法 invokeMethod<void> — 查证项 2 最严格写法
-      await _controlChannel.invokeMethod<void>('startRecording');
-
-      // 订阅 EventChannel 音频数据流
-      // receiveBroadcastStream() 返回 Stream<dynamic> — 查证项 1
-      // Kotlin 推送 List<Int>，Dart 侧收到 List<dynamic> — 查证项 1 & 数据类型链路
-      // StreamSubscription 订阅写法 — 查证项 4
-      _audioSub = _audioChannel
-          .receiveBroadcastStream()          // Stream<dynamic> — 查证项 1
-          .cast<List<dynamic>>()             // cast — 查证项 1 正确订阅写法
-          .listen(
-            (List<dynamic> event) {
-              // event.length = 本帧 short 样本数 — 数据类型链路总结
-              setState(() {
-                _pcmSamplesReceived += event.length;
-              });
-            },
-            onError: (Object e) {
-              // onError 回调 — 查证项 4 订阅写法
-              setState(() {
-                _permissionStatus = '音频流错误：$e';
-              });
-            },
-            cancelOnError: false, // 遇错不自动取消订阅 — 查证项 4
-          );
-
-      setState(() {
-        _isRecording = true;
-        _pcmSamplesReceived = 0; // 重置计数
+      // invokeMethod 传递参数 Map
+      // 来源：https://api.flutter.dev/flutter/services/MethodChannel/invokeMethod.html
+      await _controlChannel.invokeMethod<bool>('speakText', {
+        'text': _nmtText,   // 当前翻译结果
+        'lang': 'zh',       // TODO: 根据实际目标语言动态设置
       });
     } on PlatformException catch (e) {
-      setState(() {
-        _permissionStatus = '开始录音错误：${e.message}';
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('TTS 错误: ${e.message}')),
+      );
     }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 测试3-C：停止录音
-  // 查证来源：智能体 A 报告查证项 2（invokeMethod）+ 查证项 4（cancel）
-  // ─────────────────────────────────────────────────────────────────────────
-  Future<void> _stopRecording() async {
-    try {
-      // MethodChannel 通知 Kotlin 停止录音 — 查证项 2
-      await _controlChannel.invokeMethod<void>('stopRecording');
-
-      // 取消 StreamSubscription — 查证项 4
-      await _audioSub?.cancel();
-      _audioSub = null; // ← 置 null — 查证项 4
-
-      setState(() {
-        _isRecording = false;
-      });
-    } on PlatformException catch (e) {
-      setState(() {
-        _permissionStatus = '停止录音错误：${e.message}';
-      });
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // UI 构建
+  // build — UI
   // ─────────────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('GloTalk V3 — 节点测试'),
+        title: const Text('GloTalk V3 测试台'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // ── 测试1：ping → pong ──────────────────────────────────────────
+          _TestCard(
+            index: '测试1',
+            title: 'Channel 连通性 (ping)',
+            // 来源：https://docs.flutter.dev/platform-integration/platform-channels
+            resultText: _pingResult,
+            child: ElevatedButton(
+              onPressed: _testPing,
+              child: const Text('发送 ping'),
+            ),
+          ),
 
-            // ── 测试1：MethodChannel Ping-Pong ─────────────────────────────
-            _SectionCard(
-              title: '测试 1：MethodChannel ping → pong',
+          // ── 测试2：OnnxRuntime 加载 ──────────────────────────────────────
+          _TestCard(
+            index: '测试2',
+            title: 'OnnxRuntime 加载验证',
+            // 来源：https://onnxruntime.ai/docs/get-started/with-java.html
+            resultText: _onnxResult,
+            child: ElevatedButton(
+              onPressed: _testOnnxRuntime,
+              child: const Text('验证 OnnxRuntime'),
+            ),
+          ),
+
+          // ── 测试3：麦克风 PCM 采集 ─────────────────────────────────────
+          _TestCard(
+            index: '测试3',
+            title: '麦克风 PCM 采集',
+            // 来源：https://developer.android.com/reference/android/media/AudioRecord
+            resultText: _isRecordingAudio
+                ? '录音中... 累计样本数：$_totalPcmSamples'
+                : '总样本数：$_totalPcmSamples（已停止）',
+            child: Row(
               children: [
-                Text('结果：$_pingResult'),
-                const SizedBox(height: 8),
                 ElevatedButton(
-                  onPressed: _testPing,
-                  child: const Text('发送 ping'),
+                  onPressed: _isRecordingAudio ? null : _startRecording,
+                  child: const Text('开始录音'),
                 ),
-              ],
-            ),
-
-            const SizedBox(height: 16),
-
-            // ── 测试2：OnnxRuntime 加载验证 ────────────────────────────────
-            _SectionCard(
-              title: '测试 2：OnnxRuntime 加载验证',
-              children: [
-                Text('结果：$_onnxResult'),
-                const SizedBox(height: 8),
+                const SizedBox(width: 12),
                 ElevatedButton(
-                  onPressed: _testOnnx,
-                  child: const Text('验证 OnnxRuntime'),
+                  onPressed: _isRecordingAudio ? _stopRecording : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red[100],
+                  ),
+                  child: const Text('停止录音'),
                 ),
               ],
             ),
+          ),
 
-            const SizedBox(height: 16),
-
-            // ── 测试3：麦克风测试区域 ──────────────────────────────────────
-            _SectionCard(
-              title: '测试 3：麦克风（VAD 前置节点）',
-              children: [
-
-                // 权限状态显示
-                Text('权限状态：$_permissionStatus'),
-                const SizedBox(height: 4),
-
-                // PCM 字节数累计显示
-                // event.length = short 样本数 × 2 bytes = 实际字节数
-                // 此处直接显示 short 样本数，更直观
-                Text(
-                  '已接收 PCM 样本数：$_pcmSamplesReceived'
-                  '${_pcmSamplesReceived > 0 ? "（≈ ${(_pcmSamplesReceived / 16000).toStringAsFixed(1)} 秒）" : ""}',
-                ),
-
-                const SizedBox(height: 12),
-
-                // 请求麦克风权限按钮
-                // 查证来源：查证项 3，Permission.microphone.request()
-                ElevatedButton.icon(
-                  onPressed: _requestMicPermission,
-                  icon: const Icon(Icons.mic_none),
-                  label: const Text('请求麦克风权限'),
-                ),
-
-                const SizedBox(height: 8),
-
-                // 开始录音按钮
-                // 查证来源：查证项 2（invokeMethod）+ 查证项 1（EventChannel）
-                ElevatedButton.icon(
-                  onPressed: _isRecording ? null : _startRecording,
-                  // 录音中禁用，防止重复调用
-                  icon: const Icon(Icons.fiber_manual_record, color: Colors.red),
-                  label: const Text('开始录音'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isRecording
-                        ? Colors.grey.shade300
-                        : Colors.green.shade100,
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-
-                // 停止录音按钮
-                // 查证来源：查证项 2（invokeMethod）+ 查证项 4（cancel）
-                ElevatedButton.icon(
-                  onPressed: _isRecording ? _stopRecording : null,
-                  // 未录音时禁用
-                  icon: const Icon(Icons.stop_circle_outlined),
-                  label: const Text('停止录音'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isRecording
-                        ? Colors.red.shade100
-                        : Colors.grey.shade300,
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-
-                // 录音状态指示
-                Row(
-                  children: [
-                    Icon(
-                      _isRecording
-                          ? Icons.radio_button_on
-                          : Icons.radio_button_off,
-                      color: _isRecording ? Colors.red : Colors.grey,
-                      size: 16,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      _isRecording ? '录音中...' : '已停止',
-                      style: TextStyle(
-                        color: _isRecording ? Colors.red : Colors.grey,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+          // ── 测试4：VAD 状态 ────────────────────────────────────────────
+          _TestCard(
+            index: '测试4',
+            title: 'VAD 语音活动检测',
+            // VAD 状态通过 C4 stt_result 传递，[VAD:] 前缀区分
+            // 查证报告 A-003 §6.2 测试4
+            resultText: _vadStatus,
+            child: const Text(
+              '（VAD 状态由录音管线自动更新，无需手动触发）',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
+          ),
 
-          ],
-        ),
+          // ── 测试5：STT 识别结果 ────────────────────────────────────────
+          _TestCard(
+            index: '测试5',
+            title: 'STT 语音识别结果',
+            // 来源：C4 tech.glotalk/stt_result EventChannel
+            resultText: _sttText,
+            child: const Text(
+              '（识别结果由推理管线自动推送，无需手动触发）',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ),
+
+          // ── 测试6：NMT 翻译结果 ────────────────────────────────────────
+          _TestCard(
+            index: '测试6',
+            title: 'NMT 翻译结果',
+            // 来源：C5 tech.glotalk/nmt_result EventChannel
+            resultText: _nmtText,
+            child: const Text(
+              '（翻译结果由推理管线自动推送，无需手动触发）',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ),
+
+          // ── 测试7：TTS 播放 ────────────────────────────────────────────
+          _TestCard(
+            index: '测试7',
+            title: 'TTS 播放翻译结果',
+            // 来源：https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeech
+            // 查证报告 A-003 §6.2 测试7
+            resultText: '点击按钮播放当前翻译文本',
+            child: ElevatedButton.icon(
+              onPressed: _speakTranslation,
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('▶ 播放翻译结果'),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 辅助 Widget：带标题的测试区域卡片
+// _TestCard — 测试区块通用卡片 Widget
 // ─────────────────────────────────────────────────────────────────────────────
-class _SectionCard extends StatelessWidget {
+class _TestCard extends StatelessWidget {
+  final String index;
   final String title;
-  final List<Widget> children;
+  final String resultText;
+  final Widget child;
 
-  const _SectionCard({required this.title, required this.children});
+  const _TestCard({
+    required this.index,
+    required this.title,
+    required this.resultText,
+    required this.child,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    index,
+                    style: const TextStyle(
+                        fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            child,
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              child: Text(
+                resultText,
+                style: const TextStyle(
+                    fontFamily: 'monospace', fontSize: 13),
               ),
             ),
-            const Divider(height: 16),
-            ...children,
           ],
         ),
       ),
