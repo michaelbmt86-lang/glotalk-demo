@@ -140,7 +140,7 @@ class _TestHomePageState extends State<TestHomePage> {
   // ─────────────────────────────────────────────────────────────────────────
   Future<void> _testOnnx() async {
     try {
-      final result = await _controlChannel.invokeMethod<String>('testOnnxLoad');
+      final result = await _controlChannel.invokeMethod<String>('testOnnxRuntime');
       setState(() {
         _onnxResult = result ?? '（空响应）';
       });
