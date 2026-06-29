@@ -11,8 +11,8 @@ import ai.onnxruntime.OnnxTensor      // https://onnxruntime.ai/docs/get-started
 import ai.onnxruntime.OrtEnvironment   // https://onnxruntime.ai/docs/get-started/with-java.html
 import ai.onnxruntime.OrtSession       // https://onnxruntime.ai/docs/get-started/with-java.html
 import android.content.Context
-import java.io.File
-import java.nio.file.Files
+import java.nio.FloatBuffer            // A-004-补丁：OnnxTensor.createTensor(env, FloatBuffer, shape)
+import java.nio.LongBuffer             // A-004-补丁：OnnxTensor.createTensor(env, LongBuffer, shape)
 
 /**
  * Silero VAD v4 推理封装
@@ -73,7 +73,8 @@ class SileroVAD(private val context: Context) {
 
         // 预创建 sr 张量（固定值，复用）（来源：A-004 VAD-1）
         val srArray = longArrayOf(SAMPLE_RATE)
-        srTensorCached = OnnxTensor.createTensor(env, srArray, longArrayOf(1))
+        // A-004-补丁：LongBuffer.wrap() — https://onnxruntime.ai/docs/get-started/with-java.html
+        srTensorCached = OnnxTensor.createTensor(env, LongBuffer.wrap(srArray), longArrayOf(1))
     }
 
     /**
@@ -107,15 +108,18 @@ class SileroVAD(private val context: Context) {
         val floatFrame: FloatArray = shortArrayToFloat(pcmShorts)
 
         // Step 2：创建 "input" 张量 [1, 512]（来源：A-004 VAD-1）
+        // A-004-补丁：FloatBuffer.wrap() — https://onnxruntime.ai/docs/get-started/with-java.html
         val inputTensor = OnnxTensor.createTensor(
-            env, floatFrame, longArrayOf(1, CHUNK_SIZE.toLong())
+            env, FloatBuffer.wrap(floatFrame), longArrayOf(1, CHUNK_SIZE.toLong())
         )
 
         // Step 3：创建 "h" 张量 [2,1,128]（来源：A-004 VAD-2）
-        val hTensor = OnnxTensor.createTensor(env, h, hcShape)
+        // A-004-补丁：FloatBuffer.wrap() — https://onnxruntime.ai/docs/get-started/with-java.html
+        val hTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(h), hcShape)
 
         // Step 4：创建 "c" 张量 [2,1,128]（来源：A-004 VAD-2）
-        val cTensor = OnnxTensor.createTensor(env, c, hcShape)
+        // A-004-补丁：FloatBuffer.wrap() — https://onnxruntime.ai/docs/get-started/with-java.html
+        val cTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(c), hcShape)
 
         // Step 5：推理，必须在 finally 中 close 所有张量（来源：A-004 C-3）
         var speechProbability = 0f
