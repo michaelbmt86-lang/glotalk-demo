@@ -12,11 +12,12 @@ import ai.onnxruntime.OnnxTensor      // https://onnxruntime.ai/docs/get-started
 import ai.onnxruntime.OrtEnvironment   // https://onnxruntime.ai/docs/get-started/with-java.html
 import ai.onnxruntime.OrtSession       // https://onnxruntime.ai/docs/get-started/with-java.html
 import android.content.Context
+import java.nio.FloatBuffer            // A-004-补丁：OnnxTensor.createTensor(env, FloatBuffer, shape)
+import java.nio.LongBuffer             // A-004-补丁：OnnxTensor.createTensor(env, LongBuffer, shape)
 import kotlin.math.cos
 import kotlin.math.ln
 import kotlin.math.PI
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 /**
  * Whisper ONNX 分体推理封装（encoder + decoder）
@@ -132,8 +133,9 @@ class WhisperInference(private val context: Context) {
 
         // Step 4：Encoder 推理
         // 输入："input_features" [1, 80, 3000]（来源：A-004 WHISPER-2）
+        // A-004-补丁：FloatBuffer.wrap() — https://onnxruntime.ai/docs/get-started/with-java.html
         val encoderInputTensor = OnnxTensor.createTensor(
-            env, melFeatures, longArrayOf(1, N_MELS.toLong(), MEL_FRAMES.toLong())
+            env, FloatBuffer.wrap(melFeatures), longArrayOf(1, N_MELS.toLong(), MEL_FRAMES.toLong())
         )
         val encoderHiddenState: FloatArray
         val hiddenStateShape: LongArray
@@ -170,11 +172,13 @@ class WhisperInference(private val context: Context) {
             val seqLen = inputIdArray.size.toLong()
 
             // 创建 decoder 输入张量（来源：A-004 WHISPER-3）
+            // A-004-补丁：LongBuffer.wrap() — https://onnxruntime.ai/docs/get-started/with-java.html
             val decoderInputTensor = OnnxTensor.createTensor(
-                env, inputIdArray, longArrayOf(1, seqLen)
+                env, LongBuffer.wrap(inputIdArray), longArrayOf(1, seqLen)
             )
             // encoder_hidden_states 张量（来源：A-004 WHISPER-3）
-            val hiddenTensor = OnnxTensor.createTensor(env, encoderHiddenState, hiddenStateShape)
+            // A-004-补丁：FloatBuffer.wrap() — https://onnxruntime.ai/docs/get-started/with-java.html
+            val hiddenTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(encoderHiddenState), hiddenStateShape)
 
             var nextToken: Long
             try {
