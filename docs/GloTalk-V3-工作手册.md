@@ -1,91 +1,725 @@
-# GloTalk V3 验证分支 — 智能体工作手册
+# GloTalk-V3 工作手册
 
-## 身份与原则
-
-你是 GloTalk V3 验证分支的专属开发智能体。
-
-**核心原则（永远不违反）：**
-1. 动手前必读官方文档，查证后才能写代码
-2. 搭积木不造轮子，每块积木都有官方出处
-3. 给完整代码，不做局部补丁
-4. 每次改动必须说明参考了哪个官方文档的哪个部分
-5. 安全第一，宁可多做验证步骤，不走捷径
-6. 遇到不确定的地方，先说"我不确定，需要查证"，不猜测
+> **版本：** V3.1 | **最后更新：** 2026-06-29 | **维护者：** GloTalk 开发团队  
+> **GitHub：** `michaelbmt86-lang/glotalk-demo` → 子目录 `GloTalk-V3/`  
+> **线上版本：** alibaba-v1（网页版）→ https://glotalk.tech/glotalk-al.html  
+> **服务器：** 47.84.206.142（新加坡）| 域名 glotalk.tech | **到期：2026-07-09 必须续费**
 
 ---
 
-## 项目背景
+## 第一章：项目背景与最高原则
 
-**目标**：在新分支 `v3-opus-verify` 验证「一句中文进去、英文出来」的完整设备端管线。
+### 1.1 项目定位
 
-**不涉及**：LiveKit、音频、STT、aliabba-v1，本次只验证翻译积木。
+GloTalk 是一款**跨语言实时语音翻译 App**，设计目标是成为 Android 与 iOS 平台的纯本地、零网络依赖的实时口语翻译工具。
 
-**测试设备**：Redmi K30i（骁龙765G，Android 12，6GB RAM）
+参照对象：[Apple Live Translation](https://support.apple.com/en-gb/guide/iphone/iph22b72984d/26/ios/26) 技术架构，以及 [RTranslator](https://github.com/niedev/RTranslator) 开源 Android 实时翻译 App（Meta NLLB + OpenAI Whisper，全部本地运行）。
 
----
+### 1.2 最高原则（不可妥协）
 
-## 技术栈（已查证，所有版本号来自官方 pub.dev）
-
-### 四块积木
-
-| 积木 | 包名 | 版本 | 平台 | 来源 |
-|------|------|------|------|------|
-| ONNX 推理 | `flutter_onnxruntime` | `^1.7.0` | Android ✅ iOS ✅ | pub.dev/packages/flutter_onnxruntime |
-| Tokenizer | `dart_sentencepiece_tokenizer` | `^1.3.1` | 纯 Dart ✅ | pub.dev/packages/dart_sentencepiece_tokenizer |
-| TTS | `flutter_tts` | `^4.2.5` | Android ✅ iOS ✅ | pub.dev/packages/flutter_tts |
-| 权限 | `permission_handler` | `^12.0.1` | Android ✅ iOS ✅ | 现有 App 已有 |
-
-### 模型文件（已查证真实大小）
-
-来源：`onnx-community/opus-mt-zh-en`（HuggingFace，CC-BY 4.0）
-
-| 文件 | 大小 | 用途 |
+| 编号 | 原则 | 说明 |
 |------|------|------|
-| `encoder_model_int8.onnx` | 52.9 MB | 编码中文输入 |
-| `decoder_model_merged_int8.onnx` | 193 MB | 自回归解码生成英文 |
-| `source.spm` | ~800 KB | 中文 tokenizer 模型 |
-| `target.spm` | ~800 KB | 英文 detokenizer 模型 |
-| `vocab.json` | ~2 MB | 词汇表（token→id 映射） |
-
-**注意**：`dart_sentencepiece_tokenizer` 从 `.spm` 文件加载，不需要 `tokenizer.json`。
+| P1 | **设备端完全离线** | 所有推理均在本机运行，无需联网，无需云端 API |
+| P2 | **流式实时翻译** | 语音识别 → 翻译 → 合成，全链路流式，延迟最小化 |
+| P3 | **全栈开源积木** | 每个节点均使用开源模型与库，可审计、可商用 |
+| P4 | **动手前必查官方文档** | 严禁凭记忆猜 API 名称，任何代码改动必须先查证 |
+| P5 | **从根部解决问题** | 遇到冲突不打局部补丁，从架构层彻底解决 |
 
 ---
 
-## 完整 pubspec.yaml
+## 第二章：技术架构（四节点图）
+
+### 2.1 核心数据流
+
+```
+麦克风音频输入
+      │
+      ▼
+┌─────────────────────────────────────────────┐
+│  节点 1：VAD（语音活动检测）                 │
+│  Silero VAD（ONNX，MIT）                    │
+│  → 检测语音帧，过滤静音，触发识别             │
+└─────────────┬───────────────────────────────┘
+              │ 有效语音帧
+              ▼
+┌─────────────────────────────────────────────┐
+│  节点 2：STT（语音转文字）                   │
+│  Whisper ONNX int8（MIT）                   │
+│  → 流式/分段识别，输出源语言文本             │
+└─────────────┬───────────────────────────────┘
+              │ 源语言文本
+              ▼
+┌─────────────────────────────────────────────┐
+│  节点 3：NMT（神经机器翻译）                 │
+│  Opus-MT（ONNX，Apache 2.0，可商用）         │
+│  → 翻译为目标语言文本                        │
+└─────────────┬───────────────────────────────┘
+              │ 目标语言文本
+              ▼
+┌─────────────────────────────────────────────┐
+│  节点 4：TTS（文字转语音）                   │
+│  Android TextToSpeech API（系统自带）        │
+│  → 合成目标语言语音，播放给用户              │
+└─────────────────────────────────────────────┘
+```
+
+### 2.2 跨层通信架构
+
+```
+Flutter / Dart UI 层
+    │ MethodChannel（单次调用：初始化、配置、控制）
+    │ EventChannel（流式：实时识别结果、翻译结果推送）
+    ▼
+Kotlin / Android 原生层
+    │ OnnxRuntime Java API
+    ▼
+ONNX 模型层（Whisper / Opus-MT / Silero VAD）
+```
+
+### 2.3 架构验证结果（2026-06-29）
+
+在红米 Note 12（Android 13，arm64，8GB）上验证通过：
+
+| 测试项 | 结果 |
+|--------|------|
+| Flutter → MethodChannel → Kotlin 通信 | ✅ pong |
+| OnnxRuntime 1.23.2 加载 | ✅ OrtEnvironment OK |
+| 崩溃 / 冲突 | ❌ 无 |
+
+---
+
+## 第三章：为什么放弃 sherpa_onnx / flutter_onnxruntime
+
+### 3.1 放弃 sherpa_onnx
+
+**原因：架构级不可解决的动态库版本冲突**
+
+- `sherpa_onnx` 内部捆绑了 `libonnxruntime.so` **版本 1.17.1**
+- 项目所需的 OnnxRuntime Java API 版本为 **1.23.2**
+- 两个 `.so` 文件在同一 APK 内共存时，`OrtGetApiBase` 符号解析崩溃
+- 属于 native symbol 层冲突，无法通过 ProGuard / namespace 等手段规避
+- **结论：永久废弃，禁止在任何分支引入**
+
+### 3.2 放弃 flutter_onnxruntime
+
+**原因：同类 libonnxruntime.so 版本冲突**
+
+- `flutter_onnxruntime` 捆绑 `libonnxruntime.so` **版本 1.22.0**
+- 与 sherpa_onnx 的 1.17.1 或本项目的 1.23.2 均不兼容
+- 运行时抛出 `UnsatisfiedLinkError: OrtGetApiBase`
+- **结论：永久废弃，禁止在任何分支引入**
+
+### 3.3 放弃 onnxruntime dart:ffi
+
+**原因：同样自带 libonnxruntime.so**
+
+- 通过 dart:ffi 调用的 onnxruntime 包也会捆绑自己的 `.so`
+- 与 Java API 路径的 `.so` 冲突
+- **结论：永久废弃，所有 ONNX 推理统一走 Kotlin → OnnxRuntime Java API**
+
+### 3.4 唯一正确路线
+
+```
+OnnxRuntime Java API
+com.microsoft.onnxruntime:onnxruntime-android:1.23.2
+MIT 协议 | 单一版本 | 零冲突
+```
+
+---
+
+## 第四章：技术栈（已查证版本）
+
+### 4.1 Flutter / Dart 层
+
+| 包名 | 版本 | 用途 | 协议 |
+|------|------|------|------|
+| `flutter` | SDK stable | UI 框架 | BSD |
+| `permission_handler` | ^12.0.1 | 麦克风权限请求 | MIT |
+| `path_provider` | ^2.1.5 | 获取本地模型路径 | BSD |
+
+### 4.2 Android 原生层
+
+| 库 | 版本 | 用途 | 协议 |
+|----|------|------|------|
+| `com.microsoft.onnxruntime:onnxruntime-android` | **1.23.2** | ONNX 模型推理 | MIT |
+| `Android AudioRecord` | 系统 API | 麦克风采集 PCM | 系统 |
+| `Android TextToSpeech` | 系统 API | TTS 语音合成 | 系统 |
+
+### 4.3 ONNX 模型层
+
+| 模型 | 格式 | 用途 | 协议 |
+|------|------|------|------|
+| Whisper（tiny/base/small int8） | ONNX int8 | STT 语音识别 | MIT |
+| Opus-MT（opus-mt-\[src\]-\[tgt\]） | ONNX | NMT 机器翻译 | Apache 2.0 |
+| Silero VAD v4 | ONNX | 语音活动检测 | MIT |
+
+### 4.4 目标平台
+
+- **Android**（主线，已验证）
+- **iOS**（计划中，OnnxRuntime iOS 兼容）
+
+---
+
+## 第五章：麦克风采集方案（路线A：AudioRecord + EventChannel）
+
+### 5.1 方案选型
+
+| 方案 | 技术 | 状态 |
+|------|------|------|
+| **路线 A（采用）** | Android `AudioRecord` + `EventChannel` | ✅ 主线方案 |
+| 路线 B（弃用） | `sherpa_onnx` 内置麦克风 | ❌ 冲突废弃 |
+
+### 5.2 AudioRecord 初始化（Kotlin）
+
+```kotlin
+// android/app/src/main/kotlin/com/glotalk/app/AudioService.kt
+
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
+
+class AudioService {
+    companion object {
+        // Whisper 要求 16kHz 单声道 PCM_16BIT
+        const val SAMPLE_RATE = 16000
+        const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
+        const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+    }
+
+    private var audioRecord: AudioRecord? = null
+    private var isRecording = false
+
+    fun startRecording(onAudioData: (ShortArray) -> Unit) {
+        val bufferSize = AudioRecord.getMinBufferSize(
+            SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT
+        )
+        audioRecord = AudioRecord(
+            MediaRecorder.AudioSource.MIC,
+            SAMPLE_RATE,
+            CHANNEL_CONFIG,
+            AUDIO_FORMAT,
+            bufferSize
+        )
+        audioRecord?.startRecording()
+        isRecording = true
+
+        Thread {
+            val buffer = ShortArray(bufferSize / 2)
+            while (isRecording) {
+                val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
+                if (read > 0) {
+                    onAudioData(buffer.copyOf(read))
+                }
+            }
+        }.start()
+    }
+
+    fun stopRecording() {
+        isRecording = false
+        audioRecord?.stop()
+        audioRecord?.release()
+        audioRecord = null
+    }
+}
+```
+
+### 5.3 EventChannel 推送音频数据到 Flutter
+
+```kotlin
+// MainActivity.kt 中注册 EventChannel
+
+private val AUDIO_CHANNEL = "tech.glotalk/audio_stream"
+
+private fun setupAudioEventChannel(flutterEngine: FlutterEngine) {
+    EventChannel(flutterEngine.dartExecutor.binaryMessenger, AUDIO_CHANNEL)
+        .setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                audioService.startRecording { pcmData ->
+                    // 在主线程回调 EventSink
+                    Handler(Looper.getMainLooper()).post {
+                        events?.success(pcmData.map { it.toInt() })
+                    }
+                }
+            }
+            override fun onCancel(arguments: Any?) {
+                audioService.stopRecording()
+            }
+        })
+}
+```
+
+### 5.4 Flutter Dart 订阅音频流
+
+```dart
+// lib/services/audio_service.dart
+
+const _audioChannel = EventChannel('tech.glotalk/audio_stream');
+
+Stream<List<int>> get audioStream =>
+    _audioChannel.receiveBroadcastStream().cast<List<int>>();
+```
+
+### 5.5 AudioRecord 权限配置
+
+```xml
+<!-- android/app/src/main/AndroidManifest.xml -->
+<uses-permission android:name="android.permission.RECORD_AUDIO"/>
+```
+
+```dart
+// Flutter 层请求权限
+final status = await Permission.microphone.request();
+if (!status.isGranted) {
+  // 处理权限拒绝
+}
+```
+
+---
+
+## 第六章：OnnxRuntime Java API 正确写法
+
+### 6.1 正确 API 序列（必须遵守）
+
+```
+OrtEnvironment.getEnvironment()           ← 获取全局环境（单例）
+    → env.createSession(path, options)    ← 创建推理会话
+    → OnnxTensor.createTensor(env, data, shape)  ← 创建输入张量
+    → session.run(inputs)                 ← 执行推理
+    → result[outputIndex].value           ← 读取输出
+    → tensor.close()                      ← 必须 close 张量
+    → session.close()                     ← 必须 close 会话（推理后）
+```
+
+### 6.2 Whisper STT 推理示例（Kotlin）
+
+```kotlin
+import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
+
+class WhisperInference(private val modelPath: String) {
+
+    private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
+    private var session: OrtSession? = null
+
+    fun loadModel() {
+        val options = OrtSession.SessionOptions().apply {
+            setIntraOpNumThreads(2)
+            // 可选：启用 NNAPI 加速
+            // addNnapi()
+        }
+        session = env.createSession(modelPath, options)
+    }
+
+    fun transcribe(audioFeatures: FloatArray, shape: LongArray): String {
+        val inputTensor = OnnxTensor.createTensor(env, audioFeatures, shape)
+        var result = ""
+        try {
+            val inputs = mapOf("input_features" to inputTensor)
+            val output = session!!.run(inputs)
+            val logits = output[0].value as Array<Array<FloatArray>>
+            // 解码 token → 文本（需配合 tokenizer）
+            result = decodeTokens(logits)
+            output.close()
+        } finally {
+            inputTensor.close()  // ← 必须 close，防止 native 内存泄漏
+        }
+        return result
+    }
+
+    fun close() {
+        session?.close()
+        session = null
+    }
+
+    private fun decodeTokens(logits: Array<Array<FloatArray>>): String {
+        // 实现 greedy decode / beam search
+        return ""
+    }
+}
+```
+
+### 6.3 Opus-MT 翻译推理示例（Kotlin）
+
+```kotlin
+class OpusMTInference(private val modelPath: String) {
+
+    private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
+    private var session: OrtSession? = null
+
+    fun loadModel() {
+        session = env.createSession(modelPath, OrtSession.SessionOptions())
+    }
+
+    fun translate(inputIds: LongArray, attentionMask: LongArray): LongArray {
+        val batchSize = 1L
+        val seqLen = inputIds.size.toLong()
+
+        val inputTensor = OnnxTensor.createTensor(
+            env, inputIds, longArrayOf(batchSize, seqLen)
+        )
+        val maskTensor = OnnxTensor.createTensor(
+            env, attentionMask, longArrayOf(batchSize, seqLen)
+        )
+        var outputIds = longArrayOf()
+        try {
+            val inputs = mapOf(
+                "input_ids" to inputTensor,
+                "attention_mask" to maskTensor
+            )
+            val output = session!!.run(inputs)
+            outputIds = (output[0].value as Array<LongArray>)[0]
+            output.close()
+        } finally {
+            inputTensor.close()   // ← 必须 close
+            maskTensor.close()    // ← 必须 close
+        }
+        return outputIds
+    }
+
+    fun close() {
+        session?.close()
+        session = null
+    }
+}
+```
+
+### 6.4 Silero VAD 推理示例（Kotlin）
+
+```kotlin
+class SileroVAD(private val modelPath: String) {
+
+    private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
+    private var session: OrtSession? = null
+
+    fun loadModel() {
+        session = env.createSession(modelPath, OrtSession.SessionOptions())
+    }
+
+    // 返回 0.0~1.0 的语音概率
+    fun isSpeech(pcmFrame: FloatArray): Float {
+        val shape = longArrayOf(1, pcmFrame.size.toLong())
+        val inputTensor = OnnxTensor.createTensor(env, pcmFrame, shape)
+        var probability = 0f
+        try {
+            val output = session!!.run(mapOf("input" to inputTensor))
+            probability = ((output[0].value as Array<FloatArray>)[0][0])
+            output.close()
+        } finally {
+            inputTensor.close()
+        }
+        return probability
+    }
+
+    fun close() {
+        session?.close()
+        session = null
+    }
+}
+```
+
+---
+
+## 第七章：MethodChannel / EventChannel 正确写法
+
+> **铁律：两端 channel 名称字符串必须完全一致，大小写敏感。**
+
+### 7.1 Channel 名称常量表
+
+| Channel | 名称字符串 | 类型 | 用途 |
+|---------|-----------|------|------|
+| 控制通道 | `tech.glotalk/control` | MethodChannel | 初始化、开始/停止录音 |
+| 识别结果 | `tech.glotalk/stt_result` | EventChannel | STT 实时文本流 |
+| 翻译结果 | `tech.glotalk/nmt_result` | EventChannel | NMT 翻译文本流 |
+| 音频流 | `tech.glotalk/audio_stream` | EventChannel | PCM 音频数据流 |
+
+### 7.2 Kotlin 侧（MainActivity.kt）
+
+```kotlin
+// android/app/src/main/kotlin/com/glotalk/app/MainActivity.kt
+
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
+import io.flutter.plugin.common.MethodChannel
+
+class MainActivity : FlutterActivity() {
+
+    // Channel 名称常量（与 Dart 侧完全一致）
+    private val CONTROL_CHANNEL = "tech.glotalk/control"
+    private val STT_CHANNEL     = "tech.glotalk/stt_result"
+    private val NMT_CHANNEL     = "tech.glotalk/nmt_result"
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)  // ← 必须调用 super
+
+        // MethodChannel：处理单次调用
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CONTROL_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "initModels" -> {
+                        val srcLang = call.argument<String>("srcLang") ?: "en"
+                        val tgtLang = call.argument<String>("tgtLang") ?: "zh"
+                        initModels(srcLang, tgtLang)
+                        result.success(true)
+                    }
+                    "startRecording" -> {
+                        startPipeline()
+                        result.success(true)
+                    }
+                    "stopRecording" -> {
+                        stopPipeline()
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        // EventChannel：STT 结果流
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, STT_CHANNEL)
+            .setStreamHandler(sttStreamHandler)
+
+        // EventChannel：NMT 结果流
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, NMT_CHANNEL)
+            .setStreamHandler(nmtStreamHandler)
+    }
+
+    private val sttStreamHandler = object : EventChannel.StreamHandler {
+        override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+            sttEventSink = events
+        }
+        override fun onCancel(arguments: Any?) {
+            sttEventSink = null
+        }
+    }
+
+    private val nmtStreamHandler = object : EventChannel.StreamHandler {
+        override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+            nmtEventSink = events
+        }
+        override fun onCancel(arguments: Any?) {
+            nmtEventSink = null
+        }
+    }
+
+    private var sttEventSink: EventChannel.EventSink? = null
+    private var nmtEventSink: EventChannel.EventSink? = null
+
+    // 推送识别结果到 Flutter
+    fun pushSttResult(text: String) {
+        runOnUiThread { sttEventSink?.success(text) }
+    }
+
+    // 推送翻译结果到 Flutter
+    fun pushNmtResult(text: String) {
+        runOnUiThread { nmtEventSink?.success(text) }
+    }
+}
+```
+
+### 7.3 Dart 侧（Flutter）
+
+```dart
+// lib/services/translation_service.dart
+
+import 'package:flutter/services.dart';
+
+class TranslationService {
+  static const _controlChannel = MethodChannel('tech.glotalk/control');
+  static const _sttChannel = EventChannel('tech.glotalk/stt_result');
+  static const _nmtChannel = EventChannel('tech.glotalk/nmt_result');
+
+  // 初始化模型
+  Future<void> initModels({
+    required String srcLang,
+    required String tgtLang,
+  }) async {
+    await _controlChannel.invokeMethod('initModels', {
+      'srcLang': srcLang,
+      'tgtLang': tgtLang,
+    });
+  }
+
+  // 开始录音
+  Future<void> startRecording() async {
+    await _controlChannel.invokeMethod('startRecording');
+  }
+
+  // 停止录音
+  Future<void> stopRecording() async {
+    await _controlChannel.invokeMethod('stopRecording');
+  }
+
+  // 订阅 STT 识别文本流
+  Stream<String> get sttStream =>
+      _sttChannel.receiveBroadcastStream().cast<String>();
+
+  // 订阅 NMT 翻译文本流
+  Stream<String> get nmtStream =>
+      _nmtChannel.receiveBroadcastStream().cast<String>();
+}
+```
+
+### 7.4 main.dart 必须格式
+
+```dart
+// lib/main.dart
+
+import 'package:flutter/material.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();  // ← 必须，async main 前置
+  runApp(const GloTalkApp());
+}
+```
+
+---
+
+## 第八章：模型文件清单（授权协议）
+
+### 8.1 合规模型（可商用）
+
+| 模型 | 版本/规格 | 格式 | 授权协议 | 商用 | 文件名示例 |
+|------|-----------|------|----------|------|-----------|
+| **Whisper** | tiny int8 | ONNX | MIT | ✅ | `whisper-tiny-int8.onnx` |
+| **Whisper** | base int8 | ONNX | MIT | ✅ | `whisper-base-int8.onnx` |
+| **Whisper** | small int8 | ONNX | MIT | ✅ | `whisper-small-int8.onnx` |
+| **Opus-MT** | en-zh | ONNX | Apache 2.0 | ✅ | `opus-mt-en-zh.onnx` |
+| **Opus-MT** | zh-en | ONNX | Apache 2.0 | ✅ | `opus-mt-zh-en.onnx` |
+| **Opus-MT** | en-ja | ONNX | Apache 2.0 | ✅ | `opus-mt-en-ja.onnx` |
+| **Silero VAD** | v4 | ONNX | MIT | ✅ | `silero_vad.onnx` |
+
+### 8.2 禁用模型
+
+| 模型 | 原因 | 替代方案 |
+|------|------|---------|
+| **Meta NLLB** 系列 | CC-BY-NC 4.0，**禁止商用** | Opus-MT（Apache 2.0）|
+| **NLLB-200** | 同上 | Opus-MT |
+
+### 8.3 模型文件部署路径（Android）
+
+```
+android/app/src/main/assets/models/
+├── silero_vad.onnx          # VAD 模型（约 2MB）
+├── whisper-tiny-int8.onnx   # STT 模型（约 40MB）
+├── opus-mt-en-zh.onnx       # 英→中翻译（约 300MB）
+└── opus-mt-zh-en.onnx       # 中→英翻译（约 300MB）
+```
+
+> **注意：** 模型文件体积较大，建议通过首次启动下载或分包方式处理，避免 APK 超过 Google Play 100MB 限制。
+
+---
+
+## 第九章：Android 必须配置文件
+
+### 9.1 AndroidManifest.xml
+
+```xml
+<!-- android/app/src/main/AndroidManifest.xml -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 必须权限 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.INTERNET"
+        android:required="false"/>  <!-- 仅首次下载模型时需要，离线运行时可选 -->
+
+    <application
+        android:label="GloTalk"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+```
+
+### 9.2 build.gradle（app 级）
+
+```groovy
+// android/app/build.gradle
+
+android {
+    compileSdk 34
+    defaultConfig {
+        applicationId "com.glotalk.app"
+        minSdk 24          // OnnxRuntime Android 要求 minSdk ≥ 21
+        targetSdk 34
+        versionCode 1
+        versionName "3.0.0"
+
+        // 支持的 ABI（减小包体积，可按需调整）
+        ndk {
+            abiFilters 'arm64-v8a', 'x86_64'
+        }
+    }
+
+    // 大模型文件不压缩（ONNX 已压缩，再压缩无意义且耗时）
+    aaptOptions {
+        noCompress "onnx"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                         'proguard-rules.pro'
+        }
+    }
+}
+
+dependencies {
+    // OnnxRuntime Java API（唯一指定版本，不可随意升降）
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.23.2'
+
+    // Flutter 自动添加的依赖
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+}
+```
+
+### 9.3 proguard-rules.pro
+
+```pro
+# android/app/proguard-rules.pro
+
+# 保留 OnnxRuntime 所有类（防止混淆导致 native 方法找不到）
+-keep class ai.onnxruntime.** { *; }
+-keepclassmembers class ai.onnxruntime.** { *; }
+
+# 保留 Flutter 通信类
+-keep class io.flutter.** { *; }
+-keep class io.flutter.plugin.** { *; }
+```
+
+### 9.4 pubspec.yaml（Flutter 层）
 
 ```yaml
-name: glotalk_v3_verify
-description: GloTalk V3 翻译验证分支 — Opus-MT ONNX on-device
+# pubspec.yaml
 
-publish_to: 'none'
-
-version: 0.1.0+1
+name: glotalk_v3
+description: GloTalk V3 - Real-time Local Voice Translation
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.10.0'
 
 dependencies:
   flutter:
     sdk: flutter
-
-  # ONNX Runtime — 官方文档: pub.dev/packages/flutter_onnxruntime
-  # 版本 1.7.0，支持 ONNX Runtime 1.22.0，Android 需要 proguard-rules.pro
-  flutter_onnxruntime: ^1.7.0
-
-  # SentencePiece Tokenizer — 纯 Dart，无 FFI，无原生依赖
-  # 官方文档: pub.dev/packages/dart_sentencepiece_tokenizer
-  # 支持 Unigram 算法（Opus-MT 使用的算法）
-  dart_sentencepiece_tokenizer: ^1.3.1
-
-  # TTS — 调手机系统 TTS 引擎
-  # 官方文档: pub.dev/packages/flutter_tts
-  flutter_tts: ^4.2.5
-
-  # 路径工具（flutter_onnxruntime 依赖）
-  path_provider: ^2.1.5
-
-  # 权限（麦克风，为后续 STT 准备）
-  permission_handler: ^12.0.1
+  permission_handler: ^12.0.1   # 麦克风权限
+  path_provider: ^2.1.5         # 本地路径（模型文件）
 
 dev_dependencies:
   flutter_test:
@@ -94,597 +728,306 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-
   assets:
-    # ONNX 模型文件 — 从 onnx-community/opus-mt-zh-en 下载
-    - assets/models/opus-mt-zh-en/encoder_model_int8.onnx
-    - assets/models/opus-mt-zh-en/decoder_model_merged_int8.onnx
-    # Tokenizer 文件 — 从同一 HuggingFace repo 下载
-    - assets/models/opus-mt-zh-en/source.spm
-    - assets/models/opus-mt-zh-en/target.spm
-    - assets/models/opus-mt-zh-en/vocab.json
+    - assets/models/           # 模型文件目录（小文件可放这里）
 ```
 
 ---
 
-## Android 必要配置
+## 第十章：禁止事项清单
 
-### android/app/proguard-rules.pro
+### 10.1 绝对禁止（架构红线）
+
+| 编号 | 禁止项 | 原因 |
+|------|--------|------|
+| ❌ 1 | 引入 `sherpa_onnx` | 捆绑 libonnxruntime.so 1.17.1，OrtGetApiBase 崩溃 |
+| ❌ 2 | 引入 `flutter_onnxruntime` | 捆绑 libonnxruntime.so 1.22.0，版本冲突 |
+| ❌ 3 | 引入 `onnxruntime` dart:ffi 包 | 自带 libonnxruntime.so，与 Java API 冲突 |
+| ❌ 4 | 使用 NLLB 任意版本模型 | CC-BY-NC 4.0，禁止商用 |
+| ❌ 5 | 凭记忆猜 API 名称写代码 | 必须查官方文档后再动手 |
+| ❌ 6 | 打局部补丁掩盖根本问题 | 从根部解决，不留技术债 |
+| ❌ 7 | 省略 `super.configureFlutterEngine()` | MainActivity 插件注册失败 |
+| ❌ 8 | main() 不加 `async` + `ensureInitialized()` | 平台通道初始化时序错误 |
+| ❌ 9 | MethodChannel/EventChannel 两端名称不一致 | 通信失败，静默无报错 |
+| ❌ 10 | 推理后不 close OnnxTensor | Native 内存泄漏，OOM 崩溃 |
+| ❌ 11 | 推理后不 close OrtSession | 内存泄漏 |
+| ❌ 12 | 在非主线程调用 EventSink | IllegalStateException 崩溃 |
+
+### 10.2 代码审核 12 条清单
+
+在提交代码前，逐项确认：
+
+- [ ] 1. `main()` 是 `async` 且第一行是 `WidgetsFlutterBinding.ensureInitialized()`
+- [ ] 2. `MainActivity.kt` 有 `super.configureFlutterEngine(flutterEngine)`
+- [ ] 3. 所有 MethodChannel 两端名称字符串完全一致
+- [ ] 4. 所有 EventChannel 两端名称字符串完全一致
+- [ ] 5. `build.gradle` 中 OnnxRuntime 版本为 `1.23.2`，未引入其他 ort 包
+- [ ] 6. 所有 ONNX 推理后有 `tensor.close()`（在 finally 块中）
+- [ ] 7. 所有 `OrtSession` 使用完后有 `session.close()`
+- [ ] 8. 未引入 `sherpa_onnx`、`flutter_onnxruntime`、ffi ort 包
+- [ ] 9. 未使用 NLLB 相关模型（文件名、依赖均检查）
+- [ ] 10. `EventSink.success()` 在 `runOnUiThread {}` 或主线程中调用
+- [ ] 11. `AndroidManifest.xml` 有 `RECORD_AUDIO` 权限
+- [ ] 12. `build.gradle` 有 `aaptOptions { noCompress "onnx" }`
+
+---
+
+## 第十一章：三个智能体工作流程
+
+### 11.1 智能体定义
+
 ```
-# flutter_onnxruntime 官方要求（来自 pub.dev 文档）
--keep class ai.onnxruntime.** { *; }
+智能体 A：GloTalk 文档查证
+    职责：查证官方文档，核实 API 名称、版本、参数
+    产出：文档查证报告（纯文字，不含代码）
+    规则：不写任何代码，只查证、只报告
+
+智能体 B：GloTalk 代码编辑
+    职责：按查证报告写代码
+    产出：完整代码文件（Kotlin / Dart）
+    规则：只按 A 的报告写，不自行查证，不猜 API
+
+智能体 C：GloTalk 代码审核
+    职责：逐项对照 10.2 中 12 条清单审核
+    产出：审核报告（通过 / 不通过 + 具体问题）
+    规则：逐条过清单，有任何不通过必须退回 B 修改
 ```
 
-### android/app/build.gradle.kts
-```kotlin
-android {
-    compileSdk = 36
-    defaultConfig {
-        minSdk = 24  // flutter_tts pause 功能需要 SDK 26+，建议 24
-        targetSdk = 36
-    }
-    buildTypes {
-        release {
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-    }
-}
+### 11.2 标准工作流程
+
+```
+需求 / Bug
+    │
+    ▼
+┌─────────────────────┐
+│  智能体 A            │
+│  文档查证            │
+│  → 查官方文档        │
+│  → 输出查证报告      │
+└──────────┬──────────┘
+           │ 查证报告
+           ▼
+┌─────────────────────┐
+│  智能体 B            │
+│  代码编辑            │
+│  → 按报告写代码      │
+│  → 输出代码文件      │
+└──────────┬──────────┘
+           │ 代码文件
+           ▼
+┌─────────────────────┐
+│  智能体 C            │
+│  代码审核            │
+│  → 逐项过 12 条清单  │
+│  → 通过 / 不通过     │
+└──────────┬──────────┘
+           │ 通过
+           ▼
+    上传 GitHub
+    michaelbmt86-lang/glotalk-demo
 ```
 
-### android/app/src/main/AndroidManifest.xml 新增
-```xml
-<!-- TTS 服务查询（Android 11+ 必须）-->
-<queries>
-  <intent>
-    <action android:name="android.intent.action.TTS_SERVICE" />
-  </intent>
-</queries>
+### 11.3 退回规则
+
+- 审核不通过 → 智能体 C 出具不通过报告，指出具体条目
+- 退回智能体 B 修改，不得跳过重新审核
+- 同一问题退回超过 2 次 → 升级到智能体 A 重新查证文档
+
+---
+
+## 第十二章：GitHub 目录结构
+
+```
+michaelbmt86-lang/glotalk-demo/
+│
+├── README.md                          # 项目总览
+│
+├── GloTalk-V3/                  # 主线项目目录
+│   ├── pubspec.yaml
+│   ├── lib/
+│   │   ├── main.dart ✅ 已验证          # 入口（async + ensureInitialized）
+│   │   ├── app.dart                   # 根 Widget
+│   │   ├── services/
+│   │   │   ├── translation_service.dart   # MethodChannel/EventChannel Dart 侧
+│   │   │   └── audio_service.dart         # 音频流订阅（待实现）
+│   │   ├── screens/
+│   │   │   └── home_screen.dart           # 主界面
+│   │   └── widgets/
+│   │       ├── transcript_view.dart       # 识别文本显示
+│   │       └── translation_view.dart      # 翻译文本显示
+│   │
+│   ├── test/
+│   │   └── widget_test.dart ✅ 已验证
+│   │
+│   ├── android/
+│   │   ├── app/
+│   │   │   ├── build.gradle.kts ✅ 已验证   # onnxruntime-android:1.23.2
+│   │   │   ├── proguard-rules.pro
+│   │   │   └── src/main/
+│   │   │       ├── AndroidManifest.xml    # RECORD_AUDIO 权限
+│   │   │       ├── assets/models/         # ONNX 模型文件
+│   │   │       │   ├── silero_vad.onnx
+│   │   │       │   ├── whisper-tiny-int8.onnx
+│   │   │       │   └── opus-mt-en-zh.onnx
+│   │   │       └── kotlin/tech/glotalk/glotalk_v3/
+│   │   │           ├── MainActivity.kt ✅ 已验证  # super.configureFlutterEngine ✓
+│   │   │           ├── AudioService.kt    # 待实现：Android AudioRecord 麦克风采集
+│   │   │           ├── SileroVAD.kt       # 待实现：Silero VAD ONNX 推理
+│   │   │           ├── WhisperInference.kt  # 待实现：Whisper STT ONNX 推理
+│   │   │           └── OpusMTInference.kt   # 待实现：Opus-MT 翻译 ONNX 推理
+│   │   └── build.gradle                  # 项目级 gradle
+│   │
+│   └── ios/
+│       ├── Runner/
+│       │   └── AppDelegate.swift
+│       └── Podfile
+│
+├── docs/
+│   ├── GloTalk-V3-工作手册.md            # 本文档
+│   ├── architecture.md                   # 架构详解
+│   └── model-licenses.md                 # 模型授权清单
+│
+└── alibaba-v1/                           # 线上网页版
+    └── glotalk-al.html
 ```
 
 ---
 
-## OpusMTTranslator 完整代码骨架
+## 第十三章：Codemagic 配置
 
-文件路径：`lib/services/opus_mt_translator.dart`
+### 13.1 codemagic.yaml 基础配置
 
-```dart
-import 'dart:convert';
-import 'dart:typed_data';
-import 'package:flutter/services.dart';
-import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
-import 'package:dart_sentencepiece_tokenizer/dart_sentencepiece_tokenizer.dart';
+```yaml
+# codemagic.yaml（放置于 GloTalk-V3/ 根目录）
 
-/// GloTalk V3 — Helsinki-NLP Opus-MT 中英翻译器
-///
-/// 参考来源：
-/// - flutter_onnxruntime API: pub.dev/documentation/flutter_onnxruntime/latest/
-/// - dart_sentencepiece_tokenizer API: pub.dev/documentation/dart_sentencepiece_tokenizer/latest/
-/// - MarianMT tokenizer 规格: huggingface.co/docs/transformers/en/model_doc/marian
-/// - ONNX 推理流程: github.com/masicai/flutter_onnxruntime/blob/main/doc/api_usage.md
-///
-/// Opus-MT 特殊 token（来自 HuggingFace MarianTokenizer 官方文档）：
-/// - pad_token_id = 65000（<pad>），decoder 起始 token
-/// - eos_token_id = 0（</s>），生成结束信号
-/// - max_length = 512
-class OpusMTTranslator {
-  // ─── 私有字段 ───────────────────────────────────────────────────────────────
+workflows:
+  glotalk-android-release:
+    name: GloTalk V3 Android Release
+    max_build_duration: 60   # 分钟
 
-  OrtSession? _encoderSession;
-  OrtSession? _decoderSession;
-  SentencePieceTokenizer? _srcTokenizer; // 中文 source.spm
-  SentencePieceTokenizer? _tgtTokenizer; // 英文 target.spm
-  Map<String, int>? _vocab;              // vocab.json: token→id
-  Map<int, String>? _vocabInverse;       // id→token（用于解码输出）
+    environment:
+      flutter: stable
+      java: 17               # OnnxRuntime 1.23.2 需要 Java 17+
+      android_signing:
+        - glotalk_keystore   # 在 Codemagic 控制台配置
+      vars:
+        PACKAGE_NAME: "com.glotalk.app"
 
-  bool _isLoaded = false;
+    scripts:
+      - name: 检查 Flutter 版本
+        script: flutter --version
 
-  // ─── Opus-MT 特殊 token（来自 MarianTokenizer 官方文档）────────────────────
-  static const int _padTokenId = 65000; // <pad>，decoder 的起始 token
-  static const int _eosTokenId = 0;     // </s>，生成结束标志
-  static const int _maxLength = 512;
-  static const int _maxGenerateLength = 256; // 输出最大 token 数
+      - name: 获取依赖
+        script: |
+          cd GloTalk-V3
+          flutter pub get
 
-  // ─── 公开方法 ───────────────────────────────────────────────────────────────
+      - name: 运行单元测试
+        script: |
+          cd GloTalk-V3
+          flutter test
 
-  /// 加载所有模型和 tokenizer
-  /// 应在 App 启动时在后台调用一次，加载完成前不能调用 translate()
-  Future<void> load() async {
-    if (_isLoaded) return;
+      - name: 构建 Android Release APK
+        script: |
+          cd GloTalk-V3
+          flutter build apk \
+            --release \
+            --split-per-abi \
+            --obfuscate \
+            --split-debug-info=build/debug-info
 
-    try {
-      // 1. 加载 encoder ONNX 模型
-      //    flutter_onnxruntime API: OnnxRuntime().createSessionFromAsset()
-      final ort = OnnxRuntime();
-      _encoderSession = await ort.createSessionFromAsset(
-        'assets/models/opus-mt-zh-en/encoder_model_int8.onnx',
-      );
+      - name: 构建 Android App Bundle（用于 Play Store）
+        script: |
+          cd GloTalk-V3
+          flutter build appbundle \
+            --release \
+            --obfuscate \
+            --split-debug-info=build/debug-info
 
-      // 2. 加载 decoder ONNX 模型（merged 版本包含 past_key_values 缓存）
-      _decoderSession = await ort.createSessionFromAsset(
-        'assets/models/opus-mt-zh-en/decoder_model_merged_int8.onnx',
-      );
+    artifacts:
+      - GloTalk-V3/build/app/outputs/flutter-apk/*.apk
+      - GloTalk-V3/build/app/outputs/bundle/release/*.aab
+      - GloTalk-V3/build/debug-info/**
 
-      // 3. 加载中文 source tokenizer（Unigram 算法）
-      //    dart_sentencepiece_tokenizer API: SentencePieceTokenizer.fromModelFile()
-      //    注意：MarianMT 用 source.spm 做输入 tokenize
-      final srcBytes = await rootBundle.load(
-        'assets/models/opus-mt-zh-en/source.spm',
-      );
-      _srcTokenizer = await SentencePieceTokenizer.fromModelBytes(
-        srcBytes.buffer.asUint8List(),
-      );
-
-      // 4. 加载英文 target tokenizer（用于输出 detokenize）
-      final tgtBytes = await rootBundle.load(
-        'assets/models/opus-mt-zh-en/target.spm',
-      );
-      _tgtTokenizer = await SentencePieceTokenizer.fromModelBytes(
-        tgtBytes.buffer.asUint8List(),
-      );
-
-      // 5. 加载词汇表（vocab.json → token→id 映射）
-      //    MarianMT 的 vocab.json 是 {"token": id} 格式
-      final vocabJson = await rootBundle.loadString(
-        'assets/models/opus-mt-zh-en/vocab.json',
-      );
-      _vocab = Map<String, int>.from(json.decode(vocabJson) as Map);
-      _vocabInverse = {for (final e in _vocab!.entries) e.value: e.key};
-
-      _isLoaded = true;
-    } catch (e) {
-      // 加载失败时清理，允许重试
-      await dispose();
-      rethrow;
-    }
-  }
-
-  /// 翻译中文文本为英文
-  /// 必须先调用 load() 完成后才能使用
-  Future<String> translate(String chineseText) async {
-    if (!_isLoaded) throw StateError('OpusMTTranslator 未加载，请先调用 load()');
-    if (chineseText.trim().isEmpty) return '';
-
-    // ── Step 1: Tokenize 输入中文 ──────────────────────────────────────────
-    //   dart_sentencepiece_tokenizer: tokenizer.encode(text)
-    //   返回 Encoding 对象，.ids 是 List<int>
-    final encoding = _srcTokenizer!.encode(
-      chineseText.trim(),
-    );
-
-    // MarianMT 输入格式：token_ids + [eos_token_id]，截断到 maxLength-1 再加 EOS
-    final List<int> rawIds = encoding.ids;
-    final List<int> truncated = rawIds.length > (_maxLength - 1)
-        ? rawIds.sublist(0, _maxLength - 1)
-        : rawIds;
-    final List<int> inputIds = [...truncated, _eosTokenId];
-    final int seqLen = inputIds.length;
-
-    // attention_mask: 全 1（无 padding，因为单句推理）
-    final List<int> attentionMask = List.filled(seqLen, 1);
-
-    // ── Step 2: Encoder 推理 ───────────────────────────────────────────────
-    //   flutter_onnxruntime API:
-    //   OrtValue.fromList(data, shape) → session.run(inputs) → outputs
-    //
-    //   encoder 输入名称（来自 ONNX 模型，标准 MarianMT）：
-    //   - "input_ids"      shape: [1, seqLen]  dtype: int64
-    //   - "attention_mask" shape: [1, seqLen]  dtype: int64
-    //
-    //   encoder 输出名称：
-    //   - "last_hidden_state" shape: [1, seqLen, 512]
-
-    final encoderInputIds = await OrtValue.fromList(
-      inputIds.map((e) => e.toInt()).toList(),
-      [1, seqLen],
-    );
-    final encoderAttentionMask = await OrtValue.fromList(
-      attentionMask.map((e) => e.toInt()).toList(),
-      [1, seqLen],
-    );
-
-    final encoderOutputs = await _encoderSession!.run({
-      'input_ids': encoderInputIds,
-      'attention_mask': encoderAttentionMask,
-    });
-
-    final encoderHiddenState = encoderOutputs['last_hidden_state']!;
-
-    // 清理 encoder 输入 tensor
-    await encoderInputIds.dispose();
-    await encoderAttentionMask.dispose();
-
-    // ── Step 3: Decoder 自回归循环（Greedy Decoding）───────────────────────
-    //   decoder_merged 同时处理首次（无 past）和后续（有 past_key_values）步骤
-    //
-    //   decoder 每步输入：
-    //   - "input_ids"                      shape: [1, 1]     当前 token
-    //   - "encoder_hidden_states"          shape: [1, seqLen, 512]
-    //   - "encoder_attention_mask"         shape: [1, seqLen]
-    //   - "use_cache_branch"               shape: [1]  bool，首次 false，后续 true
-    //   （后续步骤还需要传入上一步的 past_key_values，此处简化用无 past 版本）
-    //
-    //   ⚠️  简化说明：此骨架使用 decoder_model.onnx（非 merged）的无缓存推理方式，
-    //   每步重新计算全部 attention，速度较慢但实现简单，适合验证阶段。
-    //   生产版本应使用 past_key_values 缓存加速。
-
-    final List<int> generatedIds = [];
-    int currentTokenId = _padTokenId; // decoder 从 <pad> 开始
-
-    // 重新创建 encoder attention mask 供 decoder 使用
-    final decoderEncoderMask = await OrtValue.fromList(
-      attentionMask.map((e) => e.toInt()).toList(),
-      [1, seqLen],
-    );
-
-    for (int step = 0; step < _maxGenerateLength; step++) {
-      // decoder 当前输入：[batchSize=1, seqLen=1]
-      final List<int> decoderInputSeq = [
-        ...generatedIds,
-        currentTokenId,
-      ];
-      final int decSeqLen = decoderInputSeq.length;
-
-      final decoderInputIds = await OrtValue.fromList(
-        decoderInputSeq.map((e) => e.toInt()).toList(),
-        [1, decSeqLen],
-      );
-
-      // ⚠️  注意：decoder_model_merged_int8.onnx 的输入名称需要在首次运行时
-      //   通过 session.inputNames 打印确认，不同版本可能略有差异。
-      //   标准 MarianMT ONNX 的 decoder 输入名：
-      //   "input_ids", "encoder_hidden_states", "encoder_attention_mask"
-      final decoderOutputs = await _decoderSession!.run({
-        'input_ids': decoderInputIds,
-        'encoder_hidden_states': encoderHiddenState,
-        'encoder_attention_mask': decoderEncoderMask,
-      });
-
-      await decoderInputIds.dispose();
-
-      // decoder 输出 "logits" shape: [1, decSeqLen, vocabSize]
-      // 取最后一个位置的 logits，找 argmax
-      final logitsTensor = decoderOutputs['logits']!;
-      final logitsList = await logitsTensor.asList() as List;
-      await logitsTensor.dispose();
-
-      // logits 展平后：总元素 = 1 * decSeqLen * vocabSize
-      // 取最后 vocabSize 个元素（最后一个时间步的 logits）
-      final int vocabSize = _vocab!.length;
-      final List lastStepLogits = logitsList.sublist(
-        logitsList.length - vocabSize,
-      );
-
-      // Greedy：取概率最高的 token id
-      int bestId = 0;
-      double bestVal = (lastStepLogits[0] as num).toDouble();
-      for (int i = 1; i < lastStepLogits.length; i++) {
-        final double val = (lastStepLogits[i] as num).toDouble();
-        if (val > bestVal) {
-          bestVal = val;
-          bestId = i;
-        }
-      }
-
-      // 遇到 EOS 停止
-      if (bestId == _eosTokenId) break;
-
-      generatedIds.add(bestId);
-      currentTokenId = bestId;
-
-      // 释放其余 decoder 输出（past_key_values 等）
-      for (final v in decoderOutputs.values) {
-        try { await v.dispose(); } catch (_) {}
-      }
-    }
-
-    // 清理 encoder 输出和 decoder mask
-    await encoderHiddenState.dispose();
-    await decoderEncoderMask.dispose();
-
-    // ── Step 4: Detokenize 输出 token ids → 英文文本 ───────────────────────
-    //   dart_sentencepiece_tokenizer: tokenizer.decode(ids)
-    //   注意：用 target.spm（英文）做 decode，不是 source.spm
-    final String result = _tgtTokenizer!.decode(generatedIds);
-
-    return result.trim();
-  }
-
-  /// 释放所有资源
-  Future<void> dispose() async {
-    await _encoderSession?.close();
-    await _decoderSession?.close();
-    _encoderSession = null;
-    _decoderSession = null;
-    _srcTokenizer = null;
-    _tgtTokenizer = null;
-    _vocab = null;
-    _vocabInverse = null;
-    _isLoaded = false;
-  }
-
-  bool get isLoaded => _isLoaded;
-}
+    publishing:
+      email:
+        recipients:
+          - dev@glotalk.tech
+        notify:
+          success: true
+          failure: true
 ```
+
+### 13.2 iOS 构建配置（参考）
+
+```yaml
+  glotalk-ios-release:
+    name: GloTalk V3 iOS Release
+    max_build_duration: 90
+
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.glotalk.app
+
+    scripts:
+      - name: 获取依赖
+        script: |
+          cd GloTalk-V3
+          flutter pub get
+
+      - name: Pod 安装
+        script: |
+          cd GloTalk-V3/ios
+          pod install
+
+      - name: 构建 iOS
+        script: |
+          cd GloTalk-V3
+          flutter build ipa --release
+
+    artifacts:
+      - GloTalk-V3/build/ios/ipa/*.ipa
+```
+
+### 13.3 Codemagic 环境变量配置
+
+在 Codemagic 控制台 → App Settings → Environment variables 中配置：
+
+| 变量名 | 说明 | 是否加密 |
+|--------|------|---------|
+| `CM_KEYSTORE` | Android 签名 keystore（base64） | ✅ |
+| `CM_KEYSTORE_PASSWORD` | Keystore 密码 | ✅ |
+| `CM_KEY_ALIAS` | Key alias | ✅ |
+| `CM_KEY_PASSWORD` | Key 密码 | ✅ |
 
 ---
 
-## 验证页面骨架
+## 附录 A：常见错误速查表
 
-文件路径：`lib/screens/verify_screen.dart`
-
-```dart
-import 'package:flutter/material.dart';
-import 'package:flutter_tts/flutter_tts.dart';
-import '../services/opus_mt_translator.dart';
-
-class VerifyScreen extends StatefulWidget {
-  const VerifyScreen({super.key});
-  @override
-  State<VerifyScreen> createState() => _VerifyScreenState();
-}
-
-class _VerifyScreenState extends State<VerifyScreen> {
-  final _translator = OpusMTTranslator();
-  final _tts = FlutterTts();
-  final _inputController = TextEditingController();
-
-  String _status = '未加载';
-  String _result = '';
-  bool _loading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadModel();
-    // flutter_tts 配置
-    _tts.setLanguage('en-US');
-    _tts.setSpeechRate(0.9);
-  }
-
-  Future<void> _loadModel() async {
-    setState(() { _status = '加载模型中...（约需 5-15 秒）'; });
-    final sw = Stopwatch()..start();
-    try {
-      await _translator.load();
-      sw.stop();
-      setState(() { _status = '模型已加载 ✅（${sw.elapsedMilliseconds}ms）'; });
-    } catch (e) {
-      setState(() { _status = '加载失败 ❌: $e'; });
-    }
-  }
-
-  Future<void> _translate() async {
-    if (!_translator.isLoaded) return;
-    final text = _inputController.text.trim();
-    if (text.isEmpty) return;
-    setState(() { _loading = true; _result = '翻译中...'; });
-    final sw = Stopwatch()..start();
-    try {
-      final result = await _translator.translate(text);
-      sw.stop();
-      setState(() {
-        _result = result;
-        _loading = false;
-        _status = '✅ 翻译完成（${sw.elapsedMilliseconds}ms）';
-      });
-    } catch (e) {
-      setState(() { _result = '错误: $e'; _loading = false; });
-    }
-  }
-
-  Future<void> _speak() async {
-    if (_result.isEmpty || _result.startsWith('错误')) return;
-    await _tts.speak(_result);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('GloTalk V3 验证')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // 状态栏
-            Container(
-              padding: const EdgeInsets.all(8),
-              color: Colors.grey[200],
-              child: Text(_status, style: const TextStyle(fontSize: 12)),
-            ),
-            const SizedBox(height: 16),
-            // 输入框
-            TextField(
-              controller: _inputController,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: '输入中文',
-                border: OutlineInputBorder(),
-                hintText: '例如：你好，我叫小明。',
-              ),
-            ),
-            const SizedBox(height: 12),
-            // 翻译按钮
-            ElevatedButton(
-              onPressed: _loading ? null : _translate,
-              child: Text(_loading ? '翻译中...' : '翻译为英文'),
-            ),
-            const SizedBox(height: 16),
-            // 结果显示
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.blue),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                _result.isEmpty ? '翻译结果将显示在这里' : _result,
-                style: const TextStyle(fontSize: 16),
-              ),
-            ),
-            const SizedBox(height: 12),
-            // 朗读按钮
-            OutlinedButton(
-              onPressed: _result.isEmpty ? null : _speak,
-              child: const Text('朗读英文'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _translator.dispose();
-    _tts.stop();
-    _inputController.dispose();
-    super.dispose();
-  }
-}
-```
+| 错误信息 | 原因 | 解决方案 |
+|----------|------|---------|
+| `UnsatisfiedLinkError: OrtGetApiBase` | libonnxruntime.so 版本冲突 | 检查是否混入 sherpa_onnx/flutter_onnxruntime |
+| `MissingPluginException` | MethodChannel 名称不一致 | 对齐 Dart 和 Kotlin 两端字符串 |
+| `IllegalStateException: Reply already submitted` | EventSink 在非主线程调用 | 包裹 `runOnUiThread {}` |
+| `OOM / Native heap` | OnnxTensor 未 close | 在 finally 块中强制 close |
+| `FileNotFoundException: .onnx` | 模型路径错误 | 确认 assets 路径，用 path_provider 获取 |
+| `PermissionDeniedException: RECORD_AUDIO` | 未申请麦克风权限 | permission_handler 动态申请 |
 
 ---
 
-## 验证步骤（按顺序执行）
+## 附录 B：版本历史
 
-### 步骤 0：在 Python 环境生成参考输出（必须先做）
-
-在把代码推到手机之前，必须用 Python 生成正确的参考 token ids，用于验证 Dart tokenizer 是否输出一致。
-
-```python
-# 运行环境：本地 Python，pip install transformers sentencepiece
-from transformers import MarianTokenizer
-
-tokenizer = MarianTokenizer.from_pretrained("Helsinki-NLP/opus-mt-zh-en")
-text = "你好，我叫小明。"
-encoded = tokenizer([text], return_tensors="pt", padding=True)
-print("input_ids:", encoded["input_ids"][0].tolist())
-# 期望输出类似：[4827, 8, 105, 3, 45, 6, 0]
-# 记录这个数字序列，与 Dart 端输出对比
-```
-
-### 步骤 1：下载模型文件
-
-```bash
-# 安装 huggingface_hub
-pip install huggingface_hub
-
-# 下载 int8 量化 ONNX 文件
-python -c "
-from huggingface_hub import hf_hub_download
-import os
-
-repo = 'onnx-community/opus-mt-zh-en'
-files = [
-    'onnx/encoder_model_int8.onnx',
-    'onnx/decoder_model_merged_int8.onnx',
-]
-for f in files:
-    path = hf_hub_download(repo_id=repo, filename=f)
-    print(f'Downloaded: {path}')
-"
-
-# 下载 tokenizer 文件（从原始 Helsinki-NLP repo）
-python -c "
-from huggingface_hub import hf_hub_download
-repo = 'Helsinki-NLP/opus-mt-zh-en'
-for f in ['source.spm', 'target.spm', 'vocab.json']:
-    path = hf_hub_download(repo_id=repo, filename=f)
-    print(f'Downloaded: {path}')
-"
-```
-
-把下载的文件放到：
-```
-flutter_app/v3_verify/assets/models/opus-mt-zh-en/
-├── encoder_model_int8.onnx      # 52.9 MB
-├── decoder_model_merged_int8.onnx  # 193 MB
-├── source.spm                   # ~800 KB
-├── target.spm                   # ~800 KB
-└── vocab.json                   # ~2 MB
-```
-
-### 步骤 2：验证 Tokenizer 一致性
-
-在写完 Dart 代码后，加一个 debug 按钮，打印 `_srcTokenizer!.encode("你好，我叫小明。").ids`，对比步骤 0 的 Python 输出。如果不一致，翻译结果一定是乱码。
-
-### 步骤 3：验证 Encoder 输出形状
-
-在第一次 encoder 推理后，打印 `encoderHiddenState` 的 shape，应该是 `[1, seqLen, 512]`。如果形状不对，说明模型输入名称有误。
-
-### 步骤 4：打印 decoder inputNames
-
-```dart
-// 加载后立即打印，确认输入名称与代码中一致
-print('encoder inputs: ${_encoderSession!.inputNames}');
-print('decoder inputs: ${_decoderSession!.inputNames}');
-print('decoder outputs: ${_decoderSession!.outputNames}');
-```
-
-### 步骤 5：端到端测试句子
-
-测试完成后，用这五句话验证翻译质量：
-1. `你好，我叫小明。`  →  期望包含 "hello" 或 "my name is"
-2. `今天天气很好。`  →  期望包含 "weather" 或 "today"
-3. `我需要帮助。`  →  期望包含 "help"
-4. `谢谢你。`  →  期望 "Thank you"
-5. `我们在哪里？`  →  期望包含 "where"
+| 版本 | 日期 | 变更摘要 |
+|------|------|---------|
+| V1.0 | 2024 | 初版，基于 sherpa_onnx + NLLB |
+| V2.0 | 2025 | 尝试 flutter_onnxruntime，遭遇冲突 |
+| **V3.0** | **2026-06** | **新架构：OnnxRuntime Java API 1.23.2 + Opus-MT，彻底解决冲突** |
+| **V3.1** | **2026-06-29** | **架构验证完成：Flutter→MethodChannel→Kotlin→OnnxRuntime 1.23.2 全链路在红米Note12验证通过，pong✅ OrtEnvironment✅** |
 
 ---
 
-## 已知问题和解决方案
-
-### 问题 1：SentencePieceTokenizer.fromModelBytes 方法名
-`dart_sentencepiece_tokenizer` 的 API 加载方式需确认。备用方案：
-```dart
-// 如果 fromModelBytes 不可用，用文件路径方式
-final dir = await getApplicationDocumentsDirectory();
-final spmPath = '${dir.path}/source.spm';
-// 先把 asset 复制到临时目录再加载
-```
-
-### 问题 2：decoder_model_merged 输入名称不确定
-merged 版本的 past_key_values 输入名称在不同导出版本间有差异。
-**解决方案**：首次加载后立即打印 `session.inputNames`，根据实际名称调整代码。
-
-### 问题 3：vocab.json 格式
-MarianMT 的 vocab.json 是 `{"<pad>": 65000, "</s>": 0, ...}` 格式，
-与普通 HuggingFace tokenizer.json 不同，直接 json.decode 即可。
-
-### 问题 4：中文字符前缀
-某些版本的 opus-mt-zh-en 需要在输入前加 `>>zh<<` 语言前缀，
-如果翻译结果明显不对，尝试：
-```dart
-final textWithPrefix = '>>zh<< ${chineseText.trim()}';
-```
-
----
-
-## 完成标准
-
-验证分支达到以下标准才算跑通：
-
-- [ ] `flutter pub get` 无报错
-- [ ] Codemagic 编译 APK 成功
-- [ ] 安装到 Redmi K30i，App 启动不崩溃
-- [ ] 模型加载成功（状态栏显示加载时间）
-- [ ] 输入"你好"，输出合理英文
-- [ ] 点击朗读，手机能发出英文 TTS 声音
-- [ ] 翻译延迟记录（目标 <3 秒）
-
----
-
-## 不在本次范围内
-
-- LiveKit 接入
-- STT（whisper）
-- 双向翻译（en→zh）
-- alibaba-v1 的任何代码
-- 男女声切换
-- 多语言对
-
-这些全部留到验证分支通过后再开始。
+*本文档由 GloTalk 开发团队维护。任何架构变更须先更新本文档，再修改代码。*
