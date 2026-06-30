@@ -1,6 +1,6 @@
 // SileroVAD.kt
 // GloTalk-V3 | 节点 1：语音活动检测（VAD）
-// 模型：silero_vad.onnx（v4）
+// 模型：silero_vad.onnx（v5，来自 onnx-community/silero-vad）
 // 来源：https://github.com/snakers4/silero-vad
 // OnnxRuntime Java API：https://onnxruntime.ai/docs/get-started/with-java.html
 // 查证报告：A-004 第二部分 VAD-1 ~ VAD-6
@@ -15,20 +15,24 @@ import java.nio.FloatBuffer            // A-004-补丁：OnnxTensor.createTensor
 import java.nio.LongBuffer             // A-004-补丁：OnnxTensor.createTensor(env, LongBuffer, shape)
 
 /**
- * Silero VAD v4 推理封装
+ * Silero VAD v5 推理封装
  *
- * 输入规格（来源：A-004 VAD-1，GitHub Discussion #216，snakers4 官方回复）：
+ * A-015修正：下载的 model.onnx 是 v5 格式（非 v4）
+ * 来源：A-015 查证报告 Q1 — Xenova 官方 transformers.js 示例确认 v5 接口
+ * 来源：https://github.com/snakers4/silero-vad/blob/master/examples/c++/silero.cc
+ *
+ * 输入规格（来源：A-015 Q1/Q3，官方 C++ 示例 + Xenova transformers.js 示例）：
  *   "input"  float32 [1, 512]   — PCM 音频帧，归一化到 [-1, 1]
  *   "sr"     int64   [1]        — 采样率，固定值 16000
- *   "h"      float32 [2, 1, 128]— LSTM 隐状态（初始全零）
- *   "c"      float32 [2, 1, 128]— LSTM 细胞状态（初始全零）
+ *   "state"  float32 [2, 1, 128]— 合并的 LSTM 状态（v5 将 h/c 合并为单一 state）
  *
- * 输出规格（来源：A-004 VAD-1）：
+ * 输出规格（来源：A-015 Q1/Q3）：
  *   "output" float32 [1, 1]    — 语音概率 [0, 1]
- *   "hn"     float32 [2, 1, 128]— 更新后 LSTM 隐状态
- *   "cn"     float32 [2, 1, 128]— 更新后 LSTM 细胞状态
+ *   "stateN" float32 [2, 1, 128]— 更新后的 LSTM 状态，下次推理作为 state 输入
  *
- * 注意：h/c 状态必须在每次推理后更新，跨帧保持（来源：A-004 VAD-2，官方 Python OnnxWrapper.reset_states()）
+ * 注意：state 必须在每次推理后用 stateN 更新，跨帧保持
+ * 官方 Python：self._state = ort_outs[1]
+ * 来源：utils_vad.py master branch
  */
 class SileroVAD(private val context: Context) {
 
@@ -39,7 +43,7 @@ class SileroVAD(private val context: Context) {
         private const val MODEL_FILE_NAME = "silero_vad.onnx"
         private const val SAMPLE_RATE = 16000L          // sr 固定值（来源：A-004 VAD-1）
         private const val CHUNK_SIZE = 512              // 32ms @16kHz（来源：A-004 VAD-3）
-        private const val H_C_SIZE = 2 * 1 * 128       // [2,1,128] 展平（来源：A-004 VAD-1）
+        private const val H_C_SIZE = 2 * 1 * 128       // [2,1,128] 展平，v5 state 张量大小（来源：A-015 Q1）
         const val SPEECH_THRESHOLD = 0.5f              // 语音概率阈值（来源：A-004 VAD-4）
     }
 
@@ -47,16 +51,16 @@ class SileroVAD(private val context: Context) {
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
     private var session: OrtSession? = null
 
-    // LSTM 状态（来源：A-004 VAD-2，官方 Python OnnxWrapper.reset_states()）
-    // 初始化为全零，每次推理后用 hn/cn 更新
-    private var h = FloatArray(H_C_SIZE) { 0f }
-    private var c = FloatArray(H_C_SIZE) { 0f }
+    // LSTM 状态（来源：A-015 Q1/Q4 — v5 将 h/c 合并为单一 state 张量）
+    // 初始化为全零，每次推理后用 stateN 更新
+    // 官方 Python：self._state = np.zeros((2, 1, 128), dtype='float32')
+    private var state = FloatArray(H_C_SIZE) { 0f }
 
     // 采样率张量，整个生命周期固定不变，创建一次复用
     private var srTensorCached: OnnxTensor? = null
 
-    // h/c 张量形状（来源：A-004 VAD-1）
-    private val hcShape = longArrayOf(2, 1, 128)
+    // state 张量形状 [2,1,128]（来源：A-015 Q1，官方 C++ state_node_dims = {2,1,128}）
+    private val stateShape = longArrayOf(2, 1, 128)
 
     /**
      * 加载模型
@@ -88,8 +92,9 @@ class SileroVAD(private val context: Context) {
      * 参考：https://github.com/snakers4/silero-vad
      */
     fun resetState() {
-        h = FloatArray(H_C_SIZE) { 0f }
-        c = FloatArray(H_C_SIZE) { 0f }
+        // A-015修正：v5 只有单一 state 字段，重置为全零
+        // 来源：A-015 Q4 — 官方 Python reset_states()：self._state = np.zeros((2,1,128))
+        state = FloatArray(H_C_SIZE) { 0f }
     }
 
     /**
@@ -118,44 +123,41 @@ class SileroVAD(private val context: Context) {
             env, FloatBuffer.wrap(floatFrame), longArrayOf(1, CHUNK_SIZE.toLong())
         )
 
-        // Step 3：创建 "h" 张量 [2,1,128]（来源：A-004 VAD-2）
-        // A-004-补丁：FloatBuffer.wrap() — https://onnxruntime.ai/docs/get-started/with-java.html
-        val hTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(h), hcShape)
+        // Step 3：创建 "state" 张量 [2,1,128]（来源：A-015 Q1/Q4）
+        // A-015修正：v5 将 h/c 合并为单一 state 张量
+        // 官方 C++ state_node_dims = {2,1,128}，名称 "state"
+        // 来源：https://github.com/snakers4/silero-vad/blob/master/examples/c++/silero.cc
+        val stateTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(state), stateShape)
 
-        // Step 4：创建 "c" 张量 [2,1,128]（来源：A-004 VAD-2）
-        // A-004-补丁：FloatBuffer.wrap() — https://onnxruntime.ai/docs/get-started/with-java.html
-        val cTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(c), hcShape)
-
-        // Step 5：推理，必须在 finally 中 close 所有张量（来源：A-004 C-3）
+        // Step 4：推理，必须在 finally 中 close 所有张量（来源：A-004 C-3）
         var speechProbability = 0f
         try {
-            // 组装输入（来源：A-004 VAD-1，官方 Python ort_inputs）
+            // 组装输入（来源：A-015 Q1 — v5 接口：input, sr, state 共3个输入）
+            // 官方 Python：ort_inputs = {'input': x, 'state': self._state, 'sr': sr_array}
+            // 来源：utils_vad.py master branch
             val inputs = mapOf(
                 "input" to inputTensor,
                 "sr"    to srTensorCached!!,  // 复用缓存的 sr 张量
-                "h"     to hTensor,
-                "c"     to cTensor
+                "state" to stateTensor        // v5：单一合并状态张量
             )
 
             // 执行推理（来源：https://onnxruntime.ai/docs/get-started/with-java.html）
             val results = session!!.run(inputs)
             results.use {
-                // 读取语音概率 output[1,1]（来源：A-004 VAD-1 输出规格）
+                // 读取语音概率 output[1,1]（索引0，来源：A-015 Q4）
                 val outputProb = (results[0].value as Array<FloatArray>)[0][0]
                 speechProbability = outputProb
 
-                // 更新 LSTM 状态（来源：A-004 VAD-2）
-                // hn → 下次的 h，cn → 下次的 c
-                // Python 官方：out, self._h, self._c = ort_outs
-                // 来源：https://github.com/snakers4/silero-vad
-                h = (results[1].value as Array<FloatArray>).flatMap { it.toList() }.toFloatArray()
-                c = (results[2].value as Array<FloatArray>).flatMap { it.toList() }.toFloatArray()
+                // 更新 state（来源：A-015 Q4）
+                // v5：stateN 在索引1，用其更新内部 state 供下次推理使用
+                // 官方 Python：self._state = ort_outs[1]
+                // 来源：utils_vad.py master branch
+                state = (results[1].value as Array<FloatArray>).flatMap { it.toList() }.toFloatArray()
             }
         } finally {
             // 必须 close 所有 OnnxTensor（来源：A-004 C-3，官方 Java API 文档）
-            inputTensor.close()  // close inputTensor
-            hTensor.close()      // close hTensor
-            cTensor.close()      // close cTensor
+            inputTensor.close()   // close inputTensor
+            stateTensor.close()   // close stateTensor（A-015修正：替代原 hTensor+cTensor）
             // srTensorCached 生命周期由 close() 统一管理，不在此 close
         }
 
