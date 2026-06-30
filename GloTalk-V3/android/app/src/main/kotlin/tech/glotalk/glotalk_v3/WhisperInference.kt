@@ -51,9 +51,12 @@ class WhisperInference(private val context: Context) {
 
     companion object {
         // B-009：文件名改为 filesDir 实际文件名（模型由 Flutter 层下载，不在 assets）
-        // 来源：A-008 查证报告，手机 filesDir 实际文件清单
-        private const val ENCODER_FILE = "whisper_encoder_int8.onnx"
-        private const val DECODER_FILE = "whisper_decoder_int8.onnx"
+        // B-013：换用 uint8 量化版本，来源：A-013 Q3 — CPU EP 支持 uint8 ConvInteger kernel
+        //        int8 版本（encoder_model_int8.onnx）触发 ORT_NOT_IMPLEMENTED ConvInteger(10)
+        //        uint8 版本（encoder_model_uint8.onnx）CPU EP 已注册 uint8×uint8 kernel
+        // 来源：A-013 Q1（Issue #2339）、Q3（HuggingFace 仓库文件列表）
+        private const val ENCODER_FILE = "whisper_encoder_uint8.onnx"
+        private const val DECODER_FILE = "whisper_decoder_uint8.onnx"
 
         // Mel Spectrogram 参数（来源：A-004 WHISPER-4，OpenAI Whisper 官方论文）
         private const val N_FFT = 400
@@ -93,9 +96,10 @@ class WhisperInference(private val context: Context) {
             setIntraOpNumThreads(2)
         }
 
-        // B-009修正：路径改为 app_flutter/models/，与 Flutter 下载目录一致
-        // Flutter getApplicationDocumentsDirectory() = filesDir.parent/app_flutter/
-        // 来源：A-008 查证报告，path_provider 路径对照分析
+        // B-009修正：改为从 app_flutter/models/ 用文件路径加载（来源：A-008、A-012 Q3）
+        // B-013：使用 uint8 文件名（来源：A-013 Q4 — 路径拼接逻辑不变，只有文件名变）
+        // Whisper 约 248MB，用路径加载避免 readBytes() OOM 风险
+        // 来源：OnnxRuntime Java API createSession(String path, SessionOptions)
         val modelsDir = java.io.File(context.filesDir.parentFile, "app_flutter/models")
         val encoderPath = java.io.File(modelsDir, ENCODER_FILE).absolutePath
         encoderSession = env.createSession(encoderPath, options)
@@ -372,7 +376,6 @@ class WhisperInference(private val context: Context) {
 
         // B-009：调用 WhisperTokenizer 实现真正的 BPE decode
         // 来源：A-008b 查证报告 — multilingual.tiktoken，纯 Kotlin，零 JNI
-        // WhisperTokenizer 内部懒加载，首次调用时从 filesDir 读取词表文件
         return WhisperTokenizer.decode(textTokens, context)
     }
 
