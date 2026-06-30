@@ -94,39 +94,30 @@ class PipelineOrchestrator(
             Thread(r, "inference-pipeline")
         }
 
-        // 来源：A-006 第五章 5.4 — 模型文件路径：context.filesDir（不是 app_flutter）
-        val filesDir = context.filesDir.absolutePath
+        // 三个推理类构造函数均只接受 Context，模型路径由各类内部用 assets 管理
+        // 来源：SileroVAD.kt 第32行、WhisperInference.kt 第50行、OpusMTInference.kt 第51行
+        // 实际签名：SileroVAD(context)、WhisperInference(context)、OpusMTInference(context)
 
         inferenceExecutor?.submit {
             try {
                 // 节点 1：VAD
-                // 来源：SileroVAD.kt（已锁死），A-006 Q1 接口确认
-                val vadModelPath = "$filesDir/silero_vad.onnx"
-                sileroVAD = SileroVAD(vadModelPath)
+                // 构造函数：SileroVAD(context: Context)
+                // 模型路径由类内部 companion object MODEL_ASSET_PATH 管理
+                sileroVAD = SileroVAD(context)
                 sileroVAD?.loadModel()
-                Log.d(TAG, "VAD 模型加载完成：$vadModelPath")
+                Log.d(TAG, "VAD 模型加载完成")
 
                 // 节点 2：STT
-                // 来源：WhisperInference.kt（已锁死），A-006 Q2 接口确认
-                val encoderPath = "$filesDir/whisper_encoder_int8.onnx"
-                val decoderPath = "$filesDir/whisper_decoder_int8.onnx"
-                whisperInference = WhisperInference(encoderPath, decoderPath)
+                // 构造函数：WhisperInference(context: Context)
+                // 模型路径由类内部 ENCODER_ASSET / DECODER_ASSET 管理
+                whisperInference = WhisperInference(context)
                 whisperInference?.loadModel()
                 Log.d(TAG, "Whisper 模型加载完成")
 
                 // 节点 3：NMT
-                // 来源：OpusMTInference.kt（已锁死），A-006 Q3 接口确认
-                val opusEncoderPath = "$filesDir/opus_encoder_int8.onnx"
-                val opusDecoderPath = "$filesDir/opus_decoder_int8.onnx"
-                val sourceSpmPath  = "$filesDir/source.spm"
-                val targetSpmPath  = "$filesDir/target.spm"
-                opusMTInference = OpusMTInference(
-                    context,
-                    opusEncoderPath,
-                    opusDecoderPath,
-                    sourceSpmPath,
-                    targetSpmPath
-                )
+                // 构造函数：OpusMTInference(context: Context)
+                // 模型路径由类内部 ENCODER_ASSET / DECODER_ASSET / VOCAB_ASSET 管理
+                opusMTInference = OpusMTInference(context)
                 opusMTInference?.loadModel()
                 Log.d(TAG, "Opus-MT 模型加载完成")
 
