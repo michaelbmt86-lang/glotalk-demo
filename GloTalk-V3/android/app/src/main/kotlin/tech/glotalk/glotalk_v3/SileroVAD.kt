@@ -148,11 +148,18 @@ class SileroVAD(private val context: Context) {
                 val outputProb = (results[0].value as Array<FloatArray>)[0][0]
                 speechProbability = outputProb
 
-                // 更新 state（来源：A-015 Q4）
-                // v5：stateN 在索引1，用其更新内部 state 供下次推理使用
-                // 官方 Python：self._state = ort_outs[1]
-                // 来源：utils_vad.py master branch
-                state = (results[1].value as Array<FloatArray>).flatMap { it.toList() }.toFloatArray()
+                // 更新 state（来源：A-015 Q4，A-016 Q1/Q2）
+                // v5：stateN 在索引1，shape [2,1,128]，三维张量
+                // A-016修正：getValue() 对三维张量返回 Array<Array<FloatArray>>
+                //   原写法 as Array<FloatArray> 是错误 cast，运行时抛 ClassCastException
+                //   官方 Javadoc 推荐：超过2维用 getFloatBuffer() 读取扁平 FloatBuffer
+                //   来源：https://onnxruntime.ai/docs/api/java/ai/onnxruntime/OnnxTensor.html
+                //   来源：A-016 Q2 — getFloatBuffer() 返回行优先扁平 FloatBuffer，256个元素
+                state = (results[1] as ai.onnxruntime.OnnxTensor)
+                    .floatBuffer
+                    .let { buf ->
+                        FloatArray(buf.remaining()).also { buf.get(it) }
+                    }
             }
         } finally {
             // 必须 close 所有 OnnxTensor（来源：A-004 C-3，官方 Java API 文档）
