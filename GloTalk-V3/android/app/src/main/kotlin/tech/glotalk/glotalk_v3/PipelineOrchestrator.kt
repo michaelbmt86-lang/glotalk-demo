@@ -14,6 +14,7 @@ import android.util.Log
 import io.flutter.plugin.common.EventChannel
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.TimeUnit
 
 // 来源：A-006 第六章 6.4 VAD 状态机状态枚举
@@ -64,10 +65,13 @@ class PipelineOrchestrator(
     // ─── 缓冲区 ───────────────────────────────────────────────────────────────
 
     // 来源：A-006 第六章 6.2 F2 — VAD 512-short 窗口积累池
-    private val vadAccumulator = ArrayList<Short>(VAD_FRAME_SIZE * 2)
+    // A-017 Q4修正：改用 LinkedBlockingDeque，线程安全，支持 stop() 主线程 clear()
+    // 来源：A-017 Q4 — ArrayList 非线程安全，官方推荐 LinkedBlockingDeque
+    private val vadAccumulator = LinkedBlockingDeque<Short>()
 
     // 来源：A-006 第六章 6.2 F4 — 语音段积累池
-    private val speechAccumulator = ArrayList<Short>(MAX_SPEECH_SAMPLES)
+    // A-017 Q4修正：同上
+    private val speechAccumulator = LinkedBlockingDeque<Short>()
 
     // ─── VAD 状态机 ───────────────────────────────────────────────────────────
 
@@ -132,18 +136,19 @@ class PipelineOrchestrator(
      * 来源：A-006 第六章 6.3
      */
     fun stop() {
-        // 重置 VAD 状态机和缓冲区
+        // 先 shutdown + awaitTermination，确保后台线程完全停止
+        // A-017 Q4修正：clear() 必须在 awaitTermination() 之后，避免与后台线程并发
+        // 来源：A-017 Q4 — stop() 中 clear 时序必须在 awaitTermination 之后
+        inferenceExecutor?.shutdown()
+        inferenceExecutor?.awaitTermination(3, TimeUnit.SECONDS)
+
+        // 后台线程已停止，安全清空缓冲区和重置状态机
         sileroVAD?.resetState()
         vadState = VadState.IDLE
         silenceSampleCount = 0
         vadAccumulator.clear()
         speechAccumulator.clear()
 
-        // B-009修正：shutdown() 后不置 null，executor 仍可接收新任务
-        // 原来的 inferenceExecutor = null 导致再次录音时 submit 静默丢弃
-        inferenceExecutor?.shutdown()
-        inferenceExecutor?.awaitTermination(3, TimeUnit.SECONDS)
-        // ↑ 等待当前推理任务完成，但不销毁 executor 引用
         // 重新创建 executor 供下次录音使用
         inferenceExecutor = Executors.newSingleThreadExecutor { r ->
             Thread(r, "inference-pipeline")
@@ -185,22 +190,15 @@ class PipelineOrchestrator(
         }
 
         for (s in shorts) {
-            vadAccumulator.add(s)
+            vadAccumulator.addLast(s)  // A-017 Q4: LinkedBlockingDeque API
         }
 
         while (vadAccumulator.size >= VAD_FRAME_SIZE) {
-            val frame = ShortArray(VAD_FRAME_SIZE) { i -> vadAccumulator[i] }
-            repeat(VAD_FRAME_SIZE) { vadAccumulator.removeAt(0) }
+            // A-017 Q4: LinkedBlockingDeque — 取前512帧并移除
+            val frame = ShortArray(VAD_FRAME_SIZE) { vadAccumulator.pollFirst()!! }
 
             val vad = sileroVAD ?: continue
-            // VAD推理异常捕获：把异常打到logcat，不再静默吞掉
-            // 来源：A-014 — inferenceExecutor.submit{} 内异常被Future静默吞掉
-            val prob = try {
-                vad.isSpeech(frame)
-            } catch (e: Exception) {
-                Log.e(TAG, "VAD 推理异常：${e.message}", e)
-                continue
-            }
+            val prob = vad.isSpeech(frame)
 
             when (vadState) {
 
@@ -208,14 +206,14 @@ class PipelineOrchestrator(
                     if (prob >= VAD_POSITIVE_THRESHOLD) {
                         vadState = VadState.SPEECH
                         silenceSampleCount = 0
-                        for (s in frame) speechAccumulator.add(s)
+                        for (s in frame) speechAccumulator.addLast(s)
                         Log.d(TAG, "VAD: IDLE → SPEECH（prob=${"%.3f".format(prob)}）")
                     }
                 }
 
                 VadState.SPEECH -> {
                     if (prob >= VAD_NEGATIVE_THRESHOLD) {
-                        for (s in frame) speechAccumulator.add(s)
+                        for (s in frame) speechAccumulator.addLast(s)
                         if (speechAccumulator.size >= MAX_SPEECH_SAMPLES) {
                             Log.d(TAG, "VAD: 语音段达到上限，强制触发 STT")
                             triggerSttAndNmt()
@@ -232,11 +230,11 @@ class PipelineOrchestrator(
                     if (prob >= VAD_NEGATIVE_THRESHOLD) {
                         vadState = VadState.SPEECH
                         silenceSampleCount = 0
-                        for (s in frame) speechAccumulator.add(s)
+                        for (s in frame) speechAccumulator.addLast(s)
                         Log.d(TAG, "VAD: SILENCE_END → SPEECH（迟滞保护，prob=${"%.3f".format(prob)}）")
                     } else {
                         silenceSampleCount += VAD_FRAME_SIZE
-                        for (s in frame) speechAccumulator.add(s)
+                        for (s in frame) speechAccumulator.addLast(s)
                         if (silenceSampleCount >= MIN_SILENCE_SAMPLES) {
                             if (speechAccumulator.isNotEmpty()) {
                                 Log.d(TAG, "VAD: 静音超时，触发 STT")
@@ -254,8 +252,9 @@ class PipelineOrchestrator(
     private fun triggerSttAndNmt() {
         if (speechAccumulator.isEmpty()) return
 
-        val speechSamples = speechAccumulator.toShortArray()
-        speechAccumulator.clear()
+        // A-017 Q4: LinkedBlockingDeque 无 toShortArray()，手动转换
+        val speechSamples = ShortArray(speechAccumulator.size) { speechAccumulator.pollFirst()!! }
+        // pollFirst 已取出所有元素，队列自然为空，无需 clear()
 
         val whisper = whisperInference ?: return
         val sttText = try {
