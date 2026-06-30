@@ -145,18 +145,18 @@ class SileroVAD(private val context: Context) {
             val results = session!!.run(inputs)
             results.use {
                 // 读取语音概率 output[1,1]（索引0，来源：A-015 Q4）
-                val outputProb = (results[0].value as Array<FloatArray>)[0][0]
-                speechProbability = outputProb
+                // A-017 Q1+Q2修正：改为按名称读取输出，不依赖索引顺序
+                // 来源：A-017 Q2 — OrtSession.Result 按索引无顺序保证，官方示例全部按名称读取
+                // 来源：https://onnxruntime.ai/docs/get-started/with-java.html
+                // output：shape [1,1]，按名称读取后用 getFloatBuffer().get(0) 取概率值
+                // A-017 Q1：shape [1,1] 的 getValue() 虽然类型正确，但统一改为 getFloatBuffer()
+                val outputTensor = results["output"] as ai.onnxruntime.OnnxTensor
+                speechProbability = outputTensor.floatBuffer.get(0)
 
-                // 更新 state（来源：A-015 Q4，A-016 Q1/Q2）
-                // v5：stateN 在索引1，shape [2,1,128]，三维张量
-                // A-016修正：getValue() 对三维张量返回 Array<Array<FloatArray>>
-                //   原写法 as Array<FloatArray> 是错误 cast，运行时抛 ClassCastException
-                //   官方 Javadoc 推荐：超过2维用 getFloatBuffer() 读取扁平 FloatBuffer
-                //   来源：https://onnxruntime.ai/docs/api/java/ai/onnxruntime/OnnxTensor.html
-                //   来源：A-016 Q2 — getFloatBuffer() 返回行优先扁平 FloatBuffer，256个元素
-                state = (results[1] as ai.onnxruntime.OnnxTensor)
-                    .floatBuffer
+                // stateN：shape [2,1,128]，按名称读取后用 getFloatBuffer() 展平
+                // 来源：A-016 Q2 + A-017 Q2 — 按名称读取保证正确性，getFloatBuffer() 避免三维cast
+                val stateNTensor = results["stateN"] as ai.onnxruntime.OnnxTensor
+                state = stateNTensor.floatBuffer
                     .let { buf ->
                         FloatArray(buf.remaining()).also { buf.get(it) }
                     }
