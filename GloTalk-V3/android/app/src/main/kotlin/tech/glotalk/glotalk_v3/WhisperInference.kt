@@ -93,14 +93,14 @@ class WhisperInference(private val context: Context) {
             setIntraOpNumThreads(2)
         }
 
-        // B-009：改为从 filesDir 用文件路径加载（来源：A-008 查证报告）
-        // Whisper 约 240MB，用路径加载避免 readBytes() OOM 风险
-        // 来源：OnnxRuntime Java API createSession(String path, SessionOptions)
-        //       https://onnxruntime.ai/docs/get-started/with-java.html
-        val encoderPath = java.io.File(context.filesDir, ENCODER_FILE).absolutePath
+        // B-009修正：路径改为 app_flutter/models/，与 Flutter 下载目录一致
+        // Flutter getApplicationDocumentsDirectory() = filesDir.parent/app_flutter/
+        // 来源：A-008 查证报告，path_provider 路径对照分析
+        val modelsDir = java.io.File(context.filesDir.parentFile, "app_flutter/models")
+        val encoderPath = java.io.File(modelsDir, ENCODER_FILE).absolutePath
         encoderSession = env.createSession(encoderPath, options)
 
-        val decoderPath = java.io.File(context.filesDir, DECODER_FILE).absolutePath
+        val decoderPath = java.io.File(modelsDir, DECODER_FILE).absolutePath
         decoderSession = env.createSession(decoderPath, options)
 
         // 预计算 Mel 滤波器组（来源：A-004 WHISPER-4）
