@@ -1,6 +1,7 @@
 // GloTalk-V3/lib/main.dart
 // 智能体 B 代码编辑 | 依据：查证报告 A-005 | 任务：B-005
 // 上一版本：B-003（测试1-7 全部保持不变，本次仅新增下载区域）
+// B-009 修正：_checkModelsExist() 发现模型已就绪时自动调用 initModels
 
 // Flutter SDK — https://api.flutter.dev/flutter/material/material-library.html
 import 'package:flutter/material.dart';
@@ -149,50 +150,43 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   // 各文件下载进度 0.0~1.0；key = 文件名（'name' 字段），value = 进度值
-  // 来源：dio onReceiveProgress(int received, int total) → received/total
-  // 查证报告 A-005 §6.1（onReceiveProgress 回调签名）
   Map<String, double> _downloadProgress = {};
 
   // 是否正在下载中（防止重复点击）
-  // 来源：查证报告 A-005 §12.3（步骤2）
   bool _isDownloading = false;
 
   // 是否全部模型文件已就绪（下载完成或文件已存在）
-  // 来源：查证报告 A-005 §12.3（步骤3 & 步骤4）
   bool _modelsReady = false;
 
   // 下载错误信息（空字符串表示无错误）
   String _downloadError = '';
 
-  // ─── 测试1：ping/pong 状态变量（查证报告 A-003 §6.2 测试1）
+  // ─── 测试1：ping/pong 状态变量
   String _pingResult = '等待测试...';
 
-  // ─── 测试2：OnnxRuntime 状态变量（查证报告 A-003 §6.2 测试2）
+  // ─── 测试2：OnnxRuntime 状态变量
   String _onnxResult = '等待测试...';
 
-  // ─── 测试3：PCM 采集状态变量（查证报告 A-003 §6.2 测试3）
+  // ─── 测试3：PCM 采集状态变量
   int _totalPcmSamples = 0;
   bool _isRecordingAudio = false;
 
-  // ─── 测试4：VAD 状态变量（查证报告 A-003 §6.2 测试4）
+  // ─── 测试4：VAD 状态变量
   String _vadStatus = '未开始';
 
-  // ─── 测试5：STT 识别结果（查证报告 A-003 §6.2 测试5）
+  // ─── 测试5：STT 识别结果
   String _sttText = '等待识别...';
 
-  // ─── 测试6：NMT 翻译结果（查证报告 A-003 §6.2 测试6）
+  // ─── 测试6：NMT 翻译结果
   String _nmtText = '等待翻译...';
 
-  // ─── StreamSubscription 生命周期管理（查证报告 A-003 第七章）
-  // 来源：https://api.dart.dev/stable/dart-async/StreamSubscription-class.html
-  StreamSubscription<List<int>>? _audioSubscription;   // C3 音频流订阅
-  StreamSubscription<String>? _sttSubscription;        // C4 STT 结果订阅
-  StreamSubscription<String>? _nmtSubscription;        // C5 NMT 结果订阅
+  // ─── StreamSubscription 生命周期管理
+  StreamSubscription<List<int>>? _audioSubscription;
+  StreamSubscription<String>? _sttSubscription;
+  StreamSubscription<String>? _nmtSubscription;
 
   // ─────────────────────────────────────────────────────────────────────────
-  // initState：请求麦克风权限，初始化 STT/NMT 订阅
-  // 【B-005 新增】新增调用 _checkModelsExist()
-  // 查证报告 A-003 §6.1 & 查证报告 A-005 §12.3（步骤3）
+  // initState
   // ─────────────────────────────────────────────────────────────────────────
   @override
   void initState() {
@@ -200,15 +194,11 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
     _requestMicPermission();
     _subscribeToSttChannel();
     _subscribeToNmtChannel();
-    // 【B-005 新增】App 启动时检查模型文件是否已全部存在
-    // 来源：查证报告 A-005 §12.3（步骤3：_checkModelsExist 在 initState 调用）
     _checkModelsExist();
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // dispose：取消所有 StreamSubscription
-  // 来源：https://api.dart.dev/stable/dart-async/StreamSubscription/cancel.html
-  // 查证报告 A-003 第七章 §7.2
+  // dispose
   // ─────────────────────────────────────────────────────────────────────────
   @override
   void dispose() {
@@ -222,16 +212,11 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 【B-005 新增】_checkModelsExist()
-  // 检查所有模型文件是否已存在于 getApplicationDocumentsDirectory()/models/
-  // 若全部存在则设置 _modelsReady = true，跳过下载
-  // 来源：https://api.dart.dev/stable/dart-io/File/exists.html
-  // 查证报告 A-005 §12.3（步骤3）& §3.2（路径说明）
+  // _checkModelsExist()
+  // 检查所有模型文件是否已存在
+  // B-009 修正：发现全部就绪时自动调用 initModels，触发 PipelineOrchestrator 初始化
   // ═══════════════════════════════════════════════════════════════════════════
   Future<void> _checkModelsExist() async {
-    // getApplicationDocumentsDirectory() — Android 上对应 filesDir 区域
-    // 来源：https://pub.dev/documentation/path_provider/latest/path_provider/getApplicationDocumentsDirectory.html
-    // 查证报告 A-005 §3.2
     final dir = await getApplicationDocumentsDirectory();
     final modelsDir = '${dir.path}/models';
 
@@ -240,11 +225,8 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
 
     for (final model in _modelFiles) {
       final name = model['name']!;
-      // File.exists() — 检测文件是否存在
-      // 来源：https://api.dart.dev/stable/dart-io/File/exists.html
       final file = File('$modelsDir/$name');
       final exists = await file.exists();
-      // 已存在的文件初始进度设为 1.0（代表"已就绪"）
       initialProgress[name] = exists ? 1.0 : 0.0;
       if (!exists) {
         allExist = false;
@@ -256,17 +238,30 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
         _downloadProgress = initialProgress;
         _modelsReady = allExist;
       });
+      // B-009 修正：模型已全部就绪时自动调用 initModels
+      // 原问题：App 启动检测到模型存在后未调用 initModels，导致
+      //         PipelineOrchestrator 未初始化，VAD 永远显示「未开始」
+      // 来源：A-005 §九（initModels 触发时机）
+      if (allExist) {
+        try {
+          await _controlChannel.invokeMethod<bool>('initModels', {
+            'srcLang': 'zh',
+            'tgtLang': 'en',
+          });
+        } catch (_) {
+          // initModels 失败时静默处理，不崩溃
+          // 用户可通过重启 App 重试
+        }
+      }
     }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 【B-005 新增】_downloadModels()
+  // _downloadModels()
   // 逐个下载模型文件；已存在的文件跳过；全部完成后调用 initModels
-  // 来源：https://pub.dev/documentation/dio/latest/dio/Dio-class.html
-  // 查证报告 A-005 §六（完整 dio 下载方案）& §12.3（步骤4）
   // ═══════════════════════════════════════════════════════════════════════════
   Future<void> _downloadModels() async {
-    if (_isDownloading) return; // 防重入
+    if (_isDownloading) return;
 
     setState(() {
       _isDownloading = true;
@@ -274,17 +269,11 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
     });
 
     try {
-      // getApplicationDocumentsDirectory() — 查证报告 A-005 §3.2 & §6.2
-      // 来源：https://pub.dev/documentation/path_provider/latest/path_provider/getApplicationDocumentsDirectory.html
       final dir = await getApplicationDocumentsDirectory();
       final modelsDir = '${dir.path}/models';
 
-      // 创建 models/ 子目录（若不存在）
-      // 来源：https://api.dart.dev/stable/dart-io/Directory/create.html
       await Directory(modelsDir).create(recursive: true);
 
-      // Dio 实例 — 查证报告 A-005 §6.1
-      // 来源：https://pub.dev/documentation/dio/latest/dio/Dio-class.html
       final dio = Dio();
 
       for (final model in _modelFiles) {
@@ -293,8 +282,6 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
         final savePath = '$modelsDir/$name';
         final file = File(savePath);
 
-        // 已存在的文件跳过（查证报告 A-005 §12.3 步骤4：已存在的文件跳过）
-        // 来源：https://api.dart.dev/stable/dart-io/File/exists.html
         if (await file.exists()) {
           if (mounted) {
             setState(() {
@@ -304,22 +291,12 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
           continue;
         }
 
-        // dio.download() — 流式下载文件到 savePath
-        // 方法签名：download(Uri uri, dynamic savePath, {ProgressCallback? onReceiveProgress, ...})
-        // 来源：https://pub.dev/documentation/dio/latest/dio/Dio/download.html
-        // 查证报告 A-005 §6.1（download 方法签名）
         await dio.download(
           url,
           savePath,
-          // onReceiveProgress — 回调签名：(int received, int total)
-          // 来源：https://pub.dev/documentation/dio/latest/dio/Dio-class.html
-          // 查证报告 A-005 §6.1（onReceiveProgress 回调签名）
           onReceiveProgress: (received, total) {
-            if (total <= 0) return; // total 为 -1 时表示服务器未返回 Content-Length
+            if (total <= 0) return;
             if (mounted) {
-              // setState() 在 Dart Isolate（onReceiveProgress 回调）中直接调用
-              // dio 的 onReceiveProgress 在 Flutter Dart 层触发，无需 runOnUiThread
-              // 查证报告 A-005 §7.4（Flutter 层 setState 推进度）
               setState(() {
                 _downloadProgress[name] = received / total;
               });
@@ -327,7 +304,6 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
           },
         );
 
-        // 下载完成，确保进度显示为 1.0
         if (mounted) {
           setState(() {
             _downloadProgress[name] = 1.0;
@@ -335,14 +311,9 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
         }
       }
 
-      // 全部文件下载完成（或已存在）→ 调用 initModels 通知 Kotlin 加载模型
-      // 来源：https://api.flutter.dev/flutter/services/MethodChannel/invokeMethod.html
-      // 使用已有 C2 MethodChannel，查证报告 A-005 §九（方案一机制图）
-      // initModels 参数格式：{'srcLang': String, 'tgtLang': String}
-      // 工作手册第七章 §7.2（initModels MethodChannel 处理器）
       await _controlChannel.invokeMethod<bool>('initModels', {
-        'srcLang': 'zh',   // 源语言：中文
-        'tgtLang': 'en',   // 目标语言：英文
+        'srcLang': 'zh',
+        'tgtLang': 'en',
       });
 
       if (mounted) {
@@ -352,8 +323,6 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
         });
       }
     } on DioException catch (e) {
-      // DioException — dio 网络/IO 错误
-      // 来源：https://pub.dev/documentation/dio/latest/dio/DioException-class.html
       if (mounted) {
         setState(() {
           _isDownloading = false;
@@ -361,8 +330,6 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
         });
       }
     } on PlatformException catch (e) {
-      // PlatformException — MethodChannel 调用 initModels 失败
-      // 来源：https://api.flutter.dev/flutter/services/PlatformException-class.html
       if (mounted) {
         setState(() {
           _isDownloading = false;
@@ -370,7 +337,6 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
         });
       }
     } catch (e) {
-      // 其他异常（文件系统错误等）
       if (mounted) {
         setState(() {
           _isDownloading = false;
@@ -382,11 +348,8 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
 
   // ─────────────────────────────────────────────────────────────────────────
   // 麦克风权限请求
-  // 来源：https://pub.dev/packages/permission_handler
-  // 工作手册第五章 §5.5
   // ─────────────────────────────────────────────────────────────────────────
   Future<void> _requestMicPermission() async {
-    // Permission.microphone.request() — https://pub.dev/documentation/permission_handler/latest/permission_handler/Permission/microphone.html
     final status = await Permission.microphone.request();
     if (!status.isGranted) {
       if (mounted) {
@@ -399,24 +362,18 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
 
   // ─────────────────────────────────────────────────────────────────────────
   // C4 订阅：STT 结果 + VAD 状态前缀处理
-  // 来源：https://api.flutter.dev/flutter/services/EventChannel-class.html
-  // 查证报告 A-003 §6.2 测试4 & 测试5
   // ─────────────────────────────────────────────────────────────────────────
   void _subscribeToSttChannel() {
-    // receiveBroadcastStream — https://api.flutter.dev/flutter/services/EventChannel/receiveBroadcastStream.html
     _sttSubscription = _sttResultChannel
         .receiveBroadcastStream()
-        .cast<String>()  // 类型转换 — 查证报告 A-003 §3.1
+        .cast<String>()
         .listen(
           (data) {
-            // VAD 前缀判断：[VAD:SPEECH] 或 [VAD:SILENCE]
-            // 查证报告 A-003 §6.2 测试4 & 第十章 §10.1 第5条
             if (data.startsWith('[VAD:')) {
               setState(() {
                 _vadStatus = data == '[VAD:SPEECH]' ? '🎤 语音检测中' : '🔇 静音';
               });
             } else {
-              // 普通 STT 识别文本
               setState(() {
                 _sttText = data;
               });
@@ -432,8 +389,6 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
 
   // ─────────────────────────────────────────────────────────────────────────
   // C5 订阅：NMT 翻译结果
-  // 来源：https://api.flutter.dev/flutter/services/EventChannel-class.html
-  // 查证报告 A-003 §6.2 测试6
   // ─────────────────────────────────────────────────────────────────────────
   void _subscribeToNmtChannel() {
     _nmtSubscription = _nmtResultChannel
@@ -455,12 +410,9 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
 
   // ─────────────────────────────────────────────────────────────────────────
   // 测试1：ping → pong
-  // 来源：https://api.flutter.dev/flutter/services/MethodChannel/invokeMethod.html
-  // 查证报告 A-003 §2.3
   // ─────────────────────────────────────────────────────────────────────────
   Future<void> _testPing() async {
     try {
-      // invokeMethod — https://api.flutter.dev/flutter/services/MethodChannel/invokeMethod.html
       final result = await _inferenceChannel.invokeMethod<String>('ping');
       setState(() {
         _pingResult = result ?? '(无返回值)';
@@ -474,8 +426,6 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
 
   // ─────────────────────────────────────────────────────────────────────────
   // 测试2：OnnxRuntime 加载验证
-  // 来源：https://onnxruntime.ai/docs/get-started/with-java.html
-  // 查证报告 A-003 §2.3
   // ─────────────────────────────────────────────────────────────────────────
   Future<void> _testOnnxRuntime() async {
     try {
@@ -492,12 +442,9 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 测试3：开始录音 + 订阅 C3 音频流
-  // 来源：https://docs.flutter.dev/platform-integration/platform-channels
-  // 查证报告 A-003 §6.2 测试3
+  // 测试3：开始录音
   // ─────────────────────────────────────────────────────────────────────────
   Future<void> _startRecording() async {
-    // 1. 调用 control MethodChannel startRecording
     try {
       await _controlChannel.invokeMethod<bool>('startRecording');
     } on PlatformException catch (e) {
@@ -507,8 +454,6 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
       return;
     }
 
-    // 2. 订阅 C3 audio_stream EventChannel
-    // 来源：https://api.flutter.dev/flutter/services/EventChannel/receiveBroadcastStream.html
     setState(() {
       _isRecordingAudio = true;
       _totalPcmSamples = 0;
@@ -516,11 +461,10 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
 
     _audioSubscription = _audioStreamChannel
         .receiveBroadcastStream()
-        .cast<List<int>>()  // 查证报告 A-003 §3.4：Dart 侧接收 List<int>
+        .cast<List<int>>()
         .listen(
           (pcmChunk) {
             setState(() {
-              // 累加收到的样本数（查证报告 A-003 §6.2 测试3）
               _totalPcmSamples += pcmChunk.length;
             });
           },
@@ -534,14 +478,11 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
 
   // ─────────────────────────────────────────────────────────────────────────
   // 测试3：停止录音
-  // 查证报告 A-003 §6.2 测试3
   // ─────────────────────────────────────────────────────────────────────────
   Future<void> _stopRecording() async {
-    // 1. 取消 C3 订阅（查证报告 A-003 第七章 §7.2）
     await _audioSubscription?.cancel();
     _audioSubscription = null;
 
-    // 2. 调用 control MethodChannel stopRecording
     try {
       await _controlChannel.invokeMethod<bool>('stopRecording');
     } on PlatformException catch (e) {
@@ -558,16 +499,12 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
 
   // ─────────────────────────────────────────────────────────────────────────
   // 测试7：TTS 播放翻译结果
-  // 来源：https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeech
-  // 查证报告 A-003 §6.2 测试7
   // ─────────────────────────────────────────────────────────────────────────
   Future<void> _speakTranslation() async {
     try {
-      // invokeMethod 传递参数 Map
-      // 来源：https://api.flutter.dev/flutter/services/MethodChannel/invokeMethod.html
       await _controlChannel.invokeMethod<bool>('speakText', {
-        'text': _nmtText,   // 当前翻译结果
-        'lang': 'zh',       // TODO: 根据实际目标语言动态设置
+        'text': _nmtText,
+        'lang': 'zh',
       });
     } on PlatformException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -590,10 +527,6 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
         padding: const EdgeInsets.all(16),
         children: [
 
-          // ══════════════════════════════════════════════════════════════════
-          // 【B-005 新增】模型下载卡片 — 位于测试1之前
-          // 来源：查证报告 A-005 §12.3（步骤5：下载 UI 卡片）
-          // ══════════════════════════════════════════════════════════════════
           _ModelDownloadCard(
             modelFiles: _modelFiles,
             downloadProgress: _downloadProgress,
@@ -603,11 +536,10 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
             onDownload: _downloadModels,
           ),
 
-          // ── 测试1：ping → pong ──────────────────────────────────────────
+          // ── 测试1
           _TestCard(
             index: '测试1',
             title: 'Channel 连通性 (ping)',
-            // 来源：https://docs.flutter.dev/platform-integration/platform-channels
             resultText: _pingResult,
             child: ElevatedButton(
               onPressed: _testPing,
@@ -615,11 +547,10 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
             ),
           ),
 
-          // ── 测试2：OnnxRuntime 加载 ──────────────────────────────────────
+          // ── 测试2
           _TestCard(
             index: '测试2',
             title: 'OnnxRuntime 加载验证',
-            // 来源：https://onnxruntime.ai/docs/get-started/with-java.html
             resultText: _onnxResult,
             child: ElevatedButton(
               onPressed: _testOnnxRuntime,
@@ -627,11 +558,10 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
             ),
           ),
 
-          // ── 测试3：麦克风 PCM 采集 ─────────────────────────────────────
+          // ── 测试3
           _TestCard(
             index: '测试3',
             title: '麦克风 PCM 采集',
-            // 来源：https://developer.android.com/reference/android/media/AudioRecord
             resultText: _isRecordingAudio
                 ? '录音中... 累计样本数：$_totalPcmSamples'
                 : '总样本数：$_totalPcmSamples（已停止）',
@@ -653,12 +583,10 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
             ),
           ),
 
-          // ── 测试4：VAD 状态 ────────────────────────────────────────────
+          // ── 测试4
           _TestCard(
             index: '测试4',
             title: 'VAD 语音活动检测',
-            // VAD 状态通过 C4 stt_result 传递，[VAD:] 前缀区分
-            // 查证报告 A-003 §6.2 测试4
             resultText: _vadStatus,
             child: const Text(
               '（VAD 状态由录音管线自动更新，无需手动触发）',
@@ -666,11 +594,10 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
             ),
           ),
 
-          // ── 测试5：STT 识别结果 ────────────────────────────────────────
+          // ── 测试5
           _TestCard(
             index: '测试5',
             title: 'STT 语音识别结果',
-            // 来源：C4 tech.glotalk/stt_result EventChannel
             resultText: _sttText,
             child: const Text(
               '（识别结果由推理管线自动推送，无需手动触发）',
@@ -678,11 +605,10 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
             ),
           ),
 
-          // ── 测试6：NMT 翻译结果 ────────────────────────────────────────
+          // ── 测试6
           _TestCard(
             index: '测试6',
             title: 'NMT 翻译结果',
-            // 来源：C5 tech.glotalk/nmt_result EventChannel
             resultText: _nmtText,
             child: const Text(
               '（翻译结果由推理管线自动推送，无需手动触发）',
@@ -690,12 +616,10 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
             ),
           ),
 
-          // ── 测试7：TTS 播放 ────────────────────────────────────────────
+          // ── 测试7
           _TestCard(
             index: '测试7',
             title: 'TTS 播放翻译结果',
-            // 来源：https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeech
-            // 查证报告 A-003 §6.2 测试7
             resultText: '点击按钮播放当前翻译文本',
             child: ElevatedButton.icon(
               onPressed: _speakTranslation,
@@ -710,14 +634,10 @@ class _GloTalkTestPageState extends State<GloTalkTestPage> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 【B-005 新增】_ModelDownloadCard — 模型下载进度卡片 Widget
-// 来源：查证报告 A-005 §12.3（步骤5：下载 UI 卡片）
-// 职责：显示每个文件进度条，已存在显示"已就绪"，全部完成后显示就绪横幅
+// _ModelDownloadCard — 模型下载进度卡片 Widget
 // ═══════════════════════════════════════════════════════════════════════════════
 class _ModelDownloadCard extends StatelessWidget {
   final List<Map<String, String>> modelFiles;
-  // 各文件进度 Map，key = 文件名，value = 0.0~1.0
-  // 来源：查证报告 A-005 §6.1（onReceiveProgress 回调）
   final Map<String, double> downloadProgress;
   final bool isDownloading;
   final bool modelsReady;
@@ -737,7 +657,6 @@ class _ModelDownloadCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
-      // 全部就绪时使用绿色边框，突出显示
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
         side: BorderSide(
@@ -752,7 +671,7 @@ class _ModelDownloadCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── 卡片标题行 ───────────────────────────────────────────────
+            // ── 卡片标题行
             Row(
               children: [
                 Container(
@@ -778,7 +697,7 @@ class _ModelDownloadCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
 
-            // ── 全部就绪横幅 ──────────────────────────────────────────────
+            // ── 全部就绪横幅
             if (modelsReady) ...[
               Container(
                 width: double.infinity,
@@ -805,8 +724,7 @@ class _ModelDownloadCard extends StatelessWidget {
               const SizedBox(height: 8),
             ],
 
-            // ── 各文件进度条列表 ───────────────────────────────────────────
-            // LinearProgressIndicator — 来源：https://api.flutter.dev/flutter/material/LinearProgressIndicator-class.html
+            // ── 各文件进度条列表
             ...modelFiles.map((model) {
               final name = model['name']!;
               final progress = downloadProgress[name] ?? 0.0;
@@ -848,9 +766,6 @@ class _ModelDownloadCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 3),
-                    // LinearProgressIndicator(value) — 0.0~1.0 对应进度
-                    // 来源：https://api.flutter.dev/flutter/material/LinearProgressIndicator-class.html
-                    // 查证报告 A-005 §7.4（Flutter 层 setState 推进度）
                     LinearProgressIndicator(
                       value: progress,
                       backgroundColor: Colors.grey[200],
@@ -863,7 +778,7 @@ class _ModelDownloadCard extends StatelessWidget {
               );
             }),
 
-            // ── 错误信息 ───────────────────────────────────────────────────
+            // ── 错误信息
             if (downloadError.isNotEmpty) ...[
               const SizedBox(height: 8),
               Container(
@@ -883,12 +798,11 @@ class _ModelDownloadCard extends StatelessWidget {
 
             const SizedBox(height: 12),
 
-            // ── 下载按钮 ───────────────────────────────────────────────────
+            // ── 下载按钮
             if (!modelsReady)
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  // 下载中时禁用按钮，防止重复触发
                   onPressed: isDownloading ? null : onDownload,
                   icon: isDownloading
                       ? const SizedBox(
