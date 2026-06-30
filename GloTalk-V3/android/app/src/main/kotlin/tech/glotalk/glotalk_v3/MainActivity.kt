@@ -1,6 +1,7 @@
 // GloTalk-V3/android/app/src/main/kotlin/tech/glotalk/glotalk_v3/MainActivity.kt
-// 智能体 B 代码编辑 | 依据：查证报告 A-003 | 任务：B-003
-// 修正：改用 AudioService 处理麦克风采集，移除 MainActivity 内的重复 AudioRecord 实现
+// 智能体 B 代码编辑 | 依据：查证报告 A-003、A-006 | 任务：B-003、B-006
+// B-006 集成改动：接入 PipelineOrchestrator，填写 initModels TODO，
+//                 AudioService 回调改为 onPcmData，补充 onDestroy destroy()
 
 package tech.glotalk.glotalk_v3
 
@@ -44,10 +45,16 @@ class MainActivity : FlutterActivity() {
     private val NMT_RESULT_CHANNEL = "tech.glotalk/nmt_result"
 
     // ─────────────────────────────────────────────────────────────────────────
-    // AudioService 实例（修正：使用 AudioService 处理麦克风采集）
-    // AudioService 内部已处理 D1/D2/D3/D4/D5 所有修正项
+    // AudioService 实例
     // ─────────────────────────────────────────────────────────────────────────
     private val audioService = AudioService()
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PipelineOrchestrator — 四节点胶水层（VAD → STT → NMT）
+    // 来源：A-006 第六章 6.5 — MainActivity.initModels() 中创建实例
+    // B-006 改动 1
+    // ─────────────────────────────────────────────────────────────────────────
+    private var pipelineOrchestrator: PipelineOrchestrator? = null
 
     // ─────────────────────────────────────────────────────────────────────────
     // EventSink 引用（查证报告 A-003 第三章 §3.2）
@@ -63,7 +70,6 @@ class MainActivity : FlutterActivity() {
     // ─────────────────────────────────────────────────────────────────────────
     // TextToSpeech — https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeech
     // ─────────────────────────────────────────────────────────────────────────
-
     private var tts: TextToSpeech? = null
     private var ttsReady: Boolean = false
 
@@ -122,19 +128,32 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
 
+                    // initModels：创建 PipelineOrchestrator 并初始化四节点模型
+                    // 来源：A-006 第六章 6.5 — initModels() 中创建实例并调用 init()
+                    // B-006 改动 2：填写原 TODO 占位
                     "initModels" -> {
-                        val srcLang = call.argument<String>("srcLang") ?: "en"
-                        val tgtLang = call.argument<String>("tgtLang") ?: "zh"
-                        // TODO: 初始化 WhisperInference(srcLang)
-                        // TODO: 初始化 OpusMTInference(srcLang, tgtLang)
-                        // TODO: 初始化 SileroVAD
+                        val srcLang = call.argument<String>("srcLang") ?: "zh"
+                        val tgtLang = call.argument<String>("tgtLang") ?: "en"
+                        pipelineOrchestrator = PipelineOrchestrator(
+                            context     = this,
+                            sttEventSink = sttEventSink,
+                            nmtEventSink = nmtEventSink
+                        )
+                        pipelineOrchestrator?.init(srcLang, tgtLang)
                         android.util.Log.d("GloTalk", "initModels: $srcLang → $tgtLang")
                         result.success(true)
                     }
 
-                    // startRecording：调用 AudioService 启动麦克风采集
-                    // 修正：改用 AudioService.startRecording()，不再直接使用 AudioRecord
+                    // startRecording：启动 AudioService 麦克风采集
+                    // B-006 改动 3 / B-007a 修正：赋值 onAudioData 回调后再启动
+                    // AudioService 内部已通过 D4 修正负责推送 eventSink（测试3）
+                    // 此处 onAudioData 仅送入 PipelineOrchestrator，不重复推送 eventSink
+                    // 来源：A-006 第六章 6.5、A-007 查证报告
                     "startRecording" -> {
+                        audioService.onAudioData = { byteArray ->
+                            // 送入四节点流水线（后台线程，Orchestrator 内部 submit 到 inferenceExecutor）
+                            pipelineOrchestrator?.onPcmData(byteArray)
+                        }
                         val started = audioService.startRecording()
                         if (started) {
                             result.success(true)
@@ -147,10 +166,14 @@ class MainActivity : FlutterActivity() {
                         }
                     }
 
-                    // stopRecording：调用 AudioService 停止麦克风采集
-                    // 修正：改用 AudioService.stopRecording()
+                    // stopRecording：停止采集并停止流水线
+                    // 来源：A-006 第六章 6.5 — stopPipeline() 中调用 orchestrator.stop()
+                    // B-006 改动 4
                     "stopRecording" -> {
                         audioService.stopRecording()
+                        // stop() 内部 awaitTermination(3s)，等待推理完成再返回
+                        // 来源：B-006c 竞态修复
+                        pipelineOrchestrator?.stop()
                         result.success(true)
                     }
 
@@ -158,7 +181,7 @@ class MainActivity : FlutterActivity() {
                     // 来源：https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeech
                     "speakText" -> {
                         val text = call.argument<String>("text") ?: ""
-                        val lang = call.argument<String>("lang") ?: "zh"
+                        val lang = call.argument<String>("lang") ?: "en"
                         if (ttsReady && text.isNotEmpty()) {
                             tts?.language = when (lang) {
                                 "zh" -> Locale.CHINESE
@@ -182,18 +205,15 @@ class MainActivity : FlutterActivity() {
 
         // ─────────────────────────────────────────────────────────────────────
         // C3 — EventChannel：tech.glotalk/audio_stream（PCM ByteArray 音频帧流）
-        // 修正：onListen 时把 EventSink 注入 AudioService，由 AudioService 负责推送
+        // onListen 时把 EventSink 注入 AudioService
         // 来源：https://docs.flutter.dev/platform-integration/platform-channels
         // ─────────────────────────────────────────────────────────────────────
         EventChannel(messenger, AUDIO_STREAM_CHANNEL)
             .setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                    // 修正：将 EventSink 注入 AudioService
-                    // AudioService 内部通过 mainHandler.post{} 确保主线程调用（D4 修正）
                     audioService.eventSink = events
                 }
                 override fun onCancel(arguments: Any?) {
-                    // 修正：取消时清空 AudioService 的 EventSink
                     audioService.eventSink = null
                 }
             })
@@ -201,46 +221,60 @@ class MainActivity : FlutterActivity() {
         // ─────────────────────────────────────────────────────────────────────
         // C4 — EventChannel：tech.glotalk/stt_result（STT 文字流 + VAD 前缀）
         // 来源：https://docs.flutter.dev/platform-integration/platform-channels
+        // B-006 改动 6：onListen/onCancel 同步 Sink 给 PipelineOrchestrator
+        // 来源：A-006 第六章 6.5
         // ─────────────────────────────────────────────────────────────────────
         EventChannel(messenger, STT_RESULT_CHANNEL)
             .setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                     sttEventSink = events
+                    pipelineOrchestrator?.updateSinks(sttEventSink, nmtEventSink)
                 }
                 override fun onCancel(arguments: Any?) {
                     sttEventSink = null
+                    pipelineOrchestrator?.updateSinks(null, nmtEventSink)
                 }
             })
 
         // ─────────────────────────────────────────────────────────────────────
         // C5 — EventChannel：tech.glotalk/nmt_result（NMT 翻译文字流）
         // 来源：https://docs.flutter.dev/platform-integration/platform-channels
+        // B-006 改动 6：onListen/onCancel 同步 Sink 给 PipelineOrchestrator
+        // 来源：A-006 第六章 6.5
         // ─────────────────────────────────────────────────────────────────────
         EventChannel(messenger, NMT_RESULT_CHANNEL)
             .setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                     nmtEventSink = events
+                    pipelineOrchestrator?.updateSinks(sttEventSink, nmtEventSink)
                 }
                 override fun onCancel(arguments: Any?) {
                     nmtEventSink = null
+                    pipelineOrchestrator?.updateSinks(sttEventSink, null)
                 }
             })
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // onDestroy：释放资源
+    // onDestroy：释放所有资源
     // 来源：https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeech#shutdown()
+    // B-006 改动 5：加入 orchestrator.destroy()
+    // 来源：A-006 第六章 6.3 — onDestroy() 时 shutdownNow() + close 模型
     // ─────────────────────────────────────────────────────────────────────────
     override fun onDestroy() {
         tts?.shutdown()
         tts = null
-        // 修正：改用 AudioService.stopRecording() 释放麦克风资源
         audioService.stopRecording()
+        // destroy() 内部：shutdownNow() → close VAD/Whisper/OpusMT
+        // 必须在 super.onDestroy() 之前，避免 Activity 上下文失效
+        // 来源：A-006 第六章 6.3
+        pipelineOrchestrator?.destroy()
+        pipelineOrchestrator = null
         super.onDestroy()
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 推送辅助方法（供后续 STT/NMT 推理模块调用）
+    // 推送辅助方法（保留，供调试或未来直接调用）
     // EventSink.success() 必须在主线程
     // 来源：https://docs.flutter.dev/platform-integration/platform-channels
     // ─────────────────────────────────────────────────────────────────────────
