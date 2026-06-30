@@ -54,7 +54,10 @@ class MainActivity : FlutterActivity() {
     // 来源：A-006 第六章 6.5 — MainActivity.initModels() 中创建实例
     // B-006 改动 1
     // ─────────────────────────────────────────────────────────────────────────
-    private var pipelineOrchestrator: PipelineOrchestrator? = null
+    // A-017 Q3修正：加 @Volatile 保证主线程写入对 recordThread 立即可见
+    // 来源：A-017 Q3 — JLS 17.4 JMM，Kotlin @Volatile 官方文档
+    // recordThread 通过 onAudioData lambda 读取此变量，必须有内存屏障
+    @Volatile private var pipelineOrchestrator: PipelineOrchestrator? = null
 
     // ─────────────────────────────────────────────────────────────────────────
     // EventSink 引用（查证报告 A-003 第三章 §3.2）
