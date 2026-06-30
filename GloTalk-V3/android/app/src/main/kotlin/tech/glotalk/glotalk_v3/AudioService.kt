@@ -50,7 +50,9 @@ class AudioService {
     // =========================================================================
 
     private var audioRecord: AudioRecord? = null
-    private var isRecording  = false
+    // A-014修正：@Volatile 保证 stopRecording()（主线程）写 false 对 recordThread 立即可见
+    // 来源：A-014 查证报告 Q1 — 跨线程 var 必须加 @Volatile
+    @Volatile private var isRecording = false
     private var recordThread: Thread? = null
 
     // D5 修正：Handler 在类初始化时创建并复用，不在每次回调中新建
@@ -59,6 +61,9 @@ class AudioService {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     // EventSink 引用，由 MainActivity 注入（在 onListen / onCancel 中管理）
+    // A-014修正：@Volatile 保证主线程写入对 recordThread 的 mainHandler.post{} 读取可见
+    // 来源：A-014 查证报告 Q1/Q2
+    @Volatile
     var eventSink: EventChannel.EventSink? = null
 
     // B-007a 新增：Kotlin 层 PCM 数据回调，供 PipelineOrchestrator 直接接收 ByteArray
