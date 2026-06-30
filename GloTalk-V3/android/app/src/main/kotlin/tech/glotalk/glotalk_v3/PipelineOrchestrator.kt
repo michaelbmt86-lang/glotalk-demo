@@ -193,7 +193,14 @@ class PipelineOrchestrator(
             repeat(VAD_FRAME_SIZE) { vadAccumulator.removeAt(0) }
 
             val vad = sileroVAD ?: continue
-            val prob = vad.isSpeech(frame)
+            // VAD推理异常捕获：把异常打到logcat，不再静默吞掉
+            // 来源：A-014 — inferenceExecutor.submit{} 内异常被Future静默吞掉
+            val prob = try {
+                vad.isSpeech(frame)
+            } catch (e: Exception) {
+                Log.e(TAG, "VAD 推理异常：${e.message}", e)
+                continue
+            }
 
             when (vadState) {
 
