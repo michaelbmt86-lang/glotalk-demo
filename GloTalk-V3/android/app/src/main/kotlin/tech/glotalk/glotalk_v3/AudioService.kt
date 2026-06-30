@@ -65,6 +65,11 @@ class AudioService {
     // 在 recordThread 后台线程中调用（非主线程），Orchestrator 内部会 submit 到 inferenceExecutor
     // 来源：A-007 查证报告 — AudioRecord 是 pull 模式，双路分发需在应用层实现
     // 不影响 eventSink 推送路径（D4 修正保持不变）
+    // A-014修正：加 @Volatile 保证跨线程内存可见性
+    // 主线程（MethodChannel回调）写入，recordThread 读取，必须有内存屏障
+    // 来源：A-014 查证报告 Q1/Q2 — kotlin.concurrent.Volatile 官方文档
+    // 来源：https://kotlinlang.org/api/core/kotlin-stdlib/kotlin.jvm/-volatile/
+    @Volatile
     var onAudioData: ((ByteArray) -> Unit)? = null
 
     // =========================================================================
