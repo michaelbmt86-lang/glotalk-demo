@@ -50,9 +50,10 @@ import kotlin.math.sin
 class WhisperInference(private val context: Context) {
 
     companion object {
-        // 模型文件路径（来源：工作手册 8.3，assets/models/ 目录）
-        private const val ENCODER_ASSET = "models/encoder_model.onnx"
-        private const val DECODER_ASSET = "models/decoder_model.onnx"
+        // B-009：文件名改为 filesDir 实际文件名（模型由 Flutter 层下载，不在 assets）
+        // 来源：A-008 查证报告，手机 filesDir 实际文件清单
+        private const val ENCODER_FILE = "whisper_encoder_int8.onnx"
+        private const val DECODER_FILE = "whisper_decoder_int8.onnx"
 
         // Mel Spectrogram 参数（来源：A-004 WHISPER-4，OpenAI Whisper 官方论文）
         private const val N_FFT = 400
@@ -92,13 +93,15 @@ class WhisperInference(private val context: Context) {
             setIntraOpNumThreads(2)
         }
 
-        // 从 assets 读取 encoder（来源：A-004 C-1 方式 A）
-        val encoderBytes = context.assets.open(ENCODER_ASSET).readBytes()
-        encoderSession = env.createSession(encoderBytes, options)
+        // B-009：改为从 filesDir 用文件路径加载（来源：A-008 查证报告）
+        // Whisper 约 240MB，用路径加载避免 readBytes() OOM 风险
+        // 来源：OnnxRuntime Java API createSession(String path, SessionOptions)
+        //       https://onnxruntime.ai/docs/get-started/with-java.html
+        val encoderPath = java.io.File(context.filesDir, ENCODER_FILE).absolutePath
+        encoderSession = env.createSession(encoderPath, options)
 
-        // 从 assets 读取 decoder（来源：A-004 C-1 方式 A）
-        val decoderBytes = context.assets.open(DECODER_ASSET).readBytes()
-        decoderSession = env.createSession(decoderBytes, options)
+        val decoderPath = java.io.File(context.filesDir, DECODER_FILE).absolutePath
+        decoderSession = env.createSession(decoderPath, options)
 
         // 预计算 Mel 滤波器组（来源：A-004 WHISPER-4）
         melFilterbank = buildMelFilterbank()
@@ -367,12 +370,10 @@ class WhisperInference(private val context: Context) {
         // 来源：A-004 WHISPER-6，特殊 token 范围说明
         val textTokens = tokenIds.filter { it < 50257L }
 
-        // vocab.json 映射（简化版：从 assets 加载）
-        // 完整实现需从 assets/models/whisper_vocab.json 读取并缓存
-        // 此处返回 token id 序列，供上层接入完整 tokenizer
-        // TODO：接入完整 whisper tokenizer（BPE decode）
-        // 参考：https://github.com/openai/whisper/blob/main/whisper/tokenizer.py
-        return "[tokens:${textTokens.joinToString(",")}]"
+        // B-009：调用 WhisperTokenizer 实现真正的 BPE decode
+        // 来源：A-008b 查证报告 — multilingual.tiktoken，纯 Kotlin，零 JNI
+        // WhisperTokenizer 内部懒加载，首次调用时从 filesDir 读取词表文件
+        return WhisperTokenizer.decode(textTokens, context)
     }
 
     /**
