@@ -49,7 +49,10 @@ object WhisperTokenizer {
         synchronized(this) {
             if (loaded) return
 
-            val file = File(context.filesDir, "multilingual.tiktoken")
+            // B-009：路径改为 app_flutter/models/，与其他7个模型文件统一目录
+            // 来源：main.dart _modelFiles 下载到 getApplicationDocumentsDirectory()/models/
+            // getApplicationDocumentsDirectory() 在 Android 对应 filesDir.parent/app_flutter/
+            val file = File(context.filesDir.parentFile, "app_flutter/models/multilingual.tiktoken")
             if (!file.exists()) {
                 Log.w(TAG, "multilingual.tiktoken 未找到，decode 将返回 token ID 序列")
                 return
