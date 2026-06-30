@@ -14,7 +14,6 @@ import ai.onnxruntime.OrtSession       // https://onnxruntime.ai/docs/get-starte
 import android.content.Context
 import java.nio.FloatBuffer            // A-004-补丁：OnnxTensor.createTensor(env, FloatBuffer, shape)
 import java.nio.LongBuffer             // A-004-补丁：OnnxTensor.createTensor(env, LongBuffer, shape)
-import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 
@@ -54,9 +53,6 @@ class OpusMTInference(private val context: Context) {
         // 模型 asset 路径（来源：工作手册 8.3）
         private const val ENCODER_ASSET = "models/opus-mt-zh-en-encoder.onnx"
         private const val DECODER_ASSET = "models/opus-mt-zh-en-decoder.onnx"
-        // vocab.json asset 路径（SentencePiece 词表，来源：A-004 OPUS-5）
-        private const val VOCAB_ASSET = "models/opus-mt-zh-en-vocab.json"
-
         // filesDir 中的缓存路径（来源：A-004 C-1 方式 B）
         private const val ENCODER_CACHE_NAME = "opus-mt-zh-en-encoder.onnx"
         private const val DECODER_CACHE_NAME = "opus-mt-zh-en-decoder.onnx"
@@ -114,11 +110,11 @@ class OpusMTInference(private val context: Context) {
      * 来源：https://onnxruntime.ai/docs/get-started/with-java.html
      */
     fun loadModel() {
-        // Step 1：复制 encoder 到 filesDir（来源：A-004 C-1 方式 B）
-        val encoderFile = copyAssetToFilesDir(ENCODER_ASSET, ENCODER_CACHE_NAME)
-
-        // Step 2：复制 decoder 到 filesDir（来源：A-004 C-1 方式 B）
-        val decoderFile = copyAssetToFilesDir(DECODER_ASSET, DECODER_CACHE_NAME)
+        // B-009：模型已由 Flutter 层下载到 filesDir，直接使用路径，无需从 assets 复制
+        // 来源：A-008 查证报告，手机 filesDir 实际文件清单
+        // 文件名对齐实际下载文件名（来源：工作手册模型文件清单）
+        val encoderFile = File(context.filesDir, ENCODER_CACHE_NAME)
+        val decoderFile = File(context.filesDir, DECODER_CACHE_NAME)
 
         // Step 3：用文件路径创建 OrtSession（来源：A-004 C-1 方式 B，C-2）
         val options = OrtSession.SessionOptions().apply {
@@ -137,21 +133,14 @@ class OpusMTInference(private val context: Context) {
      * 参考：https://huggingface.co/onnx-community/opus-mt-zh-en
      */
     private fun loadVocab() {
-        try {
-            val vocabJson = context.assets.open(VOCAB_ASSET).bufferedReader().readText()
-            val jsonObj = JSONObject(vocabJson)
-            val keys = jsonObj.keys()
-            while (keys.hasNext()) {
-                val token = keys.next()
-                val id = jsonObj.getInt(token)
-                tokenToId[token] = id
-                idToToken[id] = token
-            }
-        } catch (e: Exception) {
-            // vocab.json 未找到时记录警告，不崩溃
-            // 来源：A-004 OPUS-5（vocab.json 与模型同目录打包）
-            android.util.Log.w("OpusMTInference", "vocab.json 未找到，decode 将返回 token id: ${e.message}")
-        }
+        // B-009：改为从 filesDir 的 source.spm / target.spm 读取词表
+        // 来源：A-008b 查证报告 — SpmVocabReader 用纯 Kotlin protobuf 解析提取词表
+        // source.spm → tokenToId（中文 token → ID，用于 tokenize 输入端）
+        // target.spm → idToToken（ID → 英文 token，用于 decodeIds 输出端）
+        // tokenize() 和 decodeIds() 逻辑不变，词表正确加载后自动生效
+        val sourceFile = File(context.filesDir, "source.spm")
+        val targetFile = File(context.filesDir, "target.spm")
+        SpmVocabReader.read(sourceFile, targetFile, tokenToId, idToToken)
     }
 
     /**
