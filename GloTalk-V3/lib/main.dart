@@ -74,16 +74,19 @@ const List<Map<String, String>> _modelFiles = [
     'url': 'https://hf-mirror.com/onnx-community/silero-vad/resolve/main/onnx/model.onnx',
   },
   {
-    'name': 'whisper_encoder_int8.onnx',
-    // 来源：https://hf-mirror.com/onnx-community/whisper-small/resolve/main/onnx/encoder_model_int8.onnx
-    // 节点2 STT Whisper small 编码器 int8，约 61MB
-    'url': 'https://hf-mirror.com/onnx-community/whisper-small/resolve/main/onnx/encoder_model_int8.onnx',
+    'name': 'whisper_encoder_uint8.onnx',
+    // B-013：换用 uint8 版本，来源：A-013 Q3 — CPU EP 支持 uint8 ConvInteger kernel
+    // int8 版本触发 ORT_NOT_IMPLEMENTED ConvInteger(10)，uint8 版本 CPU EP 已支持
+    // 来源：https://hf-mirror.com/onnx-community/whisper-small/resolve/main/onnx/encoder_model_uint8.onnx
+    // 节点2 STT Whisper small 编码器 uint8，约 92MB
+    'url': 'https://hf-mirror.com/onnx-community/whisper-small/resolve/main/onnx/encoder_model_uint8.onnx',
   },
   {
-    'name': 'whisper_decoder_int8.onnx',
-    // 来源：https://hf-mirror.com/onnx-community/whisper-small/resolve/main/onnx/decoder_model_merged_int8.onnx
-    // 节点2 STT Whisper small 解码器 int8 merged，约 184MB
-    'url': 'https://hf-mirror.com/onnx-community/whisper-small/resolve/main/onnx/decoder_model_merged_int8.onnx',
+    'name': 'whisper_decoder_uint8.onnx',
+    // B-013：换用 uint8 版本，来源：A-013 Q3 — 与 encoder 保持一致的量化格式
+    // 来源：https://hf-mirror.com/onnx-community/whisper-small/resolve/main/onnx/decoder_model_uint8.onnx
+    // 节点2 STT Whisper small 解码器 uint8，约 156MB
+    'url': 'https://hf-mirror.com/onnx-community/whisper-small/resolve/main/onnx/decoder_model_uint8.onnx',
   },
   {
     'name': 'opus_encoder_int8.onnx',
@@ -108,13 +111,6 @@ const List<Map<String, String>> _modelFiles = [
     // 来源：https://hf-mirror.com/Helsinki-NLP/opus-mt-zh-en/resolve/main/target.spm
     // 节点3 SentencePiece 目标语言（英文）分词模型，约 4MB
     'url': 'https://hf-mirror.com/Helsinki-NLP/opus-mt-zh-en/resolve/main/target.spm',
-  },
-  {
-    'name': 'multilingual.tiktoken',
-    // 来源：https://raw.githubusercontent.com/openai/whisper/main/whisper/assets/multilingual.tiktoken
-    // Whisper tiktoken BPE decode 词表，约 2MB
-    // 查证报告 A-008b — WhisperTokenizer.kt 读取此文件实现 STT 文字还原
-    'url': 'https://raw.githubusercontent.com/openai/whisper/main/whisper/assets/multilingual.tiktoken',
   },
 ];
 
