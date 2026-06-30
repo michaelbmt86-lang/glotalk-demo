@@ -114,10 +114,12 @@ const List<Map<String, String>> _modelFiles = [
   },
   {
     'name': 'multilingual.tiktoken',
-    // 来源：https://raw.githubusercontent.com/openai/whisper/main/whisper/assets/multilingual.tiktoken
-    // Whisper tiktoken BPE decode 词表，约 2MB
+    // 原始来源：https://raw.githubusercontent.com/openai/whisper/main/whisper/assets/multilingual.tiktoken
+    // 国内镜像：raw.githubusercontent.com 在大陆被墙，改用 hf-mirror.com 镜像
+    // 来源：JosefAlbers/whisper 仓库，文件已验证，内容与官方完全一致
+    // Whisper tiktoken BPE decode 词表，约 817KB
     // 查证报告 A-008b — WhisperTokenizer.kt 读取此文件实现 STT 文字还原
-    'url': 'https://raw.githubusercontent.com/openai/whisper/main/whisper/assets/multilingual.tiktoken',
+    'url': 'https://hf-mirror.com/JosefAlbers/whisper/resolve/main/multilingual.tiktoken',
   },
 ];
 
