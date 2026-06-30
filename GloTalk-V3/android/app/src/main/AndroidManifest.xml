@@ -1,5 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- RECORD_AUDIO：麦克风录音权限，工作手册第九章 §9.1 -->
+    <!-- 来源：https://developer.android.com/reference/android/Manifest.permission#RECORD_AUDIO -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- INTERNET：模型首次下载所需网络权限（Normal Permission，无需运行时请求）-->
+    <!-- 来源：https://developer.android.com/training/permissions/declaring -->
+    <!-- 查证报告 A-005 §12.1 & §八（权限需求汇总）-->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="glotalk_v3"
         android:name="${applicationName}"
