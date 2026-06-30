@@ -112,6 +112,13 @@ const List<Map<String, String>> _modelFiles = [
     // 节点3 SentencePiece 目标语言（英文）分词模型，约 4MB
     'url': 'https://hf-mirror.com/Helsinki-NLP/opus-mt-zh-en/resolve/main/target.spm',
   },
+  {
+    'name': 'multilingual.tiktoken',
+    // 来源：https://raw.githubusercontent.com/openai/whisper/main/whisper/assets/multilingual.tiktoken
+    // Whisper tiktoken BPE decode 词表，约 2MB
+    // 查证报告 A-008b — WhisperTokenizer.kt 读取此文件实现 STT 文字还原
+    'url': 'https://raw.githubusercontent.com/openai/whisper/main/whisper/assets/multilingual.tiktoken',
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
