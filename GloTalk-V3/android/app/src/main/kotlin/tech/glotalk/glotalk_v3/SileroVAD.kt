@@ -34,7 +34,9 @@ class SileroVAD(private val context: Context) {
 
     // 模型常量（来源：A-004 VAD-1，VAD-3）
     companion object {
-        private const val MODEL_ASSET_PATH = "models/silero_vad.onnx"
+        // B-008a：MODEL_ASSET_PATH 已移除，模型在 filesDir 不在 assets
+        // 手机实际文件名（来源：工作手册，filesDir 下载文件清单）
+        private const val MODEL_FILE_NAME = "silero_vad.onnx"
         private const val SAMPLE_RATE = 16000L          // sr 固定值（来源：A-004 VAD-1）
         private const val CHUNK_SIZE = 512              // 32ms @16kHz（来源：A-004 VAD-3）
         private const val H_C_SIZE = 2 * 1 * 128       // [2,1,128] 展平（来源：A-004 VAD-1）
@@ -62,8 +64,11 @@ class SileroVAD(private val context: Context) {
      * 来源：https://onnxruntime.ai/docs/get-started/with-java.html
      */
     fun loadModel() {
-        // 读取 assets 中的模型字节（来源：A-004 C-1 方式 A）
-        val modelBytes: ByteArray = context.assets.open(MODEL_ASSET_PATH).readBytes()
+        // B-008a：从 filesDir 读取（模型由 Flutter 层下载到此处，不在 assets）
+        // 来源：A-008 查证报告 — SileroVAD 约 2MB，readBytes() 读入内存安全
+        // 来源：https://onnxruntime.ai/docs/get-started/with-java.html
+        val modelFile = java.io.File(context.filesDir, MODEL_FILE_NAME)
+        val modelBytes: ByteArray = modelFile.readBytes()
 
         // 创建会话（来源：https://onnxruntime.ai/docs/get-started/with-java.html）
         val options = OrtSession.SessionOptions().apply {
