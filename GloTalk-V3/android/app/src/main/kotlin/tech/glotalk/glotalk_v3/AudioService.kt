@@ -61,6 +61,12 @@ class AudioService {
     // EventSink 引用，由 MainActivity 注入（在 onListen / onCancel 中管理）
     var eventSink: EventChannel.EventSink? = null
 
+    // B-007a 新增：Kotlin 层 PCM 数据回调，供 PipelineOrchestrator 直接接收 ByteArray
+    // 在 recordThread 后台线程中调用（非主线程），Orchestrator 内部会 submit 到 inferenceExecutor
+    // 来源：A-007 查证报告 — AudioRecord 是 pull 模式，双路分发需在应用层实现
+    // 不影响 eventSink 推送路径（D4 修正保持不变）
+    var onAudioData: ((ByteArray) -> Unit)? = null
+
     // =========================================================================
     // 公开方法：startRecording
     // 来源：https://developer.android.com/reference/android/media/AudioRecord
@@ -150,6 +156,11 @@ class AudioService {
                     // ShortArray 不是原生支持类型，需先转换为 ByteArray（Little-Endian）
                     // 每个 short（2 字节）转为低字节在前、高字节在后的 2 个 byte
                     val byteBuffer = shortArrayToByteArray(shortBuffer, readCount)
+
+                    // B-007a 新增：直接回调 Kotlin 层消费者（PipelineOrchestrator）
+                    // 在后台线程调用，无需切主线程（Orchestrator 内部自行 submit 到 inferenceExecutor）
+                    // 来源：A-007 查证报告
+                    onAudioData?.invoke(byteBuffer)
 
                     // --- D4 修正 -----------------------------------------------
                     // 来源：https://github.com/flutter/flutter/issues/34993
