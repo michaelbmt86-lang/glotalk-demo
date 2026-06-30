@@ -34,8 +34,8 @@ class SileroVAD(private val context: Context) {
 
     // 模型常量（来源：A-004 VAD-1，VAD-3）
     companion object {
-        // B-008a：MODEL_ASSET_PATH 已移除，模型在 filesDir 不在 assets
-        // 手机实际文件名（来源：工作手册，filesDir 下载文件清单）
+        // B-009修正：MODEL_ASSET_PATH 已移除，模型在 app_flutter/models/ 不在 assets
+        // 手机实际文件名（来源：main.dart _modelFiles 下载清单）
         private const val MODEL_FILE_NAME = "silero_vad.onnx"
         private const val SAMPLE_RATE = 16000L          // sr 固定值（来源：A-004 VAD-1）
         private const val CHUNK_SIZE = 512              // 32ms @16kHz（来源：A-004 VAD-3）
@@ -64,10 +64,10 @@ class SileroVAD(private val context: Context) {
      * 来源：https://onnxruntime.ai/docs/get-started/with-java.html
      */
     fun loadModel() {
-        // B-008a：从 filesDir 读取（模型由 Flutter 层下载到此处，不在 assets）
-        // 来源：A-008 查证报告 — SileroVAD 约 2MB，readBytes() 读入内存安全
-        // 来源：https://onnxruntime.ai/docs/get-started/with-java.html
-        val modelFile = java.io.File(context.filesDir, MODEL_FILE_NAME)
+        // B-009修正：路径改为 app_flutter/models/，与 Flutter 下载目录一致
+        // Flutter getApplicationDocumentsDirectory() = filesDir.parent/app_flutter/
+        // 来源：A-008 查证报告，path_provider 路径对照分析
+        val modelFile = java.io.File(context.filesDir.parentFile, "app_flutter/models/${MODEL_FILE_NAME}")
         val modelBytes: ByteArray = modelFile.readBytes()
 
         // 创建会话（来源：https://onnxruntime.ai/docs/get-started/with-java.html）
