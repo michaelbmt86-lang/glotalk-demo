@@ -53,9 +53,9 @@ class OpusMTInference(private val context: Context) {
         // 模型 asset 路径（来源：工作手册 8.3）
         private const val ENCODER_ASSET = "models/opus-mt-zh-en-encoder.onnx"
         private const val DECODER_ASSET = "models/opus-mt-zh-en-decoder.onnx"
-        // filesDir 中的缓存路径（来源：A-004 C-1 方式 B）
-        private const val ENCODER_CACHE_NAME = "opus-mt-zh-en-encoder.onnx"
-        private const val DECODER_CACHE_NAME = "opus-mt-zh-en-decoder.onnx"
+        // B-009修正：文件名对齐 Flutter 实际下载文件名（来源：main.dart _modelFiles）
+        private const val ENCODER_CACHE_NAME = "opus_encoder_int8.onnx"
+        private const val DECODER_CACHE_NAME = "opus_decoder_int8.onnx"
 
         // Token 规格（来源：A-004 OPUS-4，onnx-community/opus-mt-zh-en config.json）
         // pad_token_id = vocab_size - 1 = 58100
@@ -110,11 +110,12 @@ class OpusMTInference(private val context: Context) {
      * 来源：https://onnxruntime.ai/docs/get-started/with-java.html
      */
     fun loadModel() {
-        // B-009：模型已由 Flutter 层下载到 filesDir，直接使用路径，无需从 assets 复制
-        // 来源：A-008 查证报告，手机 filesDir 实际文件清单
-        // 文件名对齐实际下载文件名（来源：工作手册模型文件清单）
-        val encoderFile = File(context.filesDir, ENCODER_CACHE_NAME)
-        val decoderFile = File(context.filesDir, DECODER_CACHE_NAME)
+        // B-009修正：路径改为 app_flutter/models/，与 Flutter 下载目录一致
+        // Flutter getApplicationDocumentsDirectory() = filesDir.parent/app_flutter/
+        // 来源：A-008 查证报告，path_provider 路径对照分析
+        val modelsDir = File(context.filesDir.parentFile, "app_flutter/models")
+        val encoderFile = File(modelsDir, ENCODER_CACHE_NAME)
+        val decoderFile = File(modelsDir, DECODER_CACHE_NAME)
 
         // Step 3：用文件路径创建 OrtSession（来源：A-004 C-1 方式 B，C-2）
         val options = OrtSession.SessionOptions().apply {
@@ -138,8 +139,9 @@ class OpusMTInference(private val context: Context) {
         // source.spm → tokenToId（中文 token → ID，用于 tokenize 输入端）
         // target.spm → idToToken（ID → 英文 token，用于 decodeIds 输出端）
         // tokenize() 和 decodeIds() 逻辑不变，词表正确加载后自动生效
-        val sourceFile = File(context.filesDir, "source.spm")
-        val targetFile = File(context.filesDir, "target.spm")
+        val modelsDir = File(context.filesDir.parentFile, "app_flutter/models")
+        val sourceFile = File(modelsDir, "source.spm")
+        val targetFile = File(modelsDir, "target.spm")
         SpmVocabReader.read(sourceFile, targetFile, tokenToId, idToToken)
     }
 
