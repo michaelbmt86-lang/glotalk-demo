@@ -208,6 +208,10 @@ class PipelineOrchestrator(
                         silenceSampleCount = 0
                         for (s in frame) speechAccumulator.addLast(s)
                         Log.d(TAG, "VAD: IDLE → SPEECH（prob=${"%.3f".format(prob)}）")
+                        // A-018 Q4：推送 [VAD:SPEECH] 到 Flutter UI，更新测试4显示
+                        // 来源：A-018 Q4-D — 复用 stt_result Channel，mainHandler 切主线程
+                        // main.dart _subscribeToSttChannel() 已有 [VAD:SPEECH] 前缀处理逻辑
+                        mainHandler.post { sttEventSink?.success("[VAD:SPEECH]") }
                     }
                 }
 
@@ -251,6 +255,10 @@ class PipelineOrchestrator(
 
     private fun triggerSttAndNmt() {
         if (speechAccumulator.isEmpty()) return
+
+        // A-018 Q4：推送 [VAD:PROCESSING] 到 Flutter UI，表示"正在识别中"
+        // 来源：A-018 Q4-D — STT 推理开始前通知 UI，用户知道 App 在处理
+        mainHandler.post { sttEventSink?.success("[VAD:PROCESSING]") }
 
         // A-017 Q4: LinkedBlockingDeque 无 toShortArray()，手动转换
         val speechSamples = ShortArray(speechAccumulator.size) { speechAccumulator.pollFirst()!! }
