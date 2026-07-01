@@ -123,7 +123,11 @@ class PipelineOrchestrator(
      */
     fun onPcmData(byteArray: ByteArray) {
         inferenceExecutor?.submit {
-            processPcmChunk(byteArray)
+            try {
+                processPcmChunk(byteArray)
+            } catch (e: Exception) {
+                Log.e(TAG, "processPcmChunk 异常：${e.javaClass.simpleName}: ${e.message}", e)
+            }
         }
     }
 
