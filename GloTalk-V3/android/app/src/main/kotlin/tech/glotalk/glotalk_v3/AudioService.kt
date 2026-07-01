@@ -170,7 +170,13 @@ class AudioService {
                     // B-007a 新增：直接回调 Kotlin 层消费者（PipelineOrchestrator）
                     // 在后台线程调用，无需切主线程（Orchestrator 内部自行 submit 到 inferenceExecutor）
                     // 来源：A-007 查证报告
-                    onAudioData?.invoke(byteBuffer)
+                    // 诊断日志：确认 onAudioData 是否为 null
+                    val callback = onAudioData
+                    if (callback != null) {
+                        callback.invoke(byteBuffer)
+                    } else {
+                        android.util.Log.w("AudioService", "onAudioData is NULL — PCM data not reaching PipelineOrchestrator")
+                    }
 
                     // --- D4 修正 -----------------------------------------------
                     // 来源：https://github.com/flutter/flutter/issues/34993
